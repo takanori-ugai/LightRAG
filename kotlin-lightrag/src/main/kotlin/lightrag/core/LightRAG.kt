@@ -1,9 +1,8 @@
 package lightrag.core
 
-import kotlinx.serialization.Serializable
 import dev.langchain4j.model.chat.ChatLanguageModel
-import dev.langchain4j.model.openai.OpenAiChatModel
 import dev.langchain4j.model.ollama.OllamaChatModel
+import kotlinx.serialization.Serializable
 
 @Serializable
 data class QueryParam(
@@ -13,7 +12,7 @@ data class QueryParam(
     val top_k: Int = 10,
     val max_token_for_text_unit: Int = 4000,
     val max_token_for_global_context: Int = 4000,
-    val max_token_for_local_context: Int = 4000
+    val max_token_for_local_context: Int = 4000,
 )
 
 @Serializable
@@ -23,18 +22,19 @@ data class DocStatus(
     val content_summary: String? = null,
     val content_length: Int? = 0,
     val created_at: String? = null,
-    val updated_at: String? = null
+    val updated_at: String? = null,
 )
 
 class LightRAG(
     val workingDir: String = "./rag_storage",
-    private val chatModel: ChatLanguageModel? = null
+    private val chatModel: ChatLanguageModel? = null,
 ) {
     // Default model if none provided (e.g. Ollama or OpenAI)
-    private val model: ChatLanguageModel = chatModel ?: OllamaChatModel.builder()
-        .baseUrl("http://localhost:11434")
-        .modelName("llama3")
-        .build()
+    private val model: ChatLanguageModel =
+        chatModel ?: OllamaChatModel.builder()
+            .baseUrl("http://localhost:11434")
+            .modelName("llama3")
+            .build()
 
     suspend fun insert(input: String): String {
         // Implementation would go here
@@ -42,21 +42,24 @@ class LightRAG(
     }
 
     suspend fun insert(input: List<String>): String {
-         // Implementation would go here
+        // Implementation would go here
         return "track_id_placeholder"
     }
 
-    suspend fun query(query: String, param: QueryParam): String {
+    suspend fun query(
+        query: String,
+        param: QueryParam,
+    ): String {
         // Use LangChain4j model to generate a response (mocking RAG logic)
         try {
-             return model.generate(query)
+            return model.generate(query)
         } catch (e: Exception) {
-             return "Error generating response: ${e.message}"
+            return "Error generating response: ${e.message}"
         }
     }
 
     suspend fun getProcessingStatus(): Map<String, Int> {
-         return mapOf("PENDING" to 0, "PROCESSING" to 0, "PROCESSED" to 0, "FAILED" to 0)
+        return mapOf("PENDING" to 0, "PROCESSING" to 0, "PROCESSED" to 0, "FAILED" to 0)
     }
 
     suspend fun deleteByDocId(docId: String): Map<String, String> {

@@ -1,16 +1,16 @@
 package lightrag
 
-import io.ktor.server.application.*
-import io.ktor.server.engine.*
-import io.ktor.server.netty.*
-import io.ktor.server.plugins.contentnegotiation.*
-import io.ktor.server.plugins.cors.routing.*
-import io.ktor.serialization.kotlinx.json.*
-import io.ktor.server.routing.*
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.Application
+import io.ktor.server.application.install
+import io.ktor.server.engine.embeddedServer
+import io.ktor.server.netty.Netty
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.plugins.cors.routing.CORS
 import lightrag.api.routers.configureDocumentRoutes
-import lightrag.api.routers.configureQueryRoutes
 import lightrag.api.routers.configureGraphRoutes
 import lightrag.api.routers.configureOllamaRoutes
+import lightrag.api.routers.configureQueryRoutes
 import lightrag.core.LightRAG
 
 fun main() {

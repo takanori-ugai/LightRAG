@@ -1,12 +1,16 @@
 package lightrag.api.routers
 
-import io.ktor.server.application.*
-import io.ktor.server.routing.*
-import io.ktor.server.response.*
-import io.ktor.server.request.*
-import io.ktor.http.*
-import lightrag.core.LightRAG
+import io.ktor.server.application.Application
+import io.ktor.server.application.call
+import io.ktor.server.request.receive
+import io.ktor.server.response.respond
+import io.ktor.server.routing.delete
+import io.ktor.server.routing.get
+import io.ktor.server.routing.post
+import io.ktor.server.routing.route
+import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
+import lightrag.core.LightRAG
 
 @Serializable
 data class InsertTextRequest(val text: String, val file_source: String? = null)
@@ -25,7 +29,7 @@ fun Application.configureDocumentRoutes(rag: LightRAG) {
         route("/documents") {
             post("/upload") {
                 // Simplified upload handling
-                 call.respond(InsertResponse("success", "File uploaded (mock)", "mock_track_id"))
+                call.respond(InsertResponse("success", "File uploaded (mock)", "mock_track_id"))
             }
 
             post("/text") {
@@ -35,20 +39,20 @@ fun Application.configureDocumentRoutes(rag: LightRAG) {
             }
 
             post("/texts") {
-                 val request = call.receive<InsertTextsRequest>()
-                 val trackId = rag.insert(request.texts)
-                 call.respond(InsertResponse("success", "Texts received", trackId))
+                val request = call.receive<InsertTextsRequest>()
+                val trackId = rag.insert(request.texts)
+                call.respond(InsertResponse("success", "Texts received", trackId))
             }
 
             get("/status_counts") {
-                 call.respond(rag.getProcessingStatus())
+                call.respond(rag.getProcessingStatus())
             }
 
             delete("/delete_document") {
-                 val request = call.receive<DeleteDocRequest>()
-                 // Simplified deletion
-                 val result = request.doc_ids.map { rag.deleteByDocId(it) }
-                 call.respond(result)
+                val request = call.receive<DeleteDocRequest>()
+                // Simplified deletion
+                val result = request.doc_ids.map { rag.deleteByDocId(it) }
+                call.respond(result)
             }
         }
     }
