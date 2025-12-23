@@ -3,6 +3,14 @@ package lightrag.core
 import dev.langchain4j.model.chat.ChatLanguageModel
 import dev.langchain4j.model.ollama.OllamaChatModel
 import kotlinx.serialization.Serializable
+import lightrag.core.types.BaseGraphStorage
+import lightrag.core.types.BaseKVStorage
+import lightrag.core.types.BaseVectorStorage
+import lightrag.core.types.DocStatusStorage
+import lightrag.kg.json.JsonDocStatusStorage
+import lightrag.kg.json.JsonKVStorage
+import lightrag.kg.memory.InMemoryGraphStorage
+import lightrag.kg.memory.InMemoryVectorStorage
 
 @Serializable
 data class QueryParam(
@@ -15,16 +23,6 @@ data class QueryParam(
     val max_token_for_local_context: Int = 4000,
 )
 
-@Serializable
-data class DocStatus(
-    val id: String,
-    val status: String,
-    val content_summary: String? = null,
-    val content_length: Int? = 0,
-    val created_at: String? = null,
-    val updated_at: String? = null,
-)
-
 class LightRAG(
     val workingDir: String = "./rag_storage",
     private val chatModel: ChatLanguageModel? = null,
@@ -35,6 +33,13 @@ class LightRAG(
             .baseUrl("http://localhost:11434")
             .modelName("llama3")
             .build()
+
+    // Initialize Storages
+    // In a real app, these would be injected or configured via a factory
+    val docStatusStorage: DocStatusStorage = JsonDocStatusStorage(namespace = "doc_status", workspace = "default")
+    val kvStorage: BaseKVStorage = JsonKVStorage(namespace = "kv_storage", workspace = "default")
+    val vectorStorage: BaseVectorStorage = InMemoryVectorStorage(namespace = "vector_storage", workspace = "default")
+    val graphStorage: BaseGraphStorage = InMemoryGraphStorage(namespace = "graph_storage", workspace = "default")
 
     suspend fun insert(input: String): String {
         // Implementation would go here
@@ -59,10 +64,12 @@ class LightRAG(
     }
 
     suspend fun getProcessingStatus(): Map<String, Int> {
-        return mapOf("PENDING" to 0, "PROCESSING" to 0, "PROCESSED" to 0, "FAILED" to 0)
+        return docStatusStorage.getStatusCounts()
     }
 
     suspend fun deleteByDocId(docId: String): Map<String, String> {
+        // Mock deletion logic using storage
+        docStatusStorage.delete(listOf(docId))
         return mapOf("status" to "success", "doc_id" to docId)
     }
 }
