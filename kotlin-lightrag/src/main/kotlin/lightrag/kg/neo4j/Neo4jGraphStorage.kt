@@ -64,7 +64,7 @@ class Neo4jGraphStorage(
             }
         }
 
-        database = System.getenv("NEO4J_DATABASE") ?: namespace.replace(Regex("[^a-zA-Z0-9-]"), "-")
+        database = System.getenv("NEO4J_DATABASE")
     }
 
     private fun getWorkspaceLabel(): String {
