@@ -240,8 +240,21 @@ class LightRAG(
         val allNewDocIds = uniqueContent.keys
         val missingDocIds = docStatusStorage.filterKeys(allNewDocIds)
 
+        // Check existing docs for FAILED or PROCESSING status to retry
+        val existingDocIds = allNewDocIds - missingDocIds
+        val docsToRetry = mutableSetOf<String>()
+        if (existingDocIds.isNotEmpty()) {
+            existingDocIds.forEach { id ->
+                val doc = docStatusStorage.getById(id)
+                val status = doc?.get("status") as? String
+                if (status == DocStatus.FAILED.value || status == DocStatus.PROCESSING.value) {
+                    docsToRetry.add(id)
+                }
+            }
+        }
+
         // filterKeys returns keys that are NOT in storage, so we should process them.
-        val uniqueNewDocIds = missingDocIds
+        val uniqueNewDocIds = missingDocIds + docsToRetry
 
         uniqueNewDocIds.forEach { docId ->
             val (content, path) = uniqueContent[docId]!!
