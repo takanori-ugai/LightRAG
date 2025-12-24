@@ -49,9 +49,23 @@ dependencies {
     testImplementation("io.mockk:mockk:1.13.9")
 }
 
-tasks.withType<Test> {
-    testLogging {
-        events("passed", "skipped", "failed", "standardOut", "standardError")
-        showStandardStreams = true
+tasks {
+    withType<Test> {
+        testLogging {
+            events("passed", "skipped", "failed", "standardOut", "standardError")
+            showStandardStreams = true
+        }
+    }
+
+    val execute by registering(JavaExec::class) {
+        group = "application"
+        mainClass.set(
+            if (project.hasProperty("mainClass")) {
+                project.property("mainClass") as String
+            } else {
+                application.mainClass.get()
+            },
+        )
+        classpath = sourceSets.main.get().runtimeClasspath
     }
 }
