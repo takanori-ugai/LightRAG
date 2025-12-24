@@ -1,26 +1,25 @@
 package lightrag.core
 
+import dev.langchain4j.data.embedding.Embedding
 import dev.langchain4j.data.message.AiMessage
 import dev.langchain4j.data.message.ChatMessage
 import dev.langchain4j.data.message.UserMessage
+import dev.langchain4j.data.segment.TextSegment
 import dev.langchain4j.model.chat.ChatLanguageModel
 import dev.langchain4j.model.embedding.EmbeddingModel
-import dev.langchain4j.data.embedding.Embedding
 import dev.langchain4j.model.output.Response
-import dev.langchain4j.data.segment.TextSegment
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import kotlinx.coroutines.runBlocking
-import lightrag.core.types.DocStatus
 import lightrag.core.types.DocProcessingStatus
+import lightrag.core.types.DocStatus
 import org.junit.Test
+import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
-import java.io.File
 
 class LightRAGInsertTest {
-
     @Test
     fun testInsertSingleDocument() {
         runBlocking {
@@ -46,11 +45,12 @@ class LightRAGInsertTest {
 
                     if (text.contains("Entity_types", ignoreCase = true)) {
                         // Use <|#|> delimiter matching Constants/Prompts
-                        val responseText = """
+                        val responseText =
+                            """
                             entity<|#|>Apple<|#|>Organization<|#|>A tech company
                             entity<|#|>iPhone<|#|>Product<|#|>A mobile phone
                             relation<|#|>Apple<|#|>iPhone<|#|>manufactures<|#|>Apple manufactures iPhone
-                        """.trimIndent()
+                            """.trimIndent()
                         Response.from(AiMessage(responseText))
                     } else {
                         Response.from(AiMessage("Mock response"))
@@ -61,11 +61,12 @@ class LightRAGInsertTest {
                 val tempDir = File("build/tmp/test_rag_storage_mockk_${System.currentTimeMillis()}")
                 tempDir.mkdirs()
 
-                val rag = LightRAG(
-                    workingDir = tempDir.absolutePath,
-                    chatModel = mockChatModel,
-                    embeddingModel = mockEmbeddingModel
-                )
+                val rag =
+                    LightRAG(
+                        workingDir = tempDir.absolutePath,
+                        chatModel = mockChatModel,
+                        embeddingModel = mockEmbeddingModel,
+                    )
 
                 // Test Input
                 val content = "Apple released the new iPhone yesterday."
@@ -121,11 +122,12 @@ class LightRAGInsertTest {
                 val tempDir = File("build/tmp/test_rag_storage_dup_mockk_${System.currentTimeMillis()}")
                 tempDir.mkdirs()
 
-                val rag = LightRAG(
-                    workingDir = tempDir.absolutePath,
-                    chatModel = mockChatModel,
-                    embeddingModel = mockEmbeddingModel
-                )
+                val rag =
+                    LightRAG(
+                        workingDir = tempDir.absolutePath,
+                        chatModel = mockChatModel,
+                        embeddingModel = mockEmbeddingModel,
+                    )
 
                 val content = "This is a test document."
 
