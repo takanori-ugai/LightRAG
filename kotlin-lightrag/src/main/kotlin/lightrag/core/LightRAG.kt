@@ -173,14 +173,44 @@ class LightRAG(
     val vectorStorage: BaseVectorStorage = entitiesVdb // Default to entities?
     val graphStorage: BaseGraphStorage = chunkEntityRelationGraph
 
+    private var initialized = false
+
+    suspend fun ensureInitialized() {
+        if (!initialized) {
+            docStatusStorage.initialize()
+            fullDocs.initialize()
+            textChunks.initialize()
+            fullEntities.initialize()
+            fullRelations.initialize()
+            chunksVdb.initialize()
+            entitiesVdb.initialize()
+            relationshipsVdb.initialize()
+            // chunkEntityRelationGraph might be initialized externally or lazy
+            chunkEntityRelationGraph.initialize()
+            initialized = true
+        }
+    }
+
     suspend fun insert(input: String): String {
         return insert(listOf(input))
     }
 
     suspend fun insert(input: List<String>): String {
+        ensureInitialized()
         val trackId = generateTrackId("insert")
         pipelineEnqueueDocuments(input, trackId)
         pipelineProcessEnqueueDocuments()
+
+        // Save state after insertion
+        docStatusStorage.indexDoneCallback()
+        fullDocs.indexDoneCallback()
+        textChunks.indexDoneCallback()
+        chunksVdb.indexDoneCallback()
+        entitiesVdb.indexDoneCallback()
+        relationshipsVdb.indexDoneCallback()
+        // chunkEntityRelationGraph handles its own persistence (Neo4j, Mongo) or in-memory
+        chunkEntityRelationGraph.indexDoneCallback()
+
         return trackId
     }
 
@@ -342,6 +372,7 @@ class LightRAG(
         query: String,
         param: QueryParam,
     ): String {
+        ensureInitialized()
         return when (param.mode) {
             "local", "global", "hybrid", "mix" -> {
                 kgQuery(
