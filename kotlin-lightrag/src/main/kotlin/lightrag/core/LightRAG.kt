@@ -73,13 +73,38 @@ class LightRAG(
         )
 
     // Initialize Storages
-    val docStatusStorage: DocStatusStorage = JsonDocStatusStorage(namespace = "doc_status", workspace = "default")
-    val fullDocs: BaseKVStorage = JsonKVStorage(namespace = "full_docs", workspace = "default")
-    val textChunks: BaseKVStorage = JsonKVStorage(namespace = "text_chunks", workspace = "default")
+    val docStatusStorage: DocStatusStorage =
+        JsonDocStatusStorage(
+            namespace = "doc_status",
+            workspace = "default",
+            globalConfig = mapOf("working_dir" to workingDir),
+        )
+    val fullDocs: BaseKVStorage =
+        JsonKVStorage(
+            namespace = "full_docs",
+            workspace = "default",
+            globalConfig = mapOf("working_dir" to workingDir),
+        )
+    val textChunks: BaseKVStorage =
+        JsonKVStorage(
+            namespace = "text_chunks",
+            workspace = "default",
+            globalConfig = mapOf("working_dir" to workingDir),
+        )
 
     // Additional storages to match Python implementation
-    val fullEntities: BaseKVStorage = JsonKVStorage(namespace = "full_entities", workspace = "default")
-    val fullRelations: BaseKVStorage = JsonKVStorage(namespace = "full_relations", workspace = "default")
+    val fullEntities: BaseKVStorage =
+        JsonKVStorage(
+            namespace = "full_entities",
+            workspace = "default",
+            globalConfig = mapOf("working_dir" to workingDir),
+        )
+    val fullRelations: BaseKVStorage =
+        JsonKVStorage(
+            namespace = "full_relations",
+            workspace = "default",
+            globalConfig = mapOf("working_dir" to workingDir),
+        )
 
     // Vector Storages
     val chunksVdb: BaseVectorStorage =
@@ -144,9 +169,10 @@ class LightRAG(
         // 2. Filter out already processed documents
         val newDocs = mutableMapOf<String, Map<String, Any>>()
         val allNewDocIds = uniqueContent.keys
-        val existingDocIds = docStatusStorage.filterKeys(allNewDocIds)
+        val missingDocIds = docStatusStorage.filterKeys(allNewDocIds)
 
-        val uniqueNewDocIds = allNewDocIds - existingDocIds
+        // filterKeys returns keys that are NOT in storage, so we should process them.
+        val uniqueNewDocIds = missingDocIds
 
         uniqueNewDocIds.forEach { docId ->
             val (content, path) = uniqueContent[docId]!!
@@ -259,11 +285,11 @@ class LightRAG(
                 )
 
                 // Update Status to PROCESSED
-                docStatusStorage.upsert(mapOf(docId to mapOf("status" to DocStatus.PROCESSED.toString())))
+                docStatusStorage.upsert(mapOf(docId to mapOf("status" to DocStatus.PROCESSED.value)))
             } catch (e: Exception) {
                 e.printStackTrace()
                 docStatusStorage.upsert(
-                    mapOf(docId to mapOf("status" to DocStatus.FAILED.toString(), "error_msg" to (e.message ?: "Unknown error"))),
+                    mapOf(docId to mapOf("status" to DocStatus.FAILED.value, "error_msg" to (e.message ?: "Unknown error"))),
                 )
             }
         }

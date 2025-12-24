@@ -35,4 +35,12 @@ dependencies {
     implementation("dev.langchain4j:langchain4j-ollama:0.31.0")
 
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.22")
+    testImplementation("io.mockk:mockk:1.13.9")
+}
+
+tasks.withType<Test> {
+    testLogging {
+        events("passed", "skipped", "failed", "standardOut", "standardError")
+        showStandardStreams = true
+    }
 }
