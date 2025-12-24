@@ -15,7 +15,9 @@ import lightrag.kg.memory.InMemoryVectorStorage
 import lightrag.llm.LLMFactory
 import lightrag.operate.chunkingByTokenSize
 import lightrag.operate.extractEntities
+import lightrag.operate.kgQuery
 import lightrag.operate.mergeNodesAndEdges
+import lightrag.operate.naiveQuery
 import lightrag.utils.computeMd5
 import lightrag.utils.generateTrackId
 import java.time.Instant
@@ -24,11 +26,20 @@ import java.time.Instant
 data class QueryParam(
     val mode: String = "global",
     val only_need_context: Boolean = false,
-    val response_type: String? = null,
-    val top_k: Int = 10,
-    val max_token_for_text_unit: Int = 4000,
-    val max_token_for_global_context: Int = 4000,
-    val max_token_for_local_context: Int = 4000,
+    val only_need_prompt: Boolean = false,
+    val response_type: String? = "Multiple Paragraphs",
+    val stream: Boolean = false,
+    val top_k: Int = 40,
+    val chunk_top_k: Int = 20,
+    val max_entity_tokens: Int = 6000,
+    val max_relation_tokens: Int = 8000,
+    val max_total_tokens: Int = 30000,
+    val hl_keywords: List<String> = emptyList(),
+    val ll_keywords: List<String> = emptyList(),
+    val conversation_history: List<Map<String, String>> = emptyList(),
+    val user_prompt: String? = null,
+    val enable_rerank: Boolean = true,
+    val include_references: Boolean = false,
 )
 
 class LightRAG(
@@ -262,11 +273,40 @@ class LightRAG(
         query: String,
         param: QueryParam,
     ): String {
-        // Use LangChain4j model to generate a response (mocking RAG logic)
-        try {
-            return model.generate(query)
-        } catch (e: Exception) {
-            return "Error generating response: ${e.message}"
+        return when (param.mode) {
+            "local", "global", "hybrid", "mix" -> {
+                kgQuery(
+                    query = query,
+                    knowledgeGraphInst = chunkEntityRelationGraph,
+                    entitiesVdb = entitiesVdb,
+                    relationshipsVdb = relationshipsVdb,
+                    textChunksDb = textChunks,
+                    queryParam = param,
+                    globalConfig = globalConfig,
+                    chunksVdb = chunksVdb,
+                ) ?: "No result generated."
+            }
+            "naive" -> {
+                naiveQuery(
+                    query = query,
+                    chunksVdb = chunksVdb,
+                    queryParam = param,
+                    globalConfig = globalConfig,
+                ) ?: "No result generated."
+            }
+            "bypass" -> {
+                // Direct LLM call
+                try {
+                    val messages = mutableListOf<dev.langchain4j.data.message.ChatMessage>()
+                    // If we have conversation history, we could add it here
+                    // For now, just user query
+                    messages.add(dev.langchain4j.data.message.UserMessage(query))
+                    model.generate(messages).content().text()
+                } catch (e: Exception) {
+                    "Error generating response: ${e.message}"
+                }
+            }
+            else -> throw IllegalArgumentException("Unknown mode: ${param.mode}")
         }
     }
 
