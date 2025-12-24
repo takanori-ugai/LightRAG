@@ -104,11 +104,12 @@ class Neo4jGraphStorage(
             return
         }
 
-        val authToken = if (username != null && password != null) {
-            AuthTokens.basic(username, password)
-        } else {
-            AuthTokens.none()
-        }
+        val authToken =
+            if (username != null && password != null) {
+                AuthTokens.basic(username, password)
+            } else {
+                AuthTokens.none()
+            }
 
         // Configuration mapping
         val maxConnectionPoolSize =
@@ -118,11 +119,12 @@ class Neo4jGraphStorage(
         val maxConnectionLifetime =
             (System.getenv("NEO4J_MAX_CONNECTION_LIFETIME")?.toLongOrNull() ?: DEFAULT_MAX_LIFETIME_MS) // ms
 
-        val config = org.neo4j.driver.Config.builder()
-            .withMaxConnectionPoolSize(maxConnectionPoolSize)
-            .withConnectionTimeout(connectionTimeout, TimeUnit.MILLISECONDS)
-            .withMaxConnectionLifetime(maxConnectionLifetime, TimeUnit.MILLISECONDS)
-            .build()
+        val config =
+            org.neo4j.driver.Config.builder()
+                .withMaxConnectionPoolSize(maxConnectionPoolSize)
+                .withConnectionTimeout(connectionTimeout, TimeUnit.MILLISECONDS)
+                .withMaxConnectionLifetime(maxConnectionLifetime, TimeUnit.MILLISECONDS)
+                .build()
 
         driver = GraphDatabase.driver(uri, authToken, config)
 
@@ -178,7 +180,7 @@ class Neo4jGraphStorage(
                 try {
                     driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
                         neoSession.run(
-                            "CREATE INDEX IF NOT EXISTS FOR (n:`$workspaceLabel`) ON (n.entity_id)"
+                            "CREATE INDEX IF NOT EXISTS FOR (n:`$workspaceLabel`) ON (n.entity_id)",
                         ).consume()
                         logger.info {
                             "[$workspace] Ensured B-Tree index on entity_id for $workspaceLabel in $database"
@@ -194,7 +196,11 @@ class Neo4jGraphStorage(
         }
     }
 
-    private fun createFulltextIndex(driver: Driver, database: String, workspaceLabel: String) {
+    private fun createFulltextIndex(
+        driver: Driver,
+        database: String,
+        workspaceLabel: String,
+    ) {
         val indexName = getFulltextIndexName(workspaceLabel)
         val legacyIndexName = "entity_id_fulltext_idx"
 
@@ -261,7 +267,8 @@ class Neo4jGraphStorage(
                         "[$workspace] Creating full-text index '$indexName' with Chinese tokenizer support."
                     }
                     try {
-                        val createIndexQuery = """
+                        val createIndexQuery =
+                            """
                             CREATE FULLTEXT INDEX $indexName
                             FOR (n:`$workspaceLabel`) ON EACH [n.entity_id]
                             OPTIONS {
@@ -270,7 +277,7 @@ class Neo4jGraphStorage(
                                     `fulltext.eventually_consistent`: true
                                 }
                             }
-                        """.trimIndent()
+                            """.trimIndent()
                         neoSession.run(createIndexQuery).consume()
                         logger.info {
                             "[$workspace] Successfully created full-text index '$indexName' with CJK analyzer."
@@ -280,10 +287,11 @@ class Neo4jGraphStorage(
                             "[$workspace] CJK analyzer not supported: ${cjkError.message}. " +
                                 "Falling back to standard analyzer."
                         }
-                        val createIndexQuery = """
+                        val createIndexQuery =
+                            """
                             CREATE FULLTEXT INDEX $indexName
                             FOR (n:`$workspaceLabel`) ON EACH [n.entity_id]
-                        """.trimIndent()
+                            """.trimIndent()
                         neoSession.run(createIndexQuery).consume()
                         logger.info {
                             "[$workspace] Successfully created full-text index '$indexName' with standard analyzer."
@@ -332,111 +340,132 @@ class Neo4jGraphStorage(
         }
     }
 
-    override suspend fun hasNode(nodeId: String): Boolean = withContext(Dispatchers.IO) {
-        val workspaceLabel = getWorkspaceLabel()
-        driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
-            val query = "MATCH (n:`$workspaceLabel` {entity_id: \$entity_id}) RETURN count(n) > 0 AS node_exists"
-            val result = neoSession.run(query, mapOf("entity_id" to nodeId))
-            if (result.hasNext()) {
-                result.single().get("node_exists").asBoolean()
-            } else {
-                false
+    override suspend fun hasNode(nodeId: String): Boolean =
+        withContext(Dispatchers.IO) {
+            val workspaceLabel = getWorkspaceLabel()
+            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+                val query = "MATCH (n:`$workspaceLabel` {entity_id: \$entity_id}) RETURN count(n) > 0 AS node_exists"
+                val result = neoSession.run(query, mapOf("entity_id" to nodeId))
+                if (result.hasNext()) {
+                    result.single().get("node_exists").asBoolean()
+                } else {
+                    false
+                }
             }
         }
-    }
 
-    override suspend fun hasEdge(sourceNodeId: String, targetNodeId: String): Boolean = withContext(Dispatchers.IO) {
-        val workspaceLabel = getWorkspaceLabel()
-        driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
-            val query = """
-                MATCH (a:`$workspaceLabel` {entity_id: ${'$'}source_entity_id})-[r]-(b:`$workspaceLabel` {entity_id: ${'$'}target_entity_id})
-                RETURN COUNT(r) > 0 AS edgeExists
-            """.trimIndent()
-            val result = neoSession.run(
-                query, mapOf(
-                    "source_entity_id" to sourceNodeId,
-                    "target_entity_id" to targetNodeId
-                )
-            )
-            if (result.hasNext()) {
-                result.single().get("edgeExists").asBoolean()
-            } else {
-                false
+    override suspend fun hasEdge(
+        sourceNodeId: String,
+        targetNodeId: String,
+    ): Boolean =
+        withContext(Dispatchers.IO) {
+            val workspaceLabel = getWorkspaceLabel()
+            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+                val query =
+                    """
+                    MATCH (a:`$workspaceLabel` {entity_id: ${'$'}source_entity_id})-[r]-(b:`$workspaceLabel` {entity_id: ${'$'}target_entity_id})
+                    RETURN COUNT(r) > 0 AS edgeExists
+                    """.trimIndent()
+                val result =
+                    neoSession.run(
+                        query,
+                        mapOf(
+                            "source_entity_id" to sourceNodeId,
+                            "target_entity_id" to targetNodeId,
+                        ),
+                    )
+                if (result.hasNext()) {
+                    result.single().get("edgeExists").asBoolean()
+                } else {
+                    false
+                }
             }
         }
-    }
 
-    override suspend fun nodeDegree(nodeId: String): Int = withContext(Dispatchers.IO) {
-        val workspaceLabel = getWorkspaceLabel()
-        driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
-            val query = """
-                MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id})
-                OPTIONAL MATCH (n)-[r]-()
-                RETURN COUNT(r) AS degree
-            """.trimIndent()
-            val result = neoSession.run(query, mapOf("entity_id" to nodeId))
-            if (result.hasNext()) {
-                result.single().get("degree").asInt()
-            } else {
-                0
+    override suspend fun nodeDegree(nodeId: String): Int =
+        withContext(Dispatchers.IO) {
+            val workspaceLabel = getWorkspaceLabel()
+            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+                val query =
+                    """
+                    MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id})
+                    OPTIONAL MATCH (n)-[r]-()
+                    RETURN COUNT(r) AS degree
+                    """.trimIndent()
+                val result = neoSession.run(query, mapOf("entity_id" to nodeId))
+                if (result.hasNext()) {
+                    result.single().get("degree").asInt()
+                } else {
+                    0
+                }
             }
         }
-    }
 
-    override suspend fun edgeDegree(srcId: String, tgtId: String): Int {
+    override suspend fun edgeDegree(
+        srcId: String,
+        tgtId: String,
+    ): Int {
         val srcDegree = nodeDegree(srcId)
         val tgtDegree = nodeDegree(tgtId)
         return srcDegree + tgtDegree
     }
 
-    override suspend fun getNode(nodeId: String): Map<String, String>? = withContext(Dispatchers.IO) {
-        val workspaceLabel = getWorkspaceLabel()
-        driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
-            val query = "MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id}) RETURN n"
-            val result = neoSession.run(query, mapOf("entity_id" to nodeId))
-            if (result.hasNext()) {
-                val record = result.next()
-                val node = record.get("n").asNode()
-                val nodeMap = node.asMap().toMutableMap()
-                if (nodeMap.containsKey("labels")) {
-                    @Suppress("UNCHECKED_CAST")
-                    val labels = nodeMap["labels"] as? List<String>
-                    if (labels != null) {
-                        nodeMap["labels"] = labels.filter { it != workspaceLabel }
-                    }
-                }
-                nodeMap.entries.associate { it.key to it.value.toString() }
-            } else {
-                null
-            }
-        }
-    }
-
-    override suspend fun getEdge(sourceNodeId: String, targetNodeId: String): Map<String, String>? =
+    override suspend fun getNode(nodeId: String): Map<String, String>? =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
             driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
-                val query = """
-                MATCH (start:`$workspaceLabel` {entity_id: ${'$'}source_entity_id})-[r]-(end:`$workspaceLabel` {entity_id: ${'$'}target_entity_id})
-                RETURN properties(r) as edge_properties
-            """.trimIndent()
-                val result = neoSession.run(
-                    query, mapOf(
-                        "source_entity_id" to sourceNodeId,
-                        "target_entity_id" to targetNodeId
+                val query = "MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id}) RETURN n"
+                val result = neoSession.run(query, mapOf("entity_id" to nodeId))
+                if (result.hasNext()) {
+                    val record = result.next()
+                    val node = record.get("n").asNode()
+                    val nodeMap = node.asMap().toMutableMap()
+                    if (nodeMap.containsKey("labels")) {
+                        @Suppress("UNCHECKED_CAST")
+                        val labels = nodeMap["labels"] as? List<String>
+                        if (labels != null) {
+                            nodeMap["labels"] = labels.filter { it != workspaceLabel }
+                        }
+                    }
+                    nodeMap.entries.associate { it.key to it.value.toString() }
+                } else {
+                    null
+                }
+            }
+        }
+
+    override suspend fun getEdge(
+        sourceNodeId: String,
+        targetNodeId: String,
+    ): Map<String, String>? =
+        withContext(Dispatchers.IO) {
+            val workspaceLabel = getWorkspaceLabel()
+            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+                val query =
+                    """
+                    MATCH (start:`$workspaceLabel` {entity_id: ${'$'}source_entity_id})-[r]-(end:`$workspaceLabel` {entity_id: ${'$'}target_entity_id})
+                    RETURN properties(r) as edge_properties
+                    """.trimIndent()
+                val result =
+                    neoSession.run(
+                        query,
+                        mapOf(
+                            "source_entity_id" to sourceNodeId,
+                            "target_entity_id" to targetNodeId,
+                        ),
                     )
-                )
 
                 if (result.hasNext()) {
                     val record = result.next()
                     val edgeProps = record.get("edge_properties").asMap().toMutableMap()
 
-                    val requiredKeys = mapOf(
-                        "weight" to 1.0,
-                        "source_id" to null,
-                        "description" to null,
-                        "keywords" to null
-                    )
+                    val requiredKeys =
+                        mapOf(
+                            "weight" to 1.0,
+                            "source_id" to null,
+                            "description" to null,
+                            "keywords" to null,
+                        )
                     requiredKeys.forEach { (key, defaultVal) ->
                         if (!edgeProps.containsKey(key)) {
                             edgeProps[key] = defaultVal
@@ -453,12 +482,13 @@ class Neo4jGraphStorage(
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
             driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
-                val query = """
-                MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id})
-                OPTIONAL MATCH (n)-[r]-(connected:`$workspaceLabel`)
-                WHERE connected.entity_id IS NOT NULL
-                RETURN n, r, connected
-            """.trimIndent()
+                val query =
+                    """
+                    MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id})
+                    OPTIONAL MATCH (n)-[r]-(connected:`$workspaceLabel`)
+                    WHERE connected.entity_id IS NOT NULL
+                    RETURN n, r, connected
+                    """.trimIndent()
                 val result = neoSession.run(query, mapOf("entity_id" to sourceNodeId))
                 val edges = mutableListOf<Pair<String, String>>()
                 while (result.hasNext()) {
@@ -479,7 +509,10 @@ class Neo4jGraphStorage(
             }
         }
 
-    override suspend fun upsertNode(nodeId: String, nodeData: Map<String, String>) = withContext(Dispatchers.IO) {
+    override suspend fun upsertNode(
+        nodeId: String,
+        nodeData: Map<String, String>,
+    ) = withContext(Dispatchers.IO) {
         val workspaceLabel = getWorkspaceLabel()
         val properties = nodeData.toMutableMap()
         val entityType = properties["entity_type"] ?: "UNKNOWN"
@@ -487,91 +520,107 @@ class Neo4jGraphStorage(
 
         driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
             neoSession.executeWrite { tx ->
-                val query = """
+                val query =
+                    """
                     MERGE (n:`$workspaceLabel` {entity_id: ${'$'}entity_id})
                     SET n += ${'$'}properties
                     SET n:`$entityType`
-                """.trimIndent()
+                    """.trimIndent()
                 tx.run(query, mapOf("entity_id" to nodeId, "properties" to properties)).consume()
             }
         }
         Unit
     }
 
-    override suspend fun upsertEdge(sourceNodeId: String, targetNodeId: String, edgeData: Map<String, String>) =
-        withContext(Dispatchers.IO) {
-            val workspaceLabel = getWorkspaceLabel()
-            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
-                neoSession.executeWrite { tx ->
-                    val query = """
+    override suspend fun upsertEdge(
+        sourceNodeId: String,
+        targetNodeId: String,
+        edgeData: Map<String, String>,
+    ) = withContext(Dispatchers.IO) {
+        val workspaceLabel = getWorkspaceLabel()
+        driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+            neoSession.executeWrite { tx ->
+                val query =
+                    """
                     MATCH (source:`$workspaceLabel` {entity_id: ${'$'}source_entity_id})
                     WITH source
                     MATCH (target:`$workspaceLabel` {entity_id: ${'$'}target_entity_id})
                     MERGE (source)-[r:DIRECTED]-(target)
                     SET r += ${'$'}properties
                     RETURN r
-                """.trimIndent()
-                    tx.run(
-                        query, mapOf(
-                            "source_entity_id" to sourceNodeId,
-                            "target_entity_id" to targetNodeId,
-                            "properties" to edgeData
-                        )
-                    ).consume()
+                    """.trimIndent()
+                tx.run(
+                    query,
+                    mapOf(
+                        "source_entity_id" to sourceNodeId,
+                        "target_entity_id" to targetNodeId,
+                        "properties" to edgeData,
+                    ),
+                ).consume()
+            }
+        }
+        Unit
+    }
+
+    override suspend fun deleteNode(nodeId: String) =
+        withContext(Dispatchers.IO) {
+            val workspaceLabel = getWorkspaceLabel()
+            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+                neoSession.executeWrite { tx ->
+                    val query =
+                        """
+                        MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id})
+                        DETACH DELETE n
+                        """.trimIndent()
+                    tx.run(query, mapOf("entity_id" to nodeId)).consume()
                 }
             }
             Unit
         }
 
-    override suspend fun deleteNode(nodeId: String) = withContext(Dispatchers.IO) {
-        val workspaceLabel = getWorkspaceLabel()
-        driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
-            neoSession.executeWrite { tx ->
-                val query = """
-                    MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id})
-                    DETACH DELETE n
-                """.trimIndent()
-                tx.run(query, mapOf("entity_id" to nodeId)).consume()
-            }
-        }
-        Unit
-    }
-
     override suspend fun removeNodes(nodes: List<String>) {
         nodes.forEach { deleteNode(it) }
     }
 
-    override suspend fun removeEdges(edges: List<Pair<String, String>>) = withContext(Dispatchers.IO) {
-        val workspaceLabel = getWorkspaceLabel()
-        driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
-            neoSession.executeWrite { tx ->
-                val query = """
-                    MATCH (source:`$workspaceLabel` {entity_id: ${'$'}source_entity_id})-[r]-(target:`$workspaceLabel` {entity_id: ${'$'}target_entity_id})
-                    DELETE r
-                """.trimIndent()
-                edges.forEach { (src, tgt) ->
-                    tx.run(query, mapOf("source_entity_id" to src, "target_entity_id" to tgt)).consume()
+    override suspend fun removeEdges(edges: List<Pair<String, String>>) =
+        withContext(Dispatchers.IO) {
+            val workspaceLabel = getWorkspaceLabel()
+            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+                neoSession.executeWrite { tx ->
+                    val query =
+                        """
+                        MATCH (source:`$workspaceLabel` {entity_id: ${'$'}source_entity_id})-[r]-(target:`$workspaceLabel` {entity_id: ${'$'}target_entity_id})
+                        DELETE r
+                        """.trimIndent()
+                    edges.forEach { (src, tgt) ->
+                        tx.run(query, mapOf("source_entity_id" to src, "target_entity_id" to tgt)).consume()
+                    }
                 }
             }
+            Unit
         }
-        Unit
-    }
 
-    override suspend fun getAllLabels(): List<String> = withContext(Dispatchers.IO) {
-        val workspaceLabel = getWorkspaceLabel()
-        driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
-            val query = """
-                MATCH (n:`$workspaceLabel`)
-                WHERE n.entity_id IS NOT NULL
-                RETURN DISTINCT n.entity_id AS label
-                ORDER BY label
-            """.trimIndent()
-            val result = neoSession.run(query)
-            result.list().map { it.get("label").asString() }
+    override suspend fun getAllLabels(): List<String> =
+        withContext(Dispatchers.IO) {
+            val workspaceLabel = getWorkspaceLabel()
+            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+                val query =
+                    """
+                    MATCH (n:`$workspaceLabel`)
+                    WHERE n.entity_id IS NOT NULL
+                    RETURN DISTINCT n.entity_id AS label
+                    ORDER BY label
+                    """.trimIndent()
+                val result = neoSession.run(query)
+                result.list().map { it.get("label").asString() }
+            }
         }
-    }
 
-    override suspend fun getKnowledgeGraph(nodeLabel: String, maxDepth: Int, maxNodes: Int): KnowledgeGraph =
+    override suspend fun getKnowledgeGraph(
+        nodeLabel: String,
+        maxDepth: Int,
+        maxNodes: Int,
+    ): KnowledgeGraph =
         withContext(Dispatchers.IO) {
             // Check maxNodes global config if needed, here we assume argument is correct
             var effectiveMaxNodes = maxNodes
@@ -604,7 +653,11 @@ class Neo4jGraphStorage(
         }
 
     @Suppress("LoopWithTooManyJumpStatements", "ReturnCount")
-    private suspend fun robustFallback(nodeLabel: String, maxDepth: Int, maxNodes: Int): KnowledgeGraph {
+    private suspend fun robustFallback(
+        nodeLabel: String,
+        maxDepth: Int,
+        maxNodes: Int,
+    ): KnowledgeGraph {
         val nodes = mutableListOf<Map<String, Any>>()
         val edges = mutableListOf<Map<String, Any>>()
         var isTruncated = false
@@ -658,7 +711,7 @@ class Neo4jGraphStorage(
                 visitedEdgePairs,
                 edges,
                 queue,
-                workspaceLabel
+                workspaceLabel,
             )
         }
 
@@ -669,7 +722,7 @@ class Neo4jGraphStorage(
         entityId: String,
         depth: Int,
         maxDepth: Int,
-        visitedNodes: Set<String>
+        visitedNodes: Set<String>,
     ): Boolean {
         return visitedNodes.contains(entityId) || depth > maxDepth
     }
@@ -684,13 +737,14 @@ class Neo4jGraphStorage(
         visitedEdgePairs: MutableSet<Set<String>>,
         edges: MutableList<Map<String, Any>>,
         queue: ArrayDeque<Triple<Map<String, Any>, Map<String, Any>?, Int>>,
-        workspaceLabel: String
+        workspaceLabel: String,
     ) {
         driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
-            val query = """
-                    MATCH (a:`$workspaceLabel` {entity_id: ${'$'}entity_id})-[r]-(b)
-                    WITH r, b
-                    RETURN r, b
+            val query =
+                """
+                MATCH (a:`$workspaceLabel` {entity_id: ${'$'}entity_id})-[r]-(b)
+                WITH r, b
+                RETURN r, b
                 """.trimIndent()
             val result = neoSession.run(query, mapOf("entity_id" to currentEntityId))
             val records = result.list()
@@ -741,20 +795,21 @@ class Neo4jGraphStorage(
                 isTruncated = true
             }
 
-            val pyQuery = """
-                    MATCH (n:`$workspaceLabel`)
-                    OPTIONAL MATCH (n)-[r]-()
-                    WITH n, COALESCE(count(r), 0) AS degree
-                    ORDER BY degree DESC
-                    LIMIT ${'$'}max_nodes
-                    WITH collect({node: n}) AS filtered_nodes
-                    UNWIND filtered_nodes AS node_info
-                    WITH collect(node_info.node) AS kept_nodes, filtered_nodes
-                    OPTIONAL MATCH (a)-[r]-(b)
-                    WHERE a IN kept_nodes AND b IN kept_nodes
-                    RETURN filtered_nodes AS node_info,
-                           collect(DISTINCT r) AS relationships
-            """.trimIndent()
+            val pyQuery =
+                """
+                MATCH (n:`$workspaceLabel`)
+                OPTIONAL MATCH (n)-[r]-()
+                WITH n, COALESCE(count(r), 0) AS degree
+                ORDER BY degree DESC
+                LIMIT ${'$'}max_nodes
+                WITH collect({node: n}) AS filtered_nodes
+                UNWIND filtered_nodes AS node_info
+                WITH collect(node_info.node) AS kept_nodes, filtered_nodes
+                OPTIONAL MATCH (a)-[r]-(b)
+                WHERE a IN kept_nodes AND b IN kept_nodes
+                RETURN filtered_nodes AS node_info,
+                       collect(DISTINCT r) AS relationships
+                """.trimIndent()
 
             val result = neoSession.run(pyQuery, mapOf("max_nodes" to maxNodes))
             if (result.hasNext()) {
@@ -793,160 +848,174 @@ class Neo4jGraphStorage(
         return KnowledgeGraph(nodes, edges, isTruncated)
     }
 
-    override suspend fun getAllNodes(): List<Map<String, Any>> = withContext(Dispatchers.IO) {
-        val workspaceLabel = getWorkspaceLabel()
-        driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
-            val query = "MATCH (n:`$workspaceLabel`) RETURN n"
-            val result = neoSession.run(query)
-            result.list().map { record ->
-                val node = record.get("n").asNode()
-                val map = node.asMap().toMutableMap()
-                map["id"] = map["entity_id"] ?: ""
-                map
+    override suspend fun getAllNodes(): List<Map<String, Any>> =
+        withContext(Dispatchers.IO) {
+            val workspaceLabel = getWorkspaceLabel()
+            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+                val query = "MATCH (n:`$workspaceLabel`) RETURN n"
+                val result = neoSession.run(query)
+                result.list().map { record ->
+                    val node = record.get("n").asNode()
+                    val map = node.asMap().toMutableMap()
+                    map["id"] = map["entity_id"] ?: ""
+                    map
+                }
             }
         }
-    }
 
-    override suspend fun getAllEdges(): List<Map<String, Any>> = withContext(Dispatchers.IO) {
-        val workspaceLabel = getWorkspaceLabel()
-        driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
-            val query = """
-                MATCH (a:`$workspaceLabel`)-[r]-(b:`$workspaceLabel`)
-                RETURN DISTINCT a.entity_id AS source, b.entity_id AS target, properties(r) AS properties
-            """.trimIndent()
-            val result = neoSession.run(query)
-            result.list().map { record ->
-                val props = record.get("properties").asMap().toMutableMap()
-                props["source"] = record.get("source").asString()
-                props["target"] = record.get("target").asString()
-                props
+    override suspend fun getAllEdges(): List<Map<String, Any>> =
+        withContext(Dispatchers.IO) {
+            val workspaceLabel = getWorkspaceLabel()
+            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+                val query =
+                    """
+                    MATCH (a:`$workspaceLabel`)-[r]-(b:`$workspaceLabel`)
+                    RETURN DISTINCT a.entity_id AS source, b.entity_id AS target, properties(r) AS properties
+                    """.trimIndent()
+                val result = neoSession.run(query)
+                result.list().map { record ->
+                    val props = record.get("properties").asMap().toMutableMap()
+                    props["source"] = record.get("source").asString()
+                    props["target"] = record.get("target").asString()
+                    props
+                }
             }
         }
-    }
 
-    override suspend fun getPopularLabels(limit: Int): List<String> = withContext(Dispatchers.IO) {
-        val workspaceLabel = getWorkspaceLabel()
-        driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
-            val query = """
-                MATCH (n:`$workspaceLabel`)
-                WHERE n.entity_id IS NOT NULL
-                OPTIONAL MATCH (n)-[r]-()
-                WITH n.entity_id AS label, count(r) AS degree
-                ORDER BY degree DESC, label ASC
-                LIMIT ${'$'}limit
-                RETURN label
-            """.trimIndent()
-            val result = neoSession.run(query, mapOf("limit" to limit))
-            result.list().map { it.get("label").asString() }
-        }
-    }
-
-    override suspend fun searchLabels(query: String, limit: Int): List<String> = withContext(Dispatchers.IO) {
-        val workspaceLabel = getWorkspaceLabel()
-        val queryStrip = query.trim()
-        if (queryStrip.isEmpty()) return@withContext emptyList<String>()
-
-        val queryLower = queryStrip.lowercase()
-        val isChinese = isChineseText(queryStrip)
-        val indexName = getFulltextIndexName(workspaceLabel)
-
-        driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
-            try {
-                // Try fulltext search
-                val cypherQuery: String
-                val params: MutableMap<String, Any> = mutableMapOf(
-                    "index_name" to indexName,
-                    "query_strip" to queryStrip,
-                    "query_lower" to queryLower,
-                    "limit" to limit
-                )
-
-                if (isChinese) {
-                    cypherQuery = """
-                        CALL db.index.fulltext.queryNodes(${'$'}index_name, ${'$'}search_query) YIELD node, score
-                        WITH node, score
-                        WHERE node:`$workspaceLabel`
-                        WITH node.entity_id AS label, score
-                        WITH label, score,
-                             CASE
-                                 WHEN label = ${'$'}query_strip THEN score + $SCORE_EXACT_MATCH
-                                 WHEN label CONTAINS ${'$'}query_strip THEN score + $SCORE_CONTAINS
-                                 ELSE score
-                             END AS final_score
-                        RETURN label
-                        ORDER BY final_score DESC, label ASC
-                        LIMIT ${'$'}limit
+    override suspend fun getPopularLabels(limit: Int): List<String> =
+        withContext(Dispatchers.IO) {
+            val workspaceLabel = getWorkspaceLabel()
+            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+                val query =
+                    """
+                    MATCH (n:`$workspaceLabel`)
+                    WHERE n.entity_id IS NOT NULL
+                    OPTIONAL MATCH (n)-[r]-()
+                    WITH n.entity_id AS label, count(r) AS degree
+                    ORDER BY degree DESC, label ASC
+                    LIMIT ${'$'}limit
+                    RETURN label
                     """.trimIndent()
-                    params["search_query"] = queryStrip
-                } else {
-                    cypherQuery = """
-                        CALL db.index.fulltext.queryNodes(${'$'}index_name, ${'$'}search_query) YIELD node, score
-                        WITH node, score
-                        WHERE node:`$workspaceLabel`
-                        WITH node.entity_id AS label, toLower(node.entity_id) AS label_lower, score
-                        WITH label, label_lower, score,
-                             CASE
-                                 WHEN label_lower = ${'$'}query_lower THEN score + $SCORE_EXACT_MATCH
-                                 WHEN label_lower STARTS WITH ${'$'}query_lower THEN score + $SCORE_STARTS_WITH
-                                 WHEN label_lower CONTAINS ' ' + ${'$'}query_lower OR label_lower CONTAINS '_' + ${'$'}query_lower THEN score + $SCORE_PARTIAL
-                                 ELSE score
-                             END AS final_score
-                        RETURN label
-                        ORDER BY final_score DESC, label ASC
-                        LIMIT ${'$'}limit
-                    """.trimIndent()
-                    params["search_query"] = "$queryStrip*"
-                }
-
-                val result = neoSession.run(cypherQuery, params)
-                result.list().map { it.get("label").asString() }
-            } catch (e: Neo4jException) {
-                // Fallback
-                logger.warn {
-                    "[$workspace] Full-text search failed: ${e.message}. Falling back to standard search."
-                }
-                val fallbackQuery: String
-                val fallbackParams = mutableMapOf<String, Any>("limit" to limit)
-
-                if (isChinese) {
-                    fallbackQuery = """
-                        MATCH (n:`$workspaceLabel`)
-                        WHERE n.entity_id IS NOT NULL
-                        WITH n.entity_id AS label
-                        WHERE label CONTAINS ${'$'}query_strip
-                        WITH label,
-                             CASE
-                                 WHEN label = ${'$'}query_strip THEN $SCORE_EXACT_MATCH
-                                 WHEN label STARTS WITH ${'$'}query_strip THEN $SCORE_STARTS_WITH
-                                 ELSE $FALLBACK_SCORE_BASE - size(label)
-                             END AS score
-                        ORDER BY score DESC, label ASC
-                        LIMIT ${'$'}limit
-                        RETURN label
-                    """.trimIndent()
-                    fallbackParams["query_strip"] = queryStrip
-                } else {
-                    fallbackQuery = """
-                        MATCH (n:`$workspaceLabel`)
-                        WHERE n.entity_id IS NOT NULL
-                        WITH n.entity_id AS label, toLower(n.entity_id) AS label_lower
-                        WHERE label_lower CONTAINS ${'$'}query_lower
-                        WITH label, label_lower,
-                             CASE
-                                 WHEN label_lower = ${'$'}query_lower THEN $SCORE_EXACT_MATCH
-                                 WHEN label_lower STARTS WITH ${'$'}query_lower THEN $SCORE_STARTS_WITH
-                                 ELSE $FALLBACK_SCORE_BASE - size(label)
-                             END AS score
-                        ORDER BY score DESC, label ASC
-                        LIMIT ${'$'}limit
-                        RETURN label
-                    """.trimIndent()
-                    fallbackParams["query_lower"] = queryLower
-                }
-
-                val result = neoSession.run(fallbackQuery, fallbackParams)
+                val result = neoSession.run(query, mapOf("limit" to limit))
                 result.list().map { it.get("label").asString() }
             }
         }
-    }
+
+    override suspend fun searchLabels(
+        query: String,
+        limit: Int,
+    ): List<String> =
+        withContext(Dispatchers.IO) {
+            val workspaceLabel = getWorkspaceLabel()
+            val queryStrip = query.trim()
+            if (queryStrip.isEmpty()) return@withContext emptyList<String>()
+
+            val queryLower = queryStrip.lowercase()
+            val isChinese = isChineseText(queryStrip)
+            val indexName = getFulltextIndexName(workspaceLabel)
+
+            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+                try {
+                    // Try fulltext search
+                    val cypherQuery: String
+                    val params: MutableMap<String, Any> =
+                        mutableMapOf(
+                            "index_name" to indexName,
+                            "query_strip" to queryStrip,
+                            "query_lower" to queryLower,
+                            "limit" to limit,
+                        )
+
+                    if (isChinese) {
+                        cypherQuery =
+                            """
+                            CALL db.index.fulltext.queryNodes(${'$'}index_name, ${'$'}search_query) YIELD node, score
+                            WITH node, score
+                            WHERE node:`$workspaceLabel`
+                            WITH node.entity_id AS label, score
+                            WITH label, score,
+                                 CASE
+                                     WHEN label = ${'$'}query_strip THEN score + $SCORE_EXACT_MATCH
+                                     WHEN label CONTAINS ${'$'}query_strip THEN score + $SCORE_CONTAINS
+                                     ELSE score
+                                 END AS final_score
+                            RETURN label
+                            ORDER BY final_score DESC, label ASC
+                            LIMIT ${'$'}limit
+                            """.trimIndent()
+                        params["search_query"] = queryStrip
+                    } else {
+                        cypherQuery =
+                            """
+                            CALL db.index.fulltext.queryNodes(${'$'}index_name, ${'$'}search_query) YIELD node, score
+                            WITH node, score
+                            WHERE node:`$workspaceLabel`
+                            WITH node.entity_id AS label, toLower(node.entity_id) AS label_lower, score
+                            WITH label, label_lower, score,
+                                 CASE
+                                     WHEN label_lower = ${'$'}query_lower THEN score + $SCORE_EXACT_MATCH
+                                     WHEN label_lower STARTS WITH ${'$'}query_lower THEN score + $SCORE_STARTS_WITH
+                                     WHEN label_lower CONTAINS ' ' + ${'$'}query_lower OR label_lower CONTAINS '_' + ${'$'}query_lower THEN score + $SCORE_PARTIAL
+                                     ELSE score
+                                 END AS final_score
+                            RETURN label
+                            ORDER BY final_score DESC, label ASC
+                            LIMIT ${'$'}limit
+                            """.trimIndent()
+                        params["search_query"] = "$queryStrip*"
+                    }
+
+                    val result = neoSession.run(cypherQuery, params)
+                    result.list().map { it.get("label").asString() }
+                } catch (e: Neo4jException) {
+                    // Fallback
+                    logger.warn {
+                        "[$workspace] Full-text search failed: ${e.message}. Falling back to standard search."
+                    }
+                    val fallbackQuery: String
+                    val fallbackParams = mutableMapOf<String, Any>("limit" to limit)
+
+                    if (isChinese) {
+                        fallbackQuery =
+                            """
+                            MATCH (n:`$workspaceLabel`)
+                            WHERE n.entity_id IS NOT NULL
+                            WITH n.entity_id AS label
+                            WHERE label CONTAINS ${'$'}query_strip
+                            WITH label,
+                                 CASE
+                                     WHEN label = ${'$'}query_strip THEN $SCORE_EXACT_MATCH
+                                     WHEN label STARTS WITH ${'$'}query_strip THEN $SCORE_STARTS_WITH
+                                     ELSE $FALLBACK_SCORE_BASE - size(label)
+                                 END AS score
+                            ORDER BY score DESC, label ASC
+                            LIMIT ${'$'}limit
+                            RETURN label
+                            """.trimIndent()
+                        fallbackParams["query_strip"] = queryStrip
+                    } else {
+                        fallbackQuery =
+                            """
+                            MATCH (n:`$workspaceLabel`)
+                            WHERE n.entity_id IS NOT NULL
+                            WITH n.entity_id AS label, toLower(n.entity_id) AS label_lower
+                            WHERE label_lower CONTAINS ${'$'}query_lower
+                            WITH label, label_lower,
+                                 CASE
+                                     WHEN label_lower = ${'$'}query_lower THEN $SCORE_EXACT_MATCH
+                                     WHEN label_lower STARTS WITH ${'$'}query_lower THEN $SCORE_STARTS_WITH
+                                     ELSE $FALLBACK_SCORE_BASE - size(label)
+                                 END AS score
+                            ORDER BY score DESC, label ASC
+                            LIMIT ${'$'}limit
+                            RETURN label
+                            """.trimIndent()
+                        fallbackParams["query_lower"] = queryLower
+                    }
+
+                    val result = neoSession.run(fallbackQuery, fallbackParams)
+                    result.list().map { it.get("label").asString() }
+                }
+            }
+        }
 }

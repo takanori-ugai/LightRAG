@@ -432,10 +432,10 @@ suspend fun kgQuery(
 
     val sysPrompt =
         sysPromptTemplate
-                .replace(
-                    "{response_type}",
-                    queryParam.responseType ?: "Multiple Paragraphs",
-                )
+            .replace(
+                "{response_type}",
+                queryParam.responseType ?: "Multiple Paragraphs",
+            )
             .replace("{user_prompt}", userPrompt)
             .replace("{context_data}", contextContent)
 
