@@ -4,8 +4,11 @@ import dev.langchain4j.data.embedding.Embedding
 import dev.langchain4j.data.segment.TextSegment
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.store.embedding.CosineSimilarity
+import io.github.oshai.kotlinlogging.KotlinLogging
 import lightrag.core.types.BaseVectorStorage
 import lightrag.core.types.EmbeddingFunc
+
+private val logger = KotlinLogging.logger {}
 
 class InMemoryVectorStorage(
     override val namespace: String,
@@ -36,7 +39,15 @@ class InMemoryVectorStorage(
         queryEmbedding: List<Float>?,
     ): List<Map<String, Any>> {
         val queryVec = queryEmbedding ?: embed(query)
-        if (queryVec.isEmpty()) return emptyList()
+        if (queryVec.isEmpty()) {
+            logger.warn { "Query vector is empty for query: '$query'" }
+            return emptyList()
+        }
+
+        if (vectors.isEmpty()) {
+            logger.warn { "Vector storage '$namespace' is empty during query." }
+            return emptyList()
+        }
 
         // Calculate cosine similarity for all vectors
         val results =
@@ -47,6 +58,10 @@ class InMemoryVectorStorage(
                 .filter { it.third != null }
                 .sortedByDescending { it.second }
                 .take(topK)
+
+        if (results.isEmpty()) {
+            logger.warn { "No results found for query: '$query' in '$namespace'. Vectors count: ${vectors.size}" }
+        }
 
         return results.map { (id, score, meta) ->
             (meta ?: emptyMap()) + mapOf("id" to id, "score" to score, "distance" to score)
@@ -70,7 +85,7 @@ class InMemoryVectorStorage(
                     val embedding = embeddingModel.embed(TextSegment.from(content)).content()
                     vectors[id] = embedding.vector().toList()
                 } catch (e: Exception) {
-                    println("Error embedding content for id $id: ${e.message}")
+                    logger.error(e) { "Error embedding content for id $id" }
                 }
             } else if (meta.containsKey("vector")) {
                 // If vector is provided directly (not typical for this codebase based on usage, but good for completeness)
@@ -78,6 +93,12 @@ class InMemoryVectorStorage(
                 val vec = meta["vector"] as? List<Float>
                 if (vec != null) {
                     vectors[id] = vec
+                }
+            } else {
+                if (embeddingModel == null) {
+                    logger.warn { "No embedding model provided for upsert in '$namespace'" }
+                } else if (content == null) {
+                    logger.warn { "No content provided for upsert id $id in '$namespace'" }
                 }
             }
         }
@@ -88,6 +109,7 @@ class InMemoryVectorStorage(
         return try {
             embeddingModel.embed(text).content().vector().toList()
         } catch (e: Exception) {
+            logger.error(e) { "Error embedding text: '$text'" }
             emptyList()
         }
     }
