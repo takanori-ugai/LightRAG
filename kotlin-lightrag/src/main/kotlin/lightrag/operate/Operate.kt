@@ -381,7 +381,9 @@ suspend fun kgQuery(
 
     val relationsStr =
         edges.take(queryParam.top_k).joinToString("\n") {
-            "{ \"src_id\": \"${it["src_id"]}\", \"tgt_id\": \"${it["tgt_id"]}\", \"content\": \"${JsonUtils.escape(it["description"] ?: "")}\" }"
+            "{ \"src_id\": \"${it["src_id"]}\", \"tgt_id\": \"${it["tgt_id"]}\", \"content\": \"${JsonUtils.escape(
+                it["description"] ?: "",
+            )}\" }"
         }
 
     // Fetch Text Chunks

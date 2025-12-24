@@ -18,7 +18,6 @@ import java.io.File
 import kotlin.test.assertTrue
 
 class LightRAGIntegrationTest {
-
     @Test
     fun testInsertAndQueryNaiveMode() {
         runBlocking {
@@ -60,11 +59,12 @@ class LightRAGIntegrationTest {
                     }
                 }
 
-                val rag = LightRAG(
-                    workingDir = tempDir.absolutePath,
-                    chatModel = mockChatModel,
-                    embeddingModel = mockEmbeddingModel,
-                )
+                val rag =
+                    LightRAG(
+                        workingDir = tempDir.absolutePath,
+                        chatModel = mockChatModel,
+                        embeddingModel = mockEmbeddingModel,
+                    )
 
                 // 3. Insert
                 val content = "The capital of France is Paris."
@@ -89,10 +89,9 @@ class LightRAGIntegrationTest {
 
                 assertTrue(
                     systemText.contains("The capital of France is Paris") ||
-                    systemText.contains("Paris"),
-                    "Context should contain inserted text. Actual system prompt: $systemText"
+                        systemText.contains("Paris"),
+                    "Context should contain inserted text. Actual system prompt: $systemText",
                 )
-
             } finally {
                 tempDir.deleteRecursively()
             }
@@ -137,11 +136,12 @@ class LightRAGIntegrationTest {
                     }
                 }
 
-                val rag = LightRAG(
-                    workingDir = tempDir.absolutePath,
-                    chatModel = mockChatModel,
-                    embeddingModel = mockEmbeddingModel,
-                )
+                val rag =
+                    LightRAG(
+                        workingDir = tempDir.absolutePath,
+                        chatModel = mockChatModel,
+                        embeddingModel = mockEmbeddingModel,
+                    )
 
                 rag.insert("The capital of France is Paris.")
 
@@ -158,9 +158,8 @@ class LightRAGIntegrationTest {
 
                 assertTrue(
                     systemText.contains("France") || systemText.contains("Paris"),
-                    "Context should contain extracted entities. Actual system prompt: $systemText"
+                    "Context should contain extracted entities. Actual system prompt: $systemText",
                 )
-
             } finally {
                 tempDir.deleteRecursively()
             }
