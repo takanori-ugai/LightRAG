@@ -40,6 +40,10 @@ dependencies {
     implementation("dev.langchain4j:langchain4j-open-ai:0.31.0")
     implementation("dev.langchain4j:langchain4j-ollama:0.31.0")
 
+    // MongoDB
+    implementation("org.mongodb:mongodb-driver-kotlin-coroutine:5.1.0")
+    implementation("org.mongodb:bson-kotlinx:5.1.0")
+
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.22")
     testImplementation("io.mockk:mockk:1.13.9")
 }

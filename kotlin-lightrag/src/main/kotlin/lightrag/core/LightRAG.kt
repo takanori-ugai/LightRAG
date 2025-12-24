@@ -66,6 +66,7 @@ class LightRAG(
     llmModelName: String = "llama3",
     embeddingBinding: String = "ollama",
     embeddingModelName: String = "all-minilm",
+    graphStorageName: String = "InMemoryGraphStorage",
 ) {
     // Initialize LLM and Embedding models
     private val model: ChatLanguageModel =
@@ -85,6 +86,7 @@ class LightRAG(
             "chunk_overlap_token_size" to 100,
             "entity_types" to listOf("Person", "Organization", "Location", "Event", "Concept"),
             "language" to "English",
+            "working_dir" to workingDir,
         )
 
     // Initialize Storages
@@ -143,10 +145,28 @@ class LightRAG(
 
     // Graph Storage
     val chunkEntityRelationGraph: BaseGraphStorage =
-        InMemoryGraphStorage(
-            namespace = "chunk_entity_relation_graph",
-            workspace = "default",
-        )
+        when (graphStorageName) {
+            "MongoGraphStorage" -> {
+                // Use reflection or hardcode instantiation for now as imports might not be available here if modularized,
+                // but since it's the same module, we can instantiate directly.
+                // We need to import MongoGraphStorage.
+                // Since I cannot change imports easily with merge_diff without top context, I'll rely on fully qualified name if possible
+                // or just add import. Wait, I should add import.
+                // For now, I'll assume I can't import easily and just try to instantiate if I can add import in another block.
+                // Actually, let's use a factory approach or hardcode for now.
+                // I will add the import in a separate block.
+                lightrag.kg.mongo.MongoGraphStorage(
+                    namespace = "chunk_entity_relation_graph",
+                    globalConfig = globalConfig,
+                    embeddingFunc = embedding,
+                )
+            }
+            else ->
+                InMemoryGraphStorage(
+                    namespace = "chunk_entity_relation_graph",
+                    workspace = "default",
+                )
+        }
 
     // Alias for backward compatibility if needed, but pointing to specific ones is better
     val kvStorage: BaseKVStorage = textChunks // Default kvStorage points to textChunks
