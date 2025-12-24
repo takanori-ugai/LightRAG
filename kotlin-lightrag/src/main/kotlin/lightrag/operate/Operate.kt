@@ -10,6 +10,7 @@ import lightrag.core.QueryParam
 import lightrag.core.types.BaseGraphStorage
 import lightrag.core.types.BaseKVStorage
 import lightrag.core.types.BaseVectorStorage
+import lightrag.utils.JsonUtils
 import lightrag.utils.Prompts
 
 private val logger = KotlinLogging.logger {}
@@ -250,7 +251,6 @@ suspend fun mergeNodesAndEdges(
         val entityContent = "$name\n$longestDesc"
         val vdbData =
             mapOf(
-                // We need a way to generate ID, using md5(name) for now
                 lightrag.utils.computeMd5(name) to
                     mapOf(
                         "content" to entityContent,
@@ -336,14 +336,79 @@ suspend fun kgQuery(
     val entitiesStr =
         entities.joinToString("\n") {
             // Simplified entity string
-            "{ \"entity_name\": \"${it["entity_name"]}\", \"content\": \"${it["content"]?.toString()?.replace("\n", " ")}\" }"
+            "{ \"entity_name\": \"${it["entity_name"]}\", \"content\": \"${JsonUtils.escape(it["content"]?.toString() ?: "")}\" }"
         }
 
-    val relationsStr = "" // Placeholder for relations
+    // Fetch Relations (Simplified implementation)
+    // We can iterate over entities and get connected edges from knowledgeGraphInst
+    val entityNames = entities.mapNotNull { it["entity_name"] as? String }
+    val edges = mutableListOf<Map<String, String>>()
+    val relationsSet = mutableSetOf<String>() // to avoid duplicates
 
-    val textChunksStr = "" // Placeholder for chunks
+    // Also collect chunk IDs
+    val chunkIdsSet = mutableSetOf<String>()
 
-    val referenceListStr = "" // Placeholder for references
+    if (entityNames.isNotEmpty()) {
+        val nodesData = knowledgeGraphInst.getNodesBatch(entityNames)
+
+        nodesData.forEach { (nodeId, nodeData) ->
+            // Collect chunk IDs from node source_id
+            val sourceIds = nodeData["source_id"]?.toString()?.split(Constants.GRAPH_FIELD_SEP)
+            if (sourceIds != null) {
+                chunkIdsSet.addAll(sourceIds)
+            }
+
+            // Get edges for this node
+            val nodeEdges = knowledgeGraphInst.getNodeEdges(nodeId)
+            nodeEdges?.forEach { (src, tgt) ->
+                val edgeKey = if (src < tgt) "$src#$tgt" else "$tgt#$src"
+                if (!relationsSet.contains(edgeKey)) {
+                    val edgeData = knowledgeGraphInst.getEdge(src, tgt)
+                    if (edgeData != null) {
+                        relationsSet.add(edgeKey)
+                        edges.add(
+                            mapOf(
+                                "src_id" to src,
+                                "tgt_id" to tgt,
+                                "description" to (edgeData["description"] ?: ""),
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    val relationsStr =
+        edges.take(queryParam.top_k).joinToString("\n") {
+            "{ \"src_id\": \"${it["src_id"]}\", \"tgt_id\": \"${it["tgt_id"]}\", \"content\": \"${JsonUtils.escape(it["description"] ?: "")}\" }"
+        }
+
+    // Fetch Text Chunks
+    val chunks =
+        if (chunkIdsSet.isNotEmpty()) {
+            if (chunksVdb != null) {
+                chunksVdb.getByIds(chunkIdsSet.toList())
+            } else {
+                textChunksDb.getByIds(chunkIdsSet.toList())
+            }
+        } else {
+            emptyList()
+        }
+
+    val textChunksStr =
+        chunks.mapIndexed { index, chunk ->
+            // We use index as reference ID in the prompt
+            // content from chunksVdb or textChunksDb
+            val content = chunk["content"]?.toString() ?: ""
+            "{ \"reference_id\": \"${index + 1}\", \"content\": \"${JsonUtils.escape(content)}\" }"
+        }.joinToString("\n")
+
+    val referenceListStr =
+        chunks.mapIndexed { index, chunk ->
+            val filePath = chunk["file_path"] ?: "unknown_source"
+            "[${index + 1}] $filePath"
+        }.joinToString("\n")
 
     val contextContent =
         contextBuilder.toString()
@@ -419,7 +484,7 @@ suspend fun naiveQuery(
     // For now, simple context building (simplification of Python logic)
     val textChunksStr =
         docChunks.joinToString("\n") { chunk ->
-            "{\"reference_id\": \"${chunk["reference_id"]}\", \"content\": \"${chunk["content"]}\"}"
+            "{\"reference_id\": \"${chunk["reference_id"]}\", \"content\": \"${JsonUtils.escape(chunk["content"].toString())}\"}"
         }
 
     val referenceListStr =
