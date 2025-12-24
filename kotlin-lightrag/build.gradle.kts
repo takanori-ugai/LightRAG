@@ -9,7 +9,8 @@ group = "com.lightrag"
 version = "0.0.1"
 
 application {
-    mainClass.set("lightrag.ApplicationKt")
+//    mainClass.set("lightrag.ApplicationKt")
+    mainClass.set("lightrag.examples.LightRagOpenAiDemoKt")
 }
 
 repositories {
