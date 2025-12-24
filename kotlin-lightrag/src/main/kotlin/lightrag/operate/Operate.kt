@@ -4,14 +4,14 @@ import dev.langchain4j.data.message.AiMessage
 import dev.langchain4j.data.message.SystemMessage
 import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.chat.ChatLanguageModel
+import io.github.oshai.kotlinlogging.KotlinLogging
 import lightrag.core.QueryParam
 import lightrag.core.types.BaseGraphStorage
 import lightrag.core.types.BaseKVStorage
 import lightrag.core.types.BaseVectorStorage
 import lightrag.utils.Prompts
-import org.slf4j.LoggerFactory
 
-private val logger = LoggerFactory.getLogger("lightrag.operate")
+private val logger = KotlinLogging.logger {}
 
 data class ChunkingResult(
     val tokens: Int,
@@ -40,9 +40,9 @@ fun chunkingByTokenSize(
             for (chunk in rawChunks) {
                 val chunkTokens = tokenizer(chunk)
                 if (chunkTokens.size > chunkTokenSize) {
-                    logger.warn(
-                        "Chunk split_by_character exceeds token limit: len=${chunkTokens.size} limit=$chunkTokenSize",
-                    )
+                    logger.warn {
+                        "Chunk split_by_character exceeds token limit: len=${chunkTokens.size} limit=$chunkTokenSize"
+                    }
                     // In Python code it raises exception, here we can log and maybe truncate or skip?
                     // Python raises ChunkTokenLimitExceededError.
                     // For now, let's just proceed or throw RuntimeException
@@ -110,7 +110,7 @@ suspend fun kgQuery(
 
     val model = chatModel ?: globalConfig["llm_model_func"] as? ChatLanguageModel
     if (model == null) {
-        logger.error("No ChatLanguageModel provided for kgQuery")
+        logger.error { "No ChatLanguageModel provided for kgQuery" }
         return null
     }
 
@@ -167,7 +167,7 @@ suspend fun kgQuery(
         val response: AiMessage = model.generate(messages).content()
         return response.text()
     } catch (e: Exception) {
-        logger.error("Error generating response in kgQuery", e)
+        logger.error(e) { "Error generating response in kgQuery" }
         return "Error generating response."
     }
 }
@@ -243,7 +243,7 @@ suspend fun naiveQuery(
     val model = chatModel ?: globalConfig["llm_model_func"] as? ChatLanguageModel
 
     if (model == null) {
-        logger.error("No ChatLanguageModel provided for naiveQuery")
+        logger.error { "No ChatLanguageModel provided for naiveQuery" }
         return "Error: No LLM model configured."
     }
 
@@ -256,7 +256,7 @@ suspend fun naiveQuery(
         val response: AiMessage = model.generate(messages).content()
         return response.text()
     } catch (e: Exception) {
-        logger.error("Error generating response in naiveQuery", e)
+        logger.error(e) { "Error generating response in naiveQuery" }
         return "Error generating response."
     }
 }
