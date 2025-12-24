@@ -361,7 +361,7 @@ suspend fun kgQuery(
 
         nodesData.forEach { (nodeId, nodeData) ->
             // Collect chunk IDs from node source_id
-            val sourceIds = nodeData["source_id"]?.toString()?.split(Constants.GRAPH_FIELD_SEP)
+            val sourceIds = nodeData["source_id"]?.split(Constants.GRAPH_FIELD_SEP)
             if (sourceIds != null) {
                 chunkIdsSet.addAll(sourceIds)
             }

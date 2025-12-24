@@ -55,7 +55,7 @@ class Neo4jGraphStorage(
         if (ws.isNullOrBlank()) {
             ws = "base"
         }
-        workspace = ws ?: "base"
+        workspace = ws
 
         if (!neo4jWorkspace.isNullOrBlank()) {
             logger.info {

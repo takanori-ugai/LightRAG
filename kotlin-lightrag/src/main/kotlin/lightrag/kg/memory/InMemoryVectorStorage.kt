@@ -62,6 +62,8 @@ class InMemoryVectorStorage(
                                         (obj["vector"] as? JsonArray)?.map {
                                             (it as? JsonPrimitive)?.content?.toFloatOrNull() ?: 0.0f
                                         } ?: emptyList()
+
+                                    @Suppress("UNCHECKED_CAST")
                                     val meta =
                                         (obj["metadata"] as? JsonObject)?.toAny() as? Map<String, Any>
                                             ?: emptyMap()

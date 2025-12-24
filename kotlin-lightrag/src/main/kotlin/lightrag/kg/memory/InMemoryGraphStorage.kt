@@ -84,10 +84,10 @@ class InMemoryGraphStorage(
         nodes.forEach { deleteNode(it) }
     }
 
-    override suspend fun removeEdges(edgesList: List<Pair<String, String>>) {
-        edgesList.forEach { (src, tgt) ->
-            edges[src]?.remove(tgt)
-            edges[tgt]?.remove(src)
+    override suspend fun removeEdges(edges: List<Pair<String, String>>) {
+        edges.forEach { (src, tgt) ->
+            this.edges[src]?.remove(tgt)
+            this.edges[tgt]?.remove(src)
         }
     }
 
