@@ -28,12 +28,18 @@ class JsonDocStatusStorage(
     override suspend fun getById(id: String): Map<String, Any>? =
         mutex.withLock {
             docs[id]?.let {
-                // Convert DocProcessingStatus to Map<String, Any> if needed,
-                // but BaseKVStorage expects Map<String, Any>.
-                // For now, we might need a way to serialize/deserialize or cast.
-                // This is a type mismatch issue in the design if strict.
-                // Simplified: return simplified map
-                mapOf("id" to id, "status" to it.status.value)
+                // Convert DocProcessingStatus to Map<String, Any>
+                mapOf(
+                    "status" to it.status.value,
+                    "content_summary" to it.content_summary,
+                    "content_length" to it.content_length,
+                    "created_at" to it.created_at,
+                    "updated_at" to it.updated_at,
+                    "file_path" to it.file_path,
+                    "track_id" to (it.track_id ?: ""),
+                    "chunks_count" to (it.chunks_count ?: 0),
+                    "error_msg" to (it.error_msg ?: ""),
+                )
             }
         }
 
@@ -47,7 +53,26 @@ class JsonDocStatusStorage(
         }
 
     override suspend fun upsert(data: Map<String, Map<String, Any>>) {
-        // Implementation to convert Map to DocProcessingStatus and store
+        mutex.withLock {
+            data.forEach { (id, map) ->
+                val existing = docs[id]
+                val statusStr = map["status"] as? String ?: existing?.status?.value ?: DocStatus.PENDING.value
+                val status = DocStatus.values().find { it.value == statusStr } ?: DocStatus.PENDING
+
+                val newDoc =
+                    DocProcessingStatus(
+                        status = status,
+                        content_summary = map["content_summary"] as? String ?: existing?.content_summary ?: "",
+                        content_length = (map["content_length"]?.toString()?.toIntOrNull()) ?: existing?.content_length ?: 0,
+                        created_at = map["created_at"] as? String ?: existing?.created_at ?: "",
+                        updated_at = map["updated_at"] as? String ?: existing?.updated_at ?: "",
+                        file_path = map["file_path"] as? String ?: existing?.file_path ?: "",
+                        track_id = map["track_id"] as? String ?: existing?.track_id,
+                        error_msg = map["error_msg"] as? String ?: existing?.error_msg,
+                    )
+                docs[id] = newDoc
+            }
+        }
     }
 
     override suspend fun delete(ids: List<String>) {

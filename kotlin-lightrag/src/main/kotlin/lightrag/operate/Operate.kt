@@ -5,6 +5,7 @@ import dev.langchain4j.data.message.SystemMessage
 import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.chat.ChatLanguageModel
 import io.github.oshai.kotlinlogging.KotlinLogging
+import lightrag.core.Constants
 import lightrag.core.QueryParam
 import lightrag.core.types.BaseGraphStorage
 import lightrag.core.types.BaseKVStorage
@@ -17,6 +18,22 @@ data class ChunkingResult(
     val tokens: Int,
     val content: String,
     val chunkOrderIndex: Int,
+)
+
+data class EntityExtractionResult(
+    val entityName: String,
+    val entityType: String,
+    val description: String,
+    val sourceId: String,
+)
+
+data class RelationExtractionResult(
+    val srcId: String,
+    val tgtId: String,
+    val description: String,
+    val keywords: String,
+    val weight: Double,
+    val sourceId: String,
 )
 
 fun chunkingByTokenSize(
@@ -88,6 +105,197 @@ fun chunkingByTokenSize(
         }
     }
     return results
+}
+
+suspend fun extractEntities(
+    chunks: Map<String, Map<String, Any>>,
+    globalConfig: Map<String, Any>,
+): Pair<Map<String, List<EntityExtractionResult>>, Map<String, List<RelationExtractionResult>>> {
+    val model = globalConfig["llm_model_func"] as? ChatLanguageModel
+    if (model == null) {
+        logger.error { "No ChatLanguageModel provided for entity extraction" }
+        return emptyMap<String, List<EntityExtractionResult>>() to emptyMap()
+    }
+
+    val nodes = mutableMapOf<String, MutableList<EntityExtractionResult>>()
+    val edges = mutableMapOf<String, MutableList<RelationExtractionResult>>()
+
+    val entityTypes = (globalConfig["entity_types"] as? List<*>)?.map { it.toString() } ?: listOf("Person", "Organization", "Location")
+    val language = globalConfig["language"] as? String ?: "English"
+
+    val examples = Prompts.ENTITY_EXTRACTION_EXAMPLES.joinToString("\n")
+    val contextBase =
+        mapOf(
+            "tuple_delimiter" to Prompts.DEFAULT_TUPLE_DELIMITER,
+            "completion_delimiter" to Prompts.DEFAULT_COMPLETION_DELIMITER,
+            "entity_types" to entityTypes.joinToString(","),
+            "language" to language,
+            "examples" to examples,
+        )
+
+    val systemPrompt =
+        Prompts.ENTITY_EXTRACTION_SYSTEM_PROMPT
+            .replace("{tuple_delimiter}", contextBase["tuple_delimiter"]!!)
+            .replace("{completion_delimiter}", contextBase["completion_delimiter"]!!)
+            .replace("{entity_types}", contextBase["entity_types"]!!)
+            .replace("{language}", contextBase["language"]!!)
+            .replace("{examples}", contextBase["examples"]!!)
+
+    chunks.forEach { (chunkKey, chunkData) ->
+        val content = chunkData["content"] as? String ?: return@forEach
+
+        val userPrompt =
+            Prompts.ENTITY_EXTRACTION_USER_PROMPT
+                .replace("{language}", language)
+                .replace("{entity_types}", entityTypes.joinToString(","))
+                .replace("{input_text}", content)
+                .replace("{completion_delimiter}", Prompts.DEFAULT_COMPLETION_DELIMITER)
+                .replace("{tuple_delimiter}", Prompts.DEFAULT_TUPLE_DELIMITER)
+
+        try {
+            val messages =
+                listOf(
+                    SystemMessage(systemPrompt),
+                    UserMessage(userPrompt),
+                )
+            val response: AiMessage = model.generate(messages).content()
+            val responseText = response.text()
+
+            val (chunkNodes, chunkEdges) = processExtractionResult(responseText, chunkKey, Prompts.DEFAULT_TUPLE_DELIMITER)
+
+            chunkNodes.forEach { (name, list) ->
+                nodes.computeIfAbsent(name) { mutableListOf() }.addAll(list)
+            }
+            chunkEdges.forEach { (key, list) ->
+                edges.computeIfAbsent(key) { mutableListOf() }.addAll(list)
+            }
+        } catch (e: Exception) {
+            logger.error(e) { "Error extracting entities for chunk $chunkKey" }
+        }
+    }
+
+    return nodes to edges
+}
+
+fun processExtractionResult(
+    result: String,
+    chunkKey: String,
+    tupleDelimiter: String,
+): Pair<Map<String, List<EntityExtractionResult>>, Map<String, List<RelationExtractionResult>>> {
+    val nodes = mutableMapOf<String, MutableList<EntityExtractionResult>>()
+    val edges = mutableMapOf<String, MutableList<RelationExtractionResult>>()
+
+    // Basic parsing logic (simplified)
+    val lines = result.split("\n")
+    for (line in lines) {
+        if (line.trim().isEmpty()) continue
+        if (line.contains(Prompts.DEFAULT_COMPLETION_DELIMITER)) continue
+
+        // Handle delimiter issues or format variations if needed
+        val parts = line.split(tupleDelimiter)
+
+        if (parts.size >= 4 && parts[0].trim() == "entity") {
+            // entity<|>name<|>type<|>description
+            val name = parts[1].trim()
+            val type = parts[2].trim()
+            val desc = parts[3].trim()
+            nodes.computeIfAbsent(name) { mutableListOf() }.add(
+                EntityExtractionResult(name, type, desc, chunkKey),
+            )
+        } else if (parts.size >= 5 && parts[0].trim() == "relation") {
+            // relation<|>src<|>tgt<|>keywords<|>desc
+            val src = parts[1].trim()
+            val tgt = parts[2].trim()
+            val keywords = parts[3].trim()
+            val desc = parts[4].trim()
+            val weight = 1.0 // Default
+            val key = listOf(src, tgt).sorted().joinToString("#")
+
+            edges.computeIfAbsent(key) { mutableListOf() }.add(
+                RelationExtractionResult(src, tgt, desc, keywords, weight, chunkKey),
+            )
+        }
+    }
+    return nodes to edges
+}
+
+suspend fun mergeNodesAndEdges(
+    nodes: Map<String, List<EntityExtractionResult>>,
+    edges: Map<String, List<RelationExtractionResult>>,
+    knowledgeGraphInst: BaseGraphStorage,
+    entitiesVdb: BaseVectorStorage,
+    relationshipsVdb: BaseVectorStorage,
+    globalConfig: Map<String, Any>,
+) {
+    // 1. Process Nodes
+    for ((name, entityList) in nodes) {
+        // Simple merge: take the longest description and majority type
+        // In real impl, use LLM to summarize descriptions
+        val longestDesc = entityList.maxByOrNull { it.description.length }?.description ?: ""
+        val typeCounts = entityList.groupingBy { it.entityType }.eachCount()
+        val majorityType = typeCounts.maxByOrNull { it.value }?.key ?: "Unknown"
+        val sourceIds = entityList.joinToString(Constants.GRAPH_FIELD_SEP) { it.sourceId }
+
+        val nodeData =
+            mapOf(
+                "entity_id" to name,
+                "entity_type" to majorityType,
+                "description" to longestDesc,
+                "source_id" to sourceIds,
+            )
+
+        knowledgeGraphInst.upsertNode(name, nodeData)
+
+        // Update VDB
+        val entityContent = "$name\n$longestDesc"
+        val vdbData =
+            mapOf(
+                // We need a way to generate ID, using md5(name) for now
+                lightrag.utils.computeMd5(name) to
+                    mapOf(
+                        "content" to entityContent,
+                        "entity_name" to name,
+                    ),
+            )
+        entitiesVdb.upsert(vdbData)
+    }
+
+    // 2. Process Edges
+    for ((key, edgeList) in edges) {
+        // Simple merge
+        val first = edgeList.first()
+        val src = first.srcId
+        val tgt = first.tgtId
+        val longestDesc = edgeList.maxByOrNull { it.description.length }?.description ?: ""
+        val allKeywords = edgeList.joinToString(", ") { it.keywords }
+        val weight = edgeList.sumOf { it.weight }
+        val sourceIds = edgeList.joinToString(Constants.GRAPH_FIELD_SEP) { it.sourceId }
+
+        val edgeData =
+            mapOf(
+                "weight" to weight.toString(),
+                "description" to longestDesc,
+                "keywords" to allKeywords,
+                "source_id" to sourceIds,
+                "src_id" to src,
+                "tgt_id" to tgt,
+            )
+
+        knowledgeGraphInst.upsertEdge(src, tgt, edgeData)
+
+        // Update VDB
+        val relContent = "$allKeywords\t$src\n$tgt\n$longestDesc"
+        val vdbData =
+            mapOf(
+                lightrag.utils.computeMd5(key) to
+                    mapOf(
+                        "content" to relContent,
+                        "src_id" to src,
+                        "tgt_id" to tgt,
+                    ),
+            )
+        relationshipsVdb.upsert(vdbData)
+    }
 }
 
 suspend fun kgQuery(
