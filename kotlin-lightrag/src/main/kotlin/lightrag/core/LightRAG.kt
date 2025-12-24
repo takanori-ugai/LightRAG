@@ -1,7 +1,7 @@
 package lightrag.core
 
 import dev.langchain4j.model.chat.ChatLanguageModel
-import dev.langchain4j.model.ollama.OllamaChatModel
+import dev.langchain4j.model.embedding.EmbeddingModel
 import kotlinx.serialization.Serializable
 import lightrag.core.types.BaseGraphStorage
 import lightrag.core.types.BaseKVStorage
@@ -11,6 +11,7 @@ import lightrag.kg.json.JsonDocStatusStorage
 import lightrag.kg.json.JsonKVStorage
 import lightrag.kg.memory.InMemoryGraphStorage
 import lightrag.kg.memory.InMemoryVectorStorage
+import lightrag.llm.LLMFactory
 
 @Serializable
 data class QueryParam(
@@ -25,20 +26,33 @@ data class QueryParam(
 
 class LightRAG(
     val workingDir: String = "./rag_storage",
-    private val chatModel: ChatLanguageModel? = null,
+    // Allow injecting custom models, or configuring via binding strings
+    chatModel: ChatLanguageModel? = null,
+    embeddingModel: EmbeddingModel? = null,
+    llmBinding: String = "ollama",
+    llmModelName: String = "llama3",
+    embeddingBinding: String = "ollama",
+    embeddingModelName: String = "all-minilm",
 ) {
-    // Default model if none provided (e.g. Ollama or OpenAI)
+    // Initialize LLM and Embedding models
     private val model: ChatLanguageModel =
-        chatModel ?: OllamaChatModel.builder()
-            .baseUrl("http://localhost:11434")
-            .modelName("llama3")
-            .build()
+        chatModel ?: LLMFactory.createChatModel(llmBinding, llmModelName)
+
+    private val embedding: EmbeddingModel =
+        embeddingModel ?: LLMFactory.createEmbeddingModel(embeddingBinding, embeddingModelName)
 
     // Initialize Storages
     // In a real app, these would be injected or configured via a factory
     val docStatusStorage: DocStatusStorage = JsonDocStatusStorage(namespace = "doc_status", workspace = "default")
     val kvStorage: BaseKVStorage = JsonKVStorage(namespace = "kv_storage", workspace = "default")
-    val vectorStorage: BaseVectorStorage = InMemoryVectorStorage(namespace = "vector_storage", workspace = "default")
+
+    // Inject embedding model into vector storage
+    val vectorStorage: BaseVectorStorage =
+        InMemoryVectorStorage(
+            namespace = "vector_storage",
+            workspace = "default",
+            embeddingFunc = embedding,
+        )
     val graphStorage: BaseGraphStorage = InMemoryGraphStorage(namespace = "graph_storage", workspace = "default")
 
     suspend fun insert(input: String): String {
