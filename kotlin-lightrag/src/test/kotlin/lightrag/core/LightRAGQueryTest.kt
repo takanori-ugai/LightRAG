@@ -29,8 +29,10 @@ class LightRAGQueryTest {
 
                 // Mock Embedding behavior
                 // Return non-zero embedding to avoid potential normalization issues if any
-                every { mockEmbeddingModel.embed(any<String>()) } returns Response.from(Embedding(FloatArray(384) { 0.1f }))
-                every { mockEmbeddingModel.embed(any<TextSegment>()) } returns Response.from(Embedding(FloatArray(384) { 0.1f }))
+                every { mockEmbeddingModel.embed(any<String>()) } returns
+                    Response.from(Embedding(FloatArray(384) { 0.1f }))
+                every { mockEmbeddingModel.embed(any<TextSegment>()) } returns
+                    Response.from(Embedding(FloatArray(384) { 0.1f }))
                 every { mockEmbeddingModel.embedAll(any<List<TextSegment>>()) } answers {
                     val input = firstArg<List<TextSegment>>()
                     Response.from(input.map { Embedding(FloatArray(384) { 0.1f }) })
@@ -52,7 +54,10 @@ class LightRAGQueryTest {
                             relation<|#|>Apple<|#|>iPhone<|#|>manufactures<|#|>Apple manufactures iPhone
                             """.trimIndent()
                         Response.from(AiMessage(responseText))
-                    } else if (text.contains("Given the following description of the user's query", ignoreCase = true) ||
+                    } else if (text.contains(
+                            "Given the following description of the user's query",
+                            ignoreCase = true,
+                        ) ||
                         text.contains("Given the following description", ignoreCase = true) ||
                         text.contains("---Role---", ignoreCase = true)
                     ) {
@@ -96,7 +101,11 @@ class LightRAGQueryTest {
                     // Acceptable for now as it proves flow connectivity
                     assertTrue(true)
                 } else {
-                    assertTrue(result.contains("Naive query response") || result.contains("Mock response"), "Result was: $result")
+                    assertTrue(
+                        result.contains("Naive query response") ||
+                            result.contains("Mock response"),
+                        "Result was: $result",
+                    )
                 }
 
                 // Cleanup
@@ -117,8 +126,10 @@ class LightRAGQueryTest {
                 val mockEmbeddingModel = mockk<EmbeddingModel>()
 
                 // Mock Embedding behavior
-                every { mockEmbeddingModel.embed(any<String>()) } returns Response.from(Embedding(FloatArray(384) { 0.1f }))
-                every { mockEmbeddingModel.embed(any<TextSegment>()) } returns Response.from(Embedding(FloatArray(384) { 0.1f }))
+                every { mockEmbeddingModel.embed(any<String>()) } returns
+                    Response.from(Embedding(FloatArray(384) { 0.1f }))
+                every { mockEmbeddingModel.embed(any<TextSegment>()) } returns
+                    Response.from(Embedding(FloatArray(384) { 0.1f }))
                 every { mockEmbeddingModel.embedAll(any<List<TextSegment>>()) } answers {
                     val input = firstArg<List<TextSegment>>()
                     Response.from(input.map { Embedding(FloatArray(384) { 0.1f }) })
@@ -177,8 +188,10 @@ class LightRAGQueryTest {
                 val mockChatModel = mockk<ChatLanguageModel>()
                 val mockEmbeddingModel = mockk<EmbeddingModel>()
 
-                every { mockEmbeddingModel.embed(any<String>()) } returns Response.from(Embedding(FloatArray(384) { 0.1f }))
-                every { mockChatModel.generate(any<List<ChatMessage>>()) } returns Response.from(AiMessage("Direct LLM response"))
+                every { mockEmbeddingModel.embed(any<String>()) } returns
+                    Response.from(Embedding(FloatArray(384) { 0.1f }))
+                every { mockChatModel.generate(any<List<ChatMessage>>()) } returns
+                    Response.from(AiMessage("Direct LLM response"))
 
                 val tempDir = File("build/tmp/test_rag_query_bypass_${System.currentTimeMillis()}")
                 tempDir.mkdirs()

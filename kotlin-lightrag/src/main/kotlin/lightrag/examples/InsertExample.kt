@@ -12,7 +12,10 @@ import lightrag.core.LightRAG
 class MockChatModel : ChatLanguageModel {
     override fun generate(messages: List<dev.langchain4j.data.message.ChatMessage>): Response<AiMessage> {
         return Response.from(
-            AiMessage.from("entity<|#|>Entity1<|#|>Type1<|#|>Desc1\nrelation<|#|>Entity1<|#|>Entity2<|#|>Keywords<|#|>Desc2"),
+            AiMessage.from(
+                "entity<|#|>Entity1<|#|>Type1<|#|>Desc1\n" +
+                    "relation<|#|>Entity1<|#|>Entity2<|#|>Keywords<|#|>Desc2",
+            ),
         )
     }
 }
@@ -43,7 +46,8 @@ fun main() =
         println("Insert started with trackId: $trackId")
 
         // In a real app we would poll status, but here we just wait a bit or assume it's done if sync
-        // The insert implementation calls pipelineProcessEnqueueDocuments() which runs in the same coroutine scope in my implementation
+        // The insert implementation calls pipelineProcessEnqueueDocuments() which runs in the same
+        // coroutine scope in my implementation
 
         val status = rag.getProcessingStatus()
         println("Status: $status")

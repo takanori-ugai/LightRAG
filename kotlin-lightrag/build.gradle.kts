@@ -3,6 +3,12 @@ plugins {
     id("io.ktor.plugin") version "2.3.9"
     kotlin("plugin.serialization") version "2.3.0"
     id("org.jlleitschuh.gradle.ktlint") version "12.1.0"
+    id("io.gitlab.arturbosch.detekt") version "1.23.6"
+}
+
+detekt {
+    buildUponDefaultConfig = true
+    config.setFrom(files("config/detekt.yml"))
 }
 
 group = "com.lightrag"
@@ -33,6 +39,10 @@ dependencies {
     implementation("dev.langchain4j:langchain4j-core:0.31.0")
     implementation("dev.langchain4j:langchain4j-open-ai:0.31.0")
     implementation("dev.langchain4j:langchain4j-ollama:0.31.0")
+
+    // MongoDB
+    implementation("org.mongodb:mongodb-driver-kotlin-coroutine:5.1.0")
+    implementation("org.mongodb:bson-kotlinx:5.1.0")
 
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.22")
     testImplementation("io.mockk:mockk:1.13.9")

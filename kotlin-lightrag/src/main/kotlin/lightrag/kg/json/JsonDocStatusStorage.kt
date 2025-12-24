@@ -1,12 +1,18 @@
 package lightrag.kg.json
 
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import lightrag.core.types.DocProcessingStatus
 import lightrag.core.types.DocStatus
 import lightrag.core.types.DocStatusStorage
 import lightrag.core.types.EmbeddingFunc
+import java.io.File
 import java.lang.Math.min
+
+private val logger = KotlinLogging.logger {}
 
 class JsonDocStatusStorage(
     override val namespace: String,
@@ -16,29 +22,60 @@ class JsonDocStatusStorage(
 ) : DocStatusStorage {
     private val docs = mutableMapOf<String, DocProcessingStatus>()
     private val mutex = Mutex()
+    private val workingDir = File(globalConfig["working_dir"] as? String ?: "./rag_storage")
+    private val file = File(workingDir, "doc_status_$namespace.json")
+
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            prettyPrint = true
+        }
 
     override suspend fun initialize() {
-        // Load from file if exists
+        if (!workingDir.exists()) {
+            workingDir.mkdirs()
+        }
+        if (file.exists()) {
+            try {
+                val content = file.readText()
+                if (content.isNotBlank()) {
+                    val loaded = json.decodeFromString<Map<String, DocProcessingStatus>>(content)
+                    mutex.withLock {
+                        docs.putAll(loaded)
+                    }
+                    logger.info { "Loaded ${loaded.size} docs status from ${file.absolutePath}" }
+                }
+            } catch (e: Exception) {
+                logger.error(e) { "Error loading DocStatus storage from ${file.absolutePath}" }
+            }
+        }
     }
 
     override suspend fun indexDoneCallback() {
-        // Save to file
+        mutex.withLock {
+            try {
+                val content = json.encodeToString(docs)
+                file.writeText(content)
+                logger.debug { "Saved ${docs.size} docs status to ${file.absolutePath}" }
+            } catch (e: Exception) {
+                logger.error(e) { "Error saving DocStatus storage to ${file.absolutePath}" }
+            }
+        }
     }
 
     override suspend fun getById(id: String): Map<String, Any>? =
         mutex.withLock {
             docs[id]?.let {
-                // Convert DocProcessingStatus to Map<String, Any>
                 mapOf(
                     "status" to it.status.value,
-                    "content_summary" to it.content_summary,
-                    "content_length" to it.content_length,
-                    "created_at" to it.created_at,
-                    "updated_at" to it.updated_at,
-                    "file_path" to it.file_path,
-                    "track_id" to (it.track_id ?: ""),
-                    "chunks_count" to (it.chunks_count ?: 0),
-                    "error_msg" to (it.error_msg ?: ""),
+                    "content_summary" to it.contentSummary,
+                    "content_length" to it.contentLength,
+                    "created_at" to it.createdAt,
+                    "updated_at" to it.updatedAt,
+                    "file_path" to it.filePath,
+                    "track_id" to (it.trackId ?: ""),
+                    "chunks_count" to (it.chunksCount ?: 0),
+                    "error_msg" to (it.errorMsg ?: ""),
                 )
             }
         }
@@ -62,13 +99,15 @@ class JsonDocStatusStorage(
                 val newDoc =
                     DocProcessingStatus(
                         status = status,
-                        content_summary = map["content_summary"] as? String ?: existing?.content_summary ?: "",
-                        content_length = (map["content_length"]?.toString()?.toIntOrNull()) ?: existing?.content_length ?: 0,
-                        created_at = map["created_at"] as? String ?: existing?.created_at ?: "",
-                        updated_at = map["updated_at"] as? String ?: existing?.updated_at ?: "",
-                        file_path = map["file_path"] as? String ?: existing?.file_path ?: "",
-                        track_id = map["track_id"] as? String ?: existing?.track_id,
-                        error_msg = map["error_msg"] as? String ?: existing?.error_msg,
+                        contentSummary = map["content_summary"] as? String ?: existing?.contentSummary ?: "",
+                        contentLength =
+                            (map["content_length"]?.toString()?.toIntOrNull())
+                                ?: existing?.contentLength ?: 0,
+                        createdAt = map["created_at"] as? String ?: existing?.createdAt ?: "",
+                        updatedAt = map["updated_at"] as? String ?: existing?.updatedAt ?: "",
+                        filePath = map["file_path"] as? String ?: existing?.filePath ?: "",
+                        trackId = map["track_id"] as? String ?: existing?.trackId,
+                        errorMsg = map["error_msg"] as? String ?: existing?.errorMsg,
                     )
                 docs[id] = newDoc
             }
@@ -84,6 +123,9 @@ class JsonDocStatusStorage(
     override suspend fun drop(): Map<String, String> {
         mutex.withLock {
             docs.clear()
+            if (file.exists()) {
+                file.delete()
+            }
         }
         return mapOf("status" to "success", "message" to "data dropped")
     }
@@ -105,7 +147,7 @@ class JsonDocStatusStorage(
 
     override suspend fun getDocsByTrackId(trackId: String): Map<String, DocProcessingStatus> =
         mutex.withLock {
-            docs.filterValues { it.track_id == trackId }
+            docs.filterValues { it.trackId == trackId }
         }
 
     override suspend fun getDocsPaginated(
@@ -126,7 +168,7 @@ class JsonDocStatusStorage(
             val total = filtered.size
 
             // Sorting logic (simplified)
-            filtered = filtered.sortedBy { it.second.updated_at }
+            filtered = filtered.sortedBy { it.second.updatedAt }
             if (sortDirection == "desc") {
                 filtered = filtered.reversed()
             }
@@ -145,7 +187,7 @@ class JsonDocStatusStorage(
 
     override suspend fun getDocByFilePath(filePath: String): Map<String, Any>? =
         mutex.withLock {
-            val entry = docs.entries.find { it.value.file_path == filePath }
+            val entry = docs.entries.find { it.value.filePath == filePath }
             entry?.let { getById(it.key) }
         }
 }

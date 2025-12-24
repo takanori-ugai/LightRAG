@@ -10,6 +10,7 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import lightrag.core.LightRAG
 
@@ -23,7 +24,8 @@ data class OllamaTagResponse(val models: List<OllamaModel>)
 data class OllamaModel(
     val name: String,
     val model: String,
-    val modified_at: String,
+    @SerialName("modified_at")
+    val modifiedAt: String,
     val size: Long,
     val digest: String,
     val details: OllamaModelDetails,
@@ -31,12 +33,15 @@ data class OllamaModel(
 
 @Serializable
 data class OllamaModelDetails(
-    val parent_model: String,
+    @SerialName("parent_model")
+    val parentModel: String,
     val format: String,
     val family: String,
     val families: List<String>,
-    val parameter_size: String,
-    val quantization_level: String,
+    @SerialName("parameter_size")
+    val parameterSize: String,
+    @SerialName("quantization_level")
+    val quantizationLevel: String,
 )
 
 @Serializable

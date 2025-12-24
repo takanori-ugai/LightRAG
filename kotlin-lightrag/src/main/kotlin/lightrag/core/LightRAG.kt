@@ -2,6 +2,7 @@ package lightrag.core
 
 import dev.langchain4j.model.chat.ChatLanguageModel
 import dev.langchain4j.model.embedding.EmbeddingModel
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import lightrag.core.types.BaseGraphStorage
 import lightrag.core.types.BaseKVStorage
@@ -25,21 +26,35 @@ import java.time.Instant
 @Serializable
 data class QueryParam(
     val mode: String = "global",
-    val only_need_context: Boolean = false,
-    val only_need_prompt: Boolean = false,
-    val response_type: String? = "Multiple Paragraphs",
+    @SerialName("only_need_context")
+    val onlyNeedContext: Boolean = false,
+    @SerialName("only_need_prompt")
+    val onlyNeedPrompt: Boolean = false,
+    @SerialName("response_type")
+    val responseType: String? = "Multiple Paragraphs",
     val stream: Boolean = false,
-    val top_k: Int = 40,
-    val chunk_top_k: Int = 20,
-    val max_entity_tokens: Int = 6000,
-    val max_relation_tokens: Int = 8000,
-    val max_total_tokens: Int = 30000,
-    val hl_keywords: List<String> = emptyList(),
-    val ll_keywords: List<String> = emptyList(),
-    val conversation_history: List<Map<String, String>> = emptyList(),
-    val user_prompt: String? = null,
-    val enable_rerank: Boolean = true,
-    val include_references: Boolean = false,
+    @SerialName("top_k")
+    val topK: Int = 40,
+    @SerialName("chunk_top_k")
+    val chunkTopK: Int = 20,
+    @SerialName("max_entity_tokens")
+    val maxEntityTokens: Int = 6000,
+    @SerialName("max_relation_tokens")
+    val maxRelationTokens: Int = 8000,
+    @SerialName("max_total_tokens")
+    val maxTotalTokens: Int = 30000,
+    @SerialName("hl_keywords")
+    val hlKeywords: List<String> = emptyList(),
+    @SerialName("ll_keywords")
+    val llKeywords: List<String> = emptyList(),
+    @SerialName("conversation_history")
+    val conversationHistory: List<Map<String, String>> = emptyList(),
+    @SerialName("user_prompt")
+    val userPrompt: String? = null,
+    @SerialName("enable_rerank")
+    val enableRerank: Boolean = true,
+    @SerialName("include_references")
+    val includeReferences: Boolean = false,
 )
 
 class LightRAG(
@@ -51,6 +66,7 @@ class LightRAG(
     llmModelName: String = "llama3",
     embeddingBinding: String = "ollama",
     embeddingModelName: String = "all-minilm",
+    graphStorageName: String = "InMemoryGraphStorage",
 ) {
     // Initialize LLM and Embedding models
     private val model: ChatLanguageModel =
@@ -70,6 +86,7 @@ class LightRAG(
             "chunk_overlap_token_size" to 100,
             "entity_types" to listOf("Person", "Organization", "Location", "Event", "Concept"),
             "language" to "English",
+            "working_dir" to workingDir,
         )
 
     // Initialize Storages
@@ -128,10 +145,28 @@ class LightRAG(
 
     // Graph Storage
     val chunkEntityRelationGraph: BaseGraphStorage =
-        InMemoryGraphStorage(
-            namespace = "chunk_entity_relation_graph",
-            workspace = "default",
-        )
+        when (graphStorageName) {
+            "MongoGraphStorage" -> {
+                // Use reflection or hardcode instantiation for now as imports might not be available here if modularized,
+                // but since it's the same module, we can instantiate directly.
+                // We need to import MongoGraphStorage.
+                // Since I cannot change imports easily with merge_diff without top context, I'll rely on fully qualified name if possible
+                // or just add import. Wait, I should add import.
+                // For now, I'll assume I can't import easily and just try to instantiate if I can add import in another block.
+                // Actually, let's use a factory approach or hardcode for now.
+                // I will add the import in a separate block.
+                lightrag.kg.mongo.MongoGraphStorage(
+                    namespace = "chunk_entity_relation_graph",
+                    globalConfig = globalConfig,
+                    embeddingFunc = embedding,
+                )
+            }
+            else ->
+                InMemoryGraphStorage(
+                    namespace = "chunk_entity_relation_graph",
+                    workspace = "default",
+                )
+        }
 
     // Alias for backward compatibility if needed, but pointing to specific ones is better
     val kvStorage: BaseKVStorage = textChunks // Default kvStorage points to textChunks
@@ -223,7 +258,9 @@ class LightRAG(
 
                 // Get content
                 val docData = fullDocs.getById(docId)
-                val content = docData?.get("content") as? String ?: throw IllegalStateException("Doc content missing for $docId")
+                val content =
+                    docData?.get("content") as? String
+                        ?: throw IllegalStateException("Doc content missing for $docId")
 
                 // Chunking
                 // We use a reversible character-based "tokenizer" logic here for simplicity and robustness
@@ -265,7 +302,7 @@ class LightRAG(
                         mapOf(
                             "content" to v["content"]!!,
                             "full_doc_id" to v["full_doc_id"]!!,
-                            "file_path" to status.file_path,
+                            "file_path" to status.filePath,
                         )
                     }
                 chunksVdb.upsert(chunksVdbData)
@@ -289,7 +326,13 @@ class LightRAG(
             } catch (e: Exception) {
                 e.printStackTrace()
                 docStatusStorage.upsert(
-                    mapOf(docId to mapOf("status" to DocStatus.FAILED.value, "error_msg" to (e.message ?: "Unknown error"))),
+                    mapOf(
+                        docId to
+                            mapOf(
+                                "status" to DocStatus.FAILED.value,
+                                "error_msg" to (e.message ?: "Unknown error"),
+                            ),
+                    ),
                 )
             }
         }
