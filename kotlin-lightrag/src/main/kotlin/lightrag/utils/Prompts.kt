@@ -1,10 +1,10 @@
 package lightrag.utils
 
 object Prompts {
-    val DEFAULT_TUPLE_DELIMITER = "<|#|>"
-    val DEFAULT_COMPLETION_DELIMITER = "<|COMPLETE|>"
+    const val DEFAULT_TUPLE_DELIMITER = "<|#|>"
+    const val DEFAULT_COMPLETION_DELIMITER = "<|COMPLETE|>"
 
-    val ENTITY_EXTRACTION_SYSTEM_PROMPT = """---Role---
+    const val ENTITY_EXTRACTION_SYSTEM_PROMPT = """---Role---
 You are a Knowledge Graph Specialist responsible for extracting entities and relationships from the input text.
 
 ---Instructions---
@@ -56,7 +56,7 @@ You are a Knowledge Graph Specialist responsible for extracting entities and rel
 {examples}
 """
 
-    val ENTITY_EXTRACTION_USER_PROMPT = """---Task---
+    const val ENTITY_EXTRACTION_USER_PROMPT = """---Task---
 Extract entities and relationships from the input text in Data to be Processed below.
 
 ---Instructions---
@@ -77,7 +77,7 @@ Extract entities and relationships from the input text in Data to be Processed b
 <Output>
 """
 
-    val ENTITY_CONTINUE_EXTRACTION_USER_PROMPT = """---Task---
+    const val ENTITY_CONTINUE_EXTRACTION_USER_PROMPT = """---Task---
 Based on the last extraction task, identify and extract any **missed or incorrectly formatted** entities and relationships from the input text.
 
 ---Instructions---
@@ -179,7 +179,7 @@ relation{tuple_delimiter}Noah Carter{tuple_delimiter}World Athletics Championshi
 """,
         )
 
-    val SUMMARIZE_ENTITY_DESCRIPTIONS = """---Role---
+    const val SUMMARIZE_ENTITY_DESCRIPTIONS = """---Role---
 You are a Knowledge Graph Specialist, proficient in data curation and synthesis.
 
 ---Task---
@@ -214,9 +214,9 @@ Description List:
 ---Output---
 """
 
-    val FAIL_RESPONSE = "Sorry, I'm not able to provide an answer to that question.[no-context]"
+    const val FAIL_RESPONSE = "Sorry, I'm not able to provide an answer to that question.[no-context]"
 
-    val RAG_RESPONSE = """---Role---
+    const val RAG_RESPONSE = """---Role---
 
 You are an expert AI assistant specializing in synthesizing information from a provided knowledge base. Your primary function is to answer user queries accurately by ONLY using the information within the provided **Context**.
 
@@ -270,7 +270,7 @@ Consider the conversation history if provided to maintain conversational flow an
 {context_data}
 """
 
-    val NAIVE_RAG_RESPONSE = """---Role---
+    const val NAIVE_RAG_RESPONSE = """---Role---
 
 You are an expert AI assistant specializing in synthesizing information from a provided knowledge base. Your primary function is to answer user queries accurately by ONLY using the information within the provided **Context**.
 
@@ -324,7 +324,7 @@ Consider the conversation history if provided to maintain conversational flow an
 {content_data}
 """
 
-    val KG_QUERY_CONTEXT = """
+    const val KG_QUERY_CONTEXT = """
 Knowledge Graph Data (Entity):
 
 ```json
@@ -351,7 +351,7 @@ Reference Document List (Each entry starts with a [reference_id] that correspond
 
 """
 
-    val NAIVE_QUERY_CONTEXT = """
+    const val NAIVE_QUERY_CONTEXT = """
 Document Chunks (Each entry has a reference_id refer to the `Reference Document List`):
 
 ```json
@@ -366,7 +366,7 @@ Reference Document List (Each entry starts with a [reference_id] that correspond
 
 """
 
-    val KEYWORDS_EXTRACTION = """---Role---
+    const val KEYWORDS_EXTRACTION = """---Role---
 You are an expert keyword extractor, specializing in analyzing user queries for a Retrieval-Augmented Generation (RAG) system. Your purpose is to identify both high-level and low-level keywords in the user's query that will be used for effective document retrieval.
 
 ---Goal---

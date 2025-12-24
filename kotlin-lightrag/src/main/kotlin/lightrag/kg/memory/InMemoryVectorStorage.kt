@@ -53,7 +53,10 @@ class InMemoryVectorStorage(
         val results =
             vectors.map { (id, vec) ->
                 val similarity =
-                    CosineSimilarity.between(Embedding(queryVec.toFloatArray()), Embedding(vec.toFloatArray()))
+                    CosineSimilarity.between(
+                        Embedding(queryVec.toFloatArray()),
+                        Embedding(vec.toFloatArray()),
+                    )
                 Triple(id, similarity, metadata[id])
             }
                 .filter { it.third != null }
@@ -61,7 +64,9 @@ class InMemoryVectorStorage(
                 .take(topK)
 
         if (results.isEmpty()) {
-            logger.warn { "No results found for query: '$query' in '$namespace'. Vectors count: ${vectors.size}" }
+            logger.warn {
+                "No results found for query: '$query' in '$namespace'. Vectors count: ${vectors.size}"
+            }
         }
 
         return results.map { (id, score, meta) ->
@@ -89,7 +94,7 @@ class InMemoryVectorStorage(
                     logger.error(e) { "Error embedding content for id $id" }
                 }
             } else if (meta.containsKey("vector")) {
-                // If vector is provided directly (not typical for this codebase based on usage, but good for completeness)
+                // If vector is provided directly
                 @Suppress("UNCHECKED_CAST")
                 val vec = meta["vector"] as? List<Float>
                 if (vec != null) {

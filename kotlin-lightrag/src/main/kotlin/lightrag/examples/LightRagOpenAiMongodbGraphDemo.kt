@@ -17,9 +17,6 @@ fun main() {
 
     val apiKey = System.getenv("OPENAI_API_KEY") ?: "sk-"
     // Ensure Mongo env vars are set or default to localhost
-    // Python script sets them programmatically but also reads them.
-    // In Kotlin we assume they are set in environment or we can set properties here if needed for testing,
-    // but usually System.getenv is read-only. We can rely on defaults in MongoGraphStorage or user setting them.
 
     // Configure OpenAI Models
     val chatModel =
@@ -33,9 +30,7 @@ fun main() {
         OpenAiEmbeddingModel.builder()
             .apiKey(apiKey)
             .modelName("text-embedding-3-large")
-            .dimensions(3072) // Assuming default for text-embedding-3-large, or we can check. Python example calculates it.
-            // Python example: "embedding_func" gets dimensions dynamically.
-            // LangChain4j usually handles this.
+            .dimensions(3072) // Assuming default for text-embedding-3-large
             .build()
 
     // Python script calculates dimension. We can do that too if needed, but for now assuming standard.
@@ -51,20 +46,10 @@ fun main() {
 
     runBlocking {
         // Initialize storages
-        // In Kotlin LightRAG, storages are initialized in constructor or lazily?
-        // BaseGraphStorage has initialize(). LightRAG constructor initializes the properties, but
-        // it doesn't call initialize() on them.
-        // We should probably call initialize() on rag if such method existed, or on storages directly?
-        // Current LightRAG.kt doesn't have an explicit initialize() method that calls storage.initialize().
-        // But checking StorageInterfaces.kt, initialize() default implementation is empty.
-        // MongoGraphStorage overrides it.
-        // So we need to call it.
-        // However, `rag.chunkEntityRelationGraph` is accessible.
         rag.chunkEntityRelationGraph.initialize()
 
-        // Also kvStorage and others might need init if they were persistent (JsonKVStorage loads from file in init block usually or constructor).
-        // Let's check JsonKVStorage. It loads in init block.
-        // MongoGraphStorage has `initialize` method.
+        // Also kvStorage and others might need init if they were persistent
+        // (JsonKVStorage loads from file in init block usually or constructor).
 
         val bookFile = File("book.txt")
         if (bookFile.exists()) {

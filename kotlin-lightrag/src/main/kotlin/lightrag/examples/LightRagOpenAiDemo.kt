@@ -71,6 +71,7 @@ fun main() =
 
         // Test embedding function
         val testText = "This is a test string for embedding."
+        @Suppress("TooGenericExceptionCaught")
         try {
             val embeddingResponse = embeddingModel.embed(testText)
             val embedding = embeddingResponse.content()
@@ -107,6 +108,7 @@ fun main() =
             println("\n=====================")
             println("Query mode: $mode")
             println("=====================")
+            @Suppress("TooGenericExceptionCaught")
             try {
                 val result =
                     rag.query(

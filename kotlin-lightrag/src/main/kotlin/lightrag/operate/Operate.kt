@@ -432,7 +432,10 @@ suspend fun kgQuery(
 
     val sysPrompt =
         sysPromptTemplate
-            .replace("{response_type}", queryParam.responseType ?: "Multiple Paragraphs")
+                .replace(
+                    "{response_type}",
+                    queryParam.responseType ?: "Multiple Paragraphs",
+                )
             .replace("{user_prompt}", userPrompt)
             .replace("{context_data}", contextContent)
 
@@ -510,12 +513,19 @@ suspend fun naiveQuery(
 
     val sysPromptTemplate = systemPrompt ?: Prompts.NAIVE_RAG_RESPONSE
 
-    val userPrompt = if (queryParam.responseType != null) "\n\n${queryParam.responseType}" else "n/a" // Assuming user_prompt logic
+    val userPrompt =
+        if (queryParam.responseType != null) {
+            "\n\n${queryParam.responseType}"
+        } else {
+            "n/a"
+        }
 
     val sysPrompt =
         sysPromptTemplate
-            .replace("{response_type}", queryParam.responseType ?: "Multiple Paragraphs")
-            // Wait, python code has user_prompt in QueryParam separate from user query
+            .replace(
+                "{response_type}",
+                queryParam.responseType ?: "Multiple Paragraphs",
+            )
             .replace("{user_prompt}", userPrompt)
             .replace("{content_data}", contextContent)
 
