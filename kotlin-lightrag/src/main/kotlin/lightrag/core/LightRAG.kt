@@ -19,9 +19,12 @@ import lightrag.operate.extractEntities
 import lightrag.operate.kgQuery
 import lightrag.operate.mergeNodesAndEdges
 import lightrag.operate.naiveQuery
+import io.github.oshai.kotlinlogging.KotlinLogging
 import lightrag.utils.computeMd5
 import lightrag.utils.generateTrackId
 import java.time.Instant
+
+private val logger = KotlinLogging.logger {}
 
 @Serializable
 data class QueryParam(
@@ -245,6 +248,8 @@ class LightRAG(
         val docsToRetry = mutableSetOf<String>()
         val chunksVdbEmpty = chunksVdb.isEmpty()
 
+        logger.debug { "chunksVdbEmpty: $chunksVdbEmpty, existingDocIds: $existingDocIds" }
+
         if (existingDocIds.isNotEmpty()) {
             existingDocIds.forEach { id ->
                 val doc = docStatusStorage.getById(id)
@@ -254,18 +259,21 @@ class LightRAG(
                 if (status == DocStatus.FAILED.value || status == DocStatus.PROCESSING.value || forceRetry) {
                     docsToRetry.add(id)
                 }
+                logger.debug { "Doc $id status: $status, forceRetry: $forceRetry" }
             }
         }
+        logger.debug { "docsToRetry: $docsToRetry" }
 
         // filterKeys returns keys that are NOT in storage, so we should process them.
         val uniqueNewDocIds = missingDocIds + docsToRetry
+        logger.debug { "uniqueNewDocIds: $uniqueNewDocIds" }
 
         uniqueNewDocIds.forEach { docId ->
             val (content, path) = uniqueContent[docId]!!
             // Use String values where possible to simplify serialization, cast Any if needed by storage
             newDocs[docId] =
                 mapOf(
-                    "status" to DocStatus.PENDING.toString(),
+                    "status" to DocStatus.PENDING.value,
                     "content_summary" to (content.take(100) + "..."),
                     "content_length" to content.length.toString(),
                     "created_at" to Instant.now().toString(),
@@ -296,6 +304,7 @@ class LightRAG(
     private suspend fun pipelineProcessEnqueueDocuments() {
         // 1. Get pending documents
         val pendingDocs = docStatusStorage.getDocsByStatus(DocStatus.PENDING)
+        logger.debug { "Pipeline process pending docs: ${pendingDocs.size}" }
         if (pendingDocs.isEmpty()) return
 
         val chunkTokenSize = globalConfig["chunk_token_size"] as? Int ?: 1200
@@ -303,9 +312,10 @@ class LightRAG(
 
         // 2. Process each document
         pendingDocs.forEach { (docId, status) ->
+            logger.info { "Processing document $docId" }
             try {
                 // Update status to PROCESSING
-                docStatusStorage.upsert(mapOf(docId to mapOf("status" to DocStatus.PROCESSING.toString())))
+                docStatusStorage.upsert(mapOf(docId to mapOf("status" to DocStatus.PROCESSING.value)))
 
                 // Get content
                 val docData = fullDocs.getById(docId)
