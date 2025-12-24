@@ -6,6 +6,11 @@ plugins {
     id("io.gitlab.arturbosch.detekt") version "1.23.6"
 }
 
+detekt {
+    buildUponDefaultConfig = true
+    config.setFrom(files("config/detekt.yml"))
+}
+
 group = "com.lightrag"
 version = "0.0.1"
 

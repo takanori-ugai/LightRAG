@@ -8,6 +8,7 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import lightrag.core.LightRAG
 
@@ -20,32 +21,43 @@ data class KnowledgeGraphResponse(val nodes: List<String>, val edges: List<Strin
 
 @Serializable
 data class EntityUpdateRequest(
-    val entity_name: String,
+    @SerialName("entity_name")
+    val entityName: String,
     // Simplified to String map
-    val updated_data: Map<String, String>,
-    val allow_rename: Boolean = false,
-    val allow_merge: Boolean = false,
+    @SerialName("updated_data")
+    val updatedData: Map<String, String>,
+    @SerialName("allow_rename")
+    val allowRename: Boolean = false,
+    @SerialName("allow_merge")
+    val allowMerge: Boolean = false,
 )
 
 @Serializable
 data class EntityCreateRequest(
-    val entity_name: String,
+    @SerialName("entity_name")
+    val entityName: String,
     // Simplified
-    val entity_data: Map<String, String>,
+    @SerialName("entity_data")
+    val entityData: Map<String, String>,
 )
 
 @Serializable
 data class RelationCreateRequest(
-    val source_entity: String,
-    val target_entity: String,
+    @SerialName("source_entity")
+    val sourceEntity: String,
+    @SerialName("target_entity")
+    val targetEntity: String,
     // Simplified
-    val relation_data: Map<String, String>,
+    @SerialName("relation_data")
+    val relationData: Map<String, String>,
 )
 
 @Serializable
 data class EntityMergeRequest(
-    val entities_to_change: List<String>,
-    val entity_to_change_into: String,
+    @SerialName("entities_to_change")
+    val entitiesToChange: List<String>,
+    @SerialName("entity_to_change_into")
+    val entityToChangeInto: String,
 )
 
 fun Application.configureGraphRoutes(rag: LightRAG) {

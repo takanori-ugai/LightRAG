@@ -52,7 +52,8 @@ class InMemoryVectorStorage(
         // Calculate cosine similarity for all vectors
         val results =
             vectors.map { (id, vec) ->
-                val similarity = CosineSimilarity.between(Embedding(queryVec.toFloatArray()), Embedding(vec.toFloatArray()))
+                val similarity =
+                    CosineSimilarity.between(Embedding(queryVec.toFloatArray()), Embedding(vec.toFloatArray()))
                 Triple(id, similarity, metadata[id])
             }
                 .filter { it.third != null }

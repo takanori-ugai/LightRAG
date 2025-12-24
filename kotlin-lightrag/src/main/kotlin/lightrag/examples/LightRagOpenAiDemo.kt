@@ -11,7 +11,10 @@ fun main() =
         // Check environment variable
         val apiKey = System.getenv("OPENAI_API_KEY")
         if (apiKey.isNullOrBlank()) {
-            println("Error: OPENAI_API_KEY environment variable is not set. Please set this variable before running the program.")
+            println(
+                "Error: OPENAI_API_KEY environment variable is not set. " +
+                    "Please set this variable before running the program.",
+            )
             println("You can set the environment variable by running:")
             println("  export OPENAI_API_KEY='your-openai-api-key'")
             return@runBlocking
@@ -88,7 +91,8 @@ fun main() =
                 bookFile.readText()
             } else {
                 println("Warning: ./book.txt not found. Using dummy content.")
-                "This is a story about a developer converting Python code to Kotlin. It was a long and arduous journey, " +
+                "This is a story about a developer converting Python code to Kotlin. " +
+                    "It was a long and arduous journey, " +
                     "but eventually, the code compiled and ran successfully. " +
                     "The themes involve persistence, programming languages, and AI assistants."
             }

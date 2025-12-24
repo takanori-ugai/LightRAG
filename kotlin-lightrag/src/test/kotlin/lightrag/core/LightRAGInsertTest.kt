@@ -29,8 +29,10 @@ class LightRAGInsertTest {
                 val mockEmbeddingModel = mockk<EmbeddingModel>()
 
                 // Mock Embedding behavior
-                every { mockEmbeddingModel.embed(any<String>()) } returns Response.from(Embedding(FloatArray(384) { 0.1f }))
-                every { mockEmbeddingModel.embed(any<TextSegment>()) } returns Response.from(Embedding(FloatArray(384) { 0.1f }))
+                every { mockEmbeddingModel.embed(any<String>()) } returns
+                    Response.from(Embedding(FloatArray(384) { 0.1f }))
+                every { mockEmbeddingModel.embed(any<TextSegment>()) } returns
+                    Response.from(Embedding(FloatArray(384) { 0.1f }))
                 every { mockEmbeddingModel.embedAll(any<List<TextSegment>>()) } answers {
                     val input = firstArg<List<TextSegment>>()
                     Response.from(input.map { Embedding(FloatArray(384) { 0.1f }) })
@@ -78,7 +80,8 @@ class LightRAGInsertTest {
                 assertNotNull(trackId)
 
                 // Check DocStatus
-                val processedDocs: Map<String, DocProcessingStatus> = rag.docStatusStorage.getDocsByStatus(DocStatus.PROCESSED)
+                val processedDocs: Map<String, DocProcessingStatus> =
+                    rag.docStatusStorage.getDocsByStatus(DocStatus.PROCESSED)
                 assertEquals(1, processedDocs.size)
 
                 val docId = processedDocs.keys.first()
@@ -112,12 +115,14 @@ class LightRAGInsertTest {
                 val mockChatModel = mockk<ChatLanguageModel>(relaxed = true)
                 val mockEmbeddingModel = mockk<EmbeddingModel>(relaxed = true)
 
-                every { mockEmbeddingModel.embed(any<String>()) } returns Response.from(Embedding(FloatArray(384) { 0.1f }))
+                every { mockEmbeddingModel.embed(any<String>()) } returns
+                    Response.from(Embedding(FloatArray(384) { 0.1f }))
                 every { mockEmbeddingModel.embedAll(any<List<TextSegment>>()) } answers {
                     val input = firstArg<List<TextSegment>>()
                     Response.from(input.map { Embedding(FloatArray(384) { 0.1f }) })
                 }
-                every { mockChatModel.generate(any<List<ChatMessage>>()) } returns Response.from(AiMessage("Mock response"))
+                every { mockChatModel.generate(any<List<ChatMessage>>()) } returns
+                    Response.from(AiMessage("Mock response"))
 
                 val tempDir = File("build/tmp/test_rag_storage_dup_mockk_${System.currentTimeMillis()}")
                 tempDir.mkdirs()
@@ -134,7 +139,8 @@ class LightRAGInsertTest {
                 // First Insert
                 rag.insert(content)
 
-                var processedDocs: Map<String, DocProcessingStatus> = rag.docStatusStorage.getDocsByStatus(DocStatus.PROCESSED)
+                var processedDocs: Map<String, DocProcessingStatus> =
+                    rag.docStatusStorage.getDocsByStatus(DocStatus.PROCESSED)
                 assertEquals(1, processedDocs.size)
 
                 // Second Insert (Same content)
