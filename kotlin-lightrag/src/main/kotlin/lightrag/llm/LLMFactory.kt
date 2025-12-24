@@ -22,6 +22,8 @@ object LLMFactory {
                     OpenAiChatModel.builder()
                         .modelName(modelName)
                         .apiKey(apiKey ?: "demo")
+                        .logRequests(true)
+//                        .logResponses(true)
                         .timeout(Duration.ofSeconds(timeout))
                 if (baseUrl != null) {
                     builder.baseUrl(baseUrl)
@@ -53,6 +55,7 @@ object LLMFactory {
                     OpenAiEmbeddingModel.builder()
                         .modelName(modelName)
                         .apiKey(apiKey ?: "demo")
+                        .logRequests(true)
                         .timeout(Duration.ofSeconds(timeout))
                 if (baseUrl != null) {
                     builder.baseUrl(baseUrl)
