@@ -7,6 +7,7 @@ import lightrag.core.LightRAG
 import lightrag.core.QueryParam
 import java.io.File
 import java.time.Duration
+import java.net.URI
 
 fun main() = runBlocking {
     // Check OpenAI environment variable
@@ -16,14 +17,35 @@ fun main() = runBlocking {
         return@runBlocking
     }
 
-    // Check Neo4j environment variables
-    val neo4jUri = System.getenv("NEO4J_URI")
-    val neo4jUser = System.getenv("NEO4J_USERNAME")
-    val neo4jPass = System.getenv("NEO4J_PASSWORD")
+    // Neo4j Configuration
+    // User requested default: http://localhost:7474
+    val defaultUri = "http://localhost:7474"
+    val defaultUser = "neo4j"
+    val defaultPass = "neo4j"
 
-    if (neo4jUri.isNullOrBlank() || neo4jUser.isNullOrBlank() || neo4jPass.isNullOrBlank()) {
-        println("Error: NEO4J_URI, NEO4J_USERNAME, and NEO4J_PASSWORD environment variables are required.")
-        return@runBlocking
+    var neo4jUri = System.getenv("NEO4J_URI") ?: defaultUri
+    val neo4jUser = System.getenv("NEO4J_USERNAME") ?: defaultUser
+    val neo4jPass = System.getenv("NEO4J_PASSWORD") ?: defaultPass
+
+    println("Using Neo4j configuration:")
+    println("  Input URI: $neo4jUri")
+    println("  User: $neo4jUser")
+
+    // Sanitize URI for Neo4j Driver (requires bolt/neo4j scheme, not http)
+    if (neo4jUri.startsWith("http")) {
+        println("Warning: The Neo4j Driver requires a binary protocol (bolt/neo4j), but an HTTP URI was provided.")
+        try {
+            val uriObj = URI(neo4jUri)
+            val host = uriObj.host ?: "localhost"
+            // If port is standard HTTP console (7474), switch to standard Bolt (7687)
+            val port = if (uriObj.port == 7474) 7687 else uriObj.port
+            val newUri = "bolt://$host:$port"
+            println("Converting '$neo4jUri' to '$newUri' for driver connection.")
+            neo4jUri = newUri
+        } catch (e: Exception) {
+            println("Error parsing URI '$neo4jUri': ${e.message}. Falling back to 'bolt://localhost:7687'.")
+            neo4jUri = "bolt://localhost:7687"
+        }
     }
 
     val workingDir = "./neo4j_test_dir"
@@ -45,16 +67,30 @@ fun main() = runBlocking {
         .dimensions(3072)
         .build()
 
+    // Pass configuration to LightRAG via addonConfig
+    val neo4jConfig = mapOf(
+        "uri" to neo4jUri,
+        "username" to neo4jUser,
+        "password" to neo4jPass
+    )
+
     val rag = LightRAG(
         workingDir = workingDir,
         chatModel = chatModel,
         embeddingModel = embeddingModel,
-        graphStorageName = "Neo4jGraphStorage"
+        graphStorageName = "Neo4jGraphStorage",
+        addonConfig = mapOf("neo4j" to neo4jConfig)
     )
 
     // Initialize Neo4j Storage (Create indexes etc.)
     println("Initializing Neo4j Graph Storage...")
-    rag.chunkEntityRelationGraph.initialize()
+    try {
+        rag.chunkEntityRelationGraph.initialize()
+    } catch (e: Exception) {
+        println("Error initializing Neo4j storage: ${e.message}")
+        println("Please ensure Neo4j is running at $neo4jUri")
+        return@runBlocking
+    }
 
     // Prepare content
     val bookFile = File("book.txt")
@@ -72,7 +108,11 @@ fun main() = runBlocking {
 
     // Insert
     println("Inserting content...")
-    rag.insert(content)
+    try {
+        rag.insert(content)
+    } catch (e: Exception) {
+        println("Error inserting content: ${e.message}")
+    }
 
     // Query
     val modes = listOf("naive", "local", "global", "hybrid")

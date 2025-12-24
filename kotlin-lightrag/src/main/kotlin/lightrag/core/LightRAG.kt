@@ -67,6 +67,7 @@ class LightRAG(
     embeddingBinding: String = "ollama",
     embeddingModelName: String = "all-minilm",
     graphStorageName: String = "InMemoryGraphStorage",
+    addonConfig: Map<String, Any> = emptyMap(),
 ) {
     // Initialize LLM and Embedding models
     private val model: ChatLanguageModel =
@@ -87,7 +88,7 @@ class LightRAG(
             "entity_types" to listOf("Person", "Organization", "Location", "Event", "Concept"),
             "language" to "English",
             "working_dir" to workingDir,
-        )
+        ) + addonConfig
 
     // Initialize Storages
     val docStatusStorage: DocStatusStorage =
