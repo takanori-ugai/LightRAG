@@ -43,6 +43,7 @@ dependencies {
     // MongoDB
     implementation("org.mongodb:mongodb-driver-kotlin-coroutine:5.1.0")
     implementation("org.mongodb:bson-kotlinx:5.1.0")
+    implementation("org.neo4j.driver:neo4j-java-driver:5.20.0")
 
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.22")
     testImplementation("io.mockk:mockk:1.13.9")
