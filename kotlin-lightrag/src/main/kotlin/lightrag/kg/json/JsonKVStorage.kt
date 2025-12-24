@@ -1,10 +1,13 @@
 package lightrag.kg.json
 
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import lightrag.core.types.BaseKVStorage
 import lightrag.core.types.EmbeddingFunc
 import java.io.File
+
+private val logger = KotlinLogging.logger {}
 
 class JsonKVStorage(
     override val namespace: String,
@@ -28,7 +31,7 @@ class JsonKVStorage(
                 // For now assuming simplistic map structure for prototype
                 // Real implementation would need robust JSON handling for Map<String, Any>
             } catch (e: Exception) {
-                println("Error loading KV storage: ${e.message}")
+                logger.error(e) { "Error loading KV storage" }
             }
         }
     }
