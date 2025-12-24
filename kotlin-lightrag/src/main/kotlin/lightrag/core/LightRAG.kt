@@ -161,6 +161,13 @@ class LightRAG(
                     embeddingFunc = embedding,
                 )
             }
+            "Neo4jGraphStorage" -> {
+                lightrag.kg.neo4j.Neo4jGraphStorage(
+                    namespace = "chunk_entity_relation_graph",
+                    globalConfig = globalConfig,
+                    embeddingFunc = embedding,
+                )
+            }
             else ->
                 InMemoryGraphStorage(
                     namespace = "chunk_entity_relation_graph",
