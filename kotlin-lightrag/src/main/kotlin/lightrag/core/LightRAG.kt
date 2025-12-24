@@ -130,18 +130,21 @@ class LightRAG(
             namespace = "chunks_vdb",
             workspace = "default",
             embeddingFunc = embedding,
+            globalConfig = mapOf("working_dir" to workingDir),
         )
     val entitiesVdb: BaseVectorStorage =
         InMemoryVectorStorage(
             namespace = "entities_vdb",
             workspace = "default",
             embeddingFunc = embedding,
+            globalConfig = mapOf("working_dir" to workingDir),
         )
     val relationshipsVdb: BaseVectorStorage =
         InMemoryVectorStorage(
             namespace = "relationships_vdb",
             workspace = "default",
             embeddingFunc = embedding,
+            globalConfig = mapOf("working_dir" to workingDir),
         )
 
     // Graph Storage
@@ -165,6 +168,7 @@ class LightRAG(
                 InMemoryGraphStorage(
                     namespace = "chunk_entity_relation_graph",
                     workspace = "default",
+                    globalConfig = mapOf("working_dir" to workingDir),
                 )
         }
 
