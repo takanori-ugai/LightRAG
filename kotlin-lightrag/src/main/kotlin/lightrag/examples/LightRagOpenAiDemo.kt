@@ -30,12 +30,12 @@ fun main() =
         val filesToDelete =
             listOf(
                 "graph_chunk_entity_relation.graphml",
-                "kv_store_doc_status.json",
+                "doc_status_doc_status.json",
                 "kv_store_full_docs.json",
                 "kv_store_text_chunks.json",
-                "vdb_chunks.json",
-                "vdb_entities.json",
-                "vdb_relationships.json",
+                "vdb_chunks_vdb.json",
+                "vdb_entities_vdb.json",
+                "vdb_relationships_vdb.json",
             )
 
         filesToDelete.forEach { fileName ->
