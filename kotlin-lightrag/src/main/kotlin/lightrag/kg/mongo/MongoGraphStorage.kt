@@ -28,21 +28,18 @@ class MongoGraphStorage(
     private lateinit var nodesCollection: MongoCollection<Document>
     private lateinit var edgesCollection: MongoCollection<Document>
 
-    private val uri: String = System.getenv("MONGO_URI") ?: "mongodb://0.0.0.0:27017/?directConnection=true"
+    private val uri: String =
+        System.getenv("MONGO_URI") ?: "mongodb://0.0.0.0:27017/?directConnection=true"
     private val dbName: String = System.getenv("MONGO_DATABASE") ?: "LightRAG"
     private val collectionName: String = System.getenv("MONGO_KG_COLLECTION") ?: "MDB_KG"
 
     override suspend fun initialize() {
-        logger.info { "Initializing MongoGraphStorage with URI: $uri, DB: $dbName, Collection: $collectionName" }
+        logger.info {
+            "Initializing MongoGraphStorage with URI: $uri, DB: $dbName, Collection: $collectionName"
+        }
         client = MongoClient.create(uri)
         database = client.getDatabase(dbName)
-        // We will store both nodes and edges in the same collection as the Python implementation seems to imply single collection 'MONGO_KG_COLLECTION'
-        // But usually graph storage might separate them or use a discriminator.
-        // Let's check how Python does it.
-        // In Python LightRAG, MongoGraphStorage usually puts everything in one collection or splits?
-        // Let's assume one collection for now, but to implement efficiently, we might want to verify.
-        // However, the interface BaseGraphStorage distinguishes nodes and edges clearly.
-        // If Python's MongoGraphStorage uses one collection, it probably has a 'type' field.
+        // We will store both nodes and edges in the same collection
 
         // Let's assume we use the collection name provided.
         val col = database.getCollection<Document>(collectionName)
@@ -94,8 +91,20 @@ class MongoGraphStorage(
     }
 
     override suspend fun nodeDegree(nodeId: String): Int {
-        val srcCount = edgesCollection.countDocuments(Filters.and(Filters.eq("source_id", nodeId), Filters.eq("type", "edge")))
-        val tgtCount = edgesCollection.countDocuments(Filters.and(Filters.eq("target_id", nodeId), Filters.eq("type", "edge")))
+        val srcCount =
+            edgesCollection.countDocuments(
+                Filters.and(
+                    Filters.eq("source_id", nodeId),
+                    Filters.eq("type", "edge"),
+                ),
+            )
+        val tgtCount =
+            edgesCollection.countDocuments(
+                Filters.and(
+                    Filters.eq("target_id", nodeId),
+                    Filters.eq("type", "edge"),
+                ),
+            )
         return (srcCount + tgtCount).toInt()
     }
 
@@ -200,7 +209,12 @@ class MongoGraphStorage(
     }
 
     override suspend fun deleteNode(nodeId: String) {
-        nodesCollection.deleteOne(Filters.and(Filters.eq("id", nodeId), Filters.eq("type", "node")))
+        nodesCollection.deleteOne(
+            Filters.and(
+                Filters.eq("id", nodeId),
+                Filters.eq("type", "node"),
+            ),
+        )
         // Also delete connected edges?
         edgesCollection.deleteMany(
             Filters.and(
@@ -248,13 +262,15 @@ class MongoGraphStorage(
     }
 
     override suspend fun getAllNodes(): List<Map<String, Any>> {
-        return nodesCollection.find(Filters.eq("type", "node"))
+        return nodesCollection
+            .find(Filters.eq("type", "node"))
             .toList()
             .map { it.toMap() }
     }
 
     override suspend fun getAllEdges(): List<Map<String, Any>> {
-        return edgesCollection.find(Filters.eq("type", "edge"))
+        return edgesCollection
+            .find(Filters.eq("type", "edge"))
             .toList()
             .map { it.toMap() }
     }

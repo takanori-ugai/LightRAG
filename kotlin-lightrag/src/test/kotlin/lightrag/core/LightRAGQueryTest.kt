@@ -89,10 +89,9 @@ class LightRAGQueryTest {
 
                 // Verification
                 assertNotNull(result)
-                // Relaxed assertion: check for either standard mock response or the specific one,
-                // but preferably we want to see it succeeded.
-                // The issue is likely that "Naive query response based on context" is not returned because the mock condition
-                // "Given the following description..." or "---Role---" is not matching exactly what "NaiveQuery" sends.
+                // Relaxed assertion: check for either standard mock response or the specific one.
+                // The issue is likely that "Naive query response based on context" is not returned
+                // because the mock condition is not matching exactly what "NaiveQuery" sends.
                 // However, seeing "Mock response" means it went through LLM.
 
                 // If the test fails, it's because result does not contain "Naive query response".
