@@ -6,6 +6,7 @@ LightRAG is an advanced Retrieval-Augmented Generation (RAG) framework designed 
 - `lightrag/`: Core Python package with orchestrators (`lightrag/lightrag.py`), storage adapters in `kg/`, LLM bindings in `llm/`, and helpers such as `operate.py` and `utils_*.py`.
 - `lightrag-api/`: FastAPI service (`lightrag_server.py`) with routers under `routers/` and Gunicorn launcher `run_with_gunicorn.py`.
 - `lightrag_webui/`: React 19 + TypeScript client driven by Bun + Vite; UI components live in `src/`.
+- `kotlin-lightrag/`: Ktor-based Kotlin backend implementation porting LightRAG logic.
 - Tests live in `tests/` and root-level `test_*.py`. Working datasets stay in `inputs/`, `rag_storage/`, `temp/`; deployment collateral lives in `docs/`, `k8s-deploy/`, and `docker-compose.yml`.
 
 ## Build, Test, and Development Commands
@@ -15,6 +16,9 @@ LightRAG is an advanced Retrieval-Augmented Generation (RAG) framework designed 
 - `python -m pytest tests` (offline markers apply by default) or `python -m pytest tests --run-integration` / `python test_graph_storage.py`: run the full suite, opt into integration coverage, or target an individual script.
 - `ruff check .`: lint Python sources before committing.
 - `bun install`, `bun run dev`, `bun run build`, `bun test`: manage the web UI workflow (Bun is mandatory).
+- `cd kotlin-lightrag && ./gradlew run`: start the Kotlin Ktor server (port 8080).
+- `cd kotlin-lightrag && ./gradlew test`: run Kotlin tests.
+- `cd kotlin-lightrag && ./gradlew ktlintFormat`: format Kotlin code.
 
 ## Coding Style & Naming Conventions
 - Backend code follow PEP 8 with four-space indentation, annotate functions, and reach for dataclasses when modelling state.
@@ -22,6 +26,7 @@ LightRAG is an advanced Retrieval-Augmented Generation (RAG) framework designed 
 - Extend storage or pipeline abstractions via `lightrag.base` and keep reusable helpers in the existing `utils_*.py`.
 - Python modules remain lowercase with underscores; React components use `PascalCase.tsx` and hooks-first patterns.
 - Front-end code should remain in TypeScript with two-space indentation, rely on functional React components with hooks, and follow Tailwind utility style.
+- Kotlin code uses `ktlint` for style enforcement; avoid wildcard imports.
 
 ## Testing Guidelines
 - Keep pytest additions close to the code you touch (`tests/` mirrors feature folders and there are root-level `test_*.py` helpers); functions must start with `test_`.
@@ -29,11 +34,12 @@ LightRAG is an advanced Retrieval-Augmented Generation (RAG) framework designed 
 - Use the custom CLI toggles from `tests/conftest.py`: `--keep-artifacts`/`LIGHTRAG_KEEP_ARTIFACTS=true`, `--stress-test`/`LIGHTRAG_STRESS_TEST=true`, and `--test-workers N`/`LIGHTRAG_TEST_WORKERS` to dial up workloads or preserve temp files during investigations.
 - Export other required `LIGHTRAG_*` environment variables before running integration or storage tests so adapters can reach configured backends.
 - For UI updates, pair changes with Vitest specs and run `bun test`.
+- Kotlin tests should reside in `src/test/kotlin` and use standard JUnit/KotlinTest patterns.
 
 ## Commit & Pull Request Guidelines
 - Use concise, imperative commit subjects (e.g., `Fix lock key normalization`) and add body context only when necessary.
 - PRs should include a summary, operational impact, linked issues, and screenshots or API samples for user-facing work.
-- Verify `ruff check .`, `python -m pytest`, and affected Bun commands succeed before requesting review; note the runs in the PR text.
+- Verify `ruff check .`, `python -m pytest`, affected Bun commands, and `./gradlew test` (if touching Kotlin) succeed before requesting review; note the runs in the PR text.
 
 ## Security & Configuration Tips
 - Copy `.env.example` and `config.ini.example`; never commit secrets or real connection strings.
