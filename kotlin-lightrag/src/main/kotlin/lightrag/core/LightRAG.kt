@@ -67,6 +67,7 @@ class LightRAG(
     embeddingBinding: String = "ollama",
     embeddingModelName: String = "all-minilm",
     graphStorageName: String = "InMemoryGraphStorage",
+    addonConfig: Map<String, Any> = emptyMap(),
 ) {
     // Initialize LLM and Embedding models
     private val model: ChatLanguageModel =
@@ -87,7 +88,7 @@ class LightRAG(
             "entity_types" to listOf("Person", "Organization", "Location", "Event", "Concept"),
             "language" to "English",
             "working_dir" to workingDir,
-        )
+        ) + addonConfig
 
     // Initialize Storages
     val docStatusStorage: DocStatusStorage =
@@ -156,6 +157,13 @@ class LightRAG(
                 // Actually, let's use a factory approach or hardcode for now.
                 // I will add the import in a separate block.
                 lightrag.kg.mongo.MongoGraphStorage(
+                    namespace = "chunk_entity_relation_graph",
+                    globalConfig = globalConfig,
+                    embeddingFunc = embedding,
+                )
+            }
+            "Neo4jGraphStorage" -> {
+                lightrag.kg.neo4j.Neo4jGraphStorage(
                     namespace = "chunk_entity_relation_graph",
                     globalConfig = globalConfig,
                     embeddingFunc = embedding,
