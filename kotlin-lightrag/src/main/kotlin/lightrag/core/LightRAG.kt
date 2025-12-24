@@ -98,7 +98,7 @@ class LightRAG(
         )
 
     // Alias for backward compatibility if needed, but pointing to specific ones is better
-    val kvStorage: BaseKVStorage = fullDocs // Default kvStorage points to fullDocs? Or just keep it separate.
+    val kvStorage: BaseKVStorage = textChunks // Default kvStorage points to textChunks
     val vectorStorage: BaseVectorStorage = entitiesVdb // Default to entities?
     val graphStorage: BaseGraphStorage = chunkEntityRelationGraph
 
