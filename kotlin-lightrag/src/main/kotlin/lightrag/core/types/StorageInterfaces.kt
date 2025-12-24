@@ -45,6 +45,8 @@ interface BaseVectorStorage : StorageNameSpace {
     suspend fun delete(ids: List<String>)
 
     suspend fun getVectorsByIds(ids: List<String>): Map<String, List<Float>>
+
+    suspend fun isEmpty(): Boolean = false
 }
 
 interface BaseKVStorage : StorageNameSpace {

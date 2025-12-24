@@ -270,4 +270,10 @@ class InMemoryVectorStorage(
             vectors[id]?.let { id to it }
         }.toMap()
     }
+
+    override suspend fun isEmpty(): Boolean {
+        mutex.withLock {
+            return vectors.isEmpty()
+        }
+    }
 }

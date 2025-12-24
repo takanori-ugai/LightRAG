@@ -243,11 +243,15 @@ class LightRAG(
         // Check existing docs for FAILED or PROCESSING status to retry
         val existingDocIds = allNewDocIds - missingDocIds
         val docsToRetry = mutableSetOf<String>()
+        val chunksVdbEmpty = chunksVdb.isEmpty()
+
         if (existingDocIds.isNotEmpty()) {
             existingDocIds.forEach { id ->
                 val doc = docStatusStorage.getById(id)
                 val status = doc?.get("status") as? String
-                if (status == DocStatus.FAILED.value || status == DocStatus.PROCESSING.value) {
+                // If VDB is empty, we must retry even PROCESSED docs to regenerate vectors
+                val forceRetry = chunksVdbEmpty && (status == DocStatus.PROCESSED.value)
+                if (status == DocStatus.FAILED.value || status == DocStatus.PROCESSING.value || forceRetry) {
                     docsToRetry.add(id)
                 }
             }
