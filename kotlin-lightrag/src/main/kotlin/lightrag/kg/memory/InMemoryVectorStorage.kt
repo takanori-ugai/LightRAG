@@ -194,6 +194,7 @@ class InMemoryVectorStorage(
         // In Python LightRAG, upsert logic in vector storage often handles embedding if content is provided.
 
         val embeddingModel = embeddingFunc as? EmbeddingModel
+        logger.debug { "Upserting ${data.size} items to '$namespace'. Embedding model present: ${embeddingModel != null}" }
 
         data.forEach { (id, meta) ->
             metadata[id] = meta

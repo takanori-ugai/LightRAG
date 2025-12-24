@@ -2,6 +2,7 @@ package lightrag.core
 
 import dev.langchain4j.model.chat.ChatLanguageModel
 import dev.langchain4j.model.embedding.EmbeddingModel
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import lightrag.core.types.BaseGraphStorage
@@ -19,7 +20,6 @@ import lightrag.operate.extractEntities
 import lightrag.operate.kgQuery
 import lightrag.operate.mergeNodesAndEdges
 import lightrag.operate.naiveQuery
-import io.github.oshai.kotlinlogging.KotlinLogging
 import lightrag.utils.computeMd5
 import lightrag.utils.generateTrackId
 import java.time.Instant
