@@ -1,12 +1,18 @@
 package lightrag.kg.json
 
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import lightrag.core.types.DocProcessingStatus
 import lightrag.core.types.DocStatus
 import lightrag.core.types.DocStatusStorage
 import lightrag.core.types.EmbeddingFunc
+import java.io.File
 import java.lang.Math.min
+
+private val logger = KotlinLogging.logger {}
 
 class JsonDocStatusStorage(
     override val namespace: String,
@@ -16,19 +22,50 @@ class JsonDocStatusStorage(
 ) : DocStatusStorage {
     private val docs = mutableMapOf<String, DocProcessingStatus>()
     private val mutex = Mutex()
+    private val workingDir = File(globalConfig["working_dir"] as? String ?: "./rag_storage")
+    private val file = File(workingDir, "doc_status_$namespace.json")
+
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            prettyPrint = true
+        }
 
     override suspend fun initialize() {
-        // Load from file if exists
+        if (!workingDir.exists()) {
+            workingDir.mkdirs()
+        }
+        if (file.exists()) {
+            try {
+                val content = file.readText()
+                if (content.isNotBlank()) {
+                    val loaded = json.decodeFromString<Map<String, DocProcessingStatus>>(content)
+                    mutex.withLock {
+                        docs.putAll(loaded)
+                    }
+                    logger.info { "Loaded ${loaded.size} docs status from ${file.absolutePath}" }
+                }
+            } catch (e: Exception) {
+                logger.error(e) { "Error loading DocStatus storage from ${file.absolutePath}" }
+            }
+        }
     }
 
     override suspend fun indexDoneCallback() {
-        // Save to file
+        mutex.withLock {
+            try {
+                val content = json.encodeToString(docs)
+                file.writeText(content)
+                logger.debug { "Saved ${docs.size} docs status to ${file.absolutePath}" }
+            } catch (e: Exception) {
+                logger.error(e) { "Error saving DocStatus storage to ${file.absolutePath}" }
+            }
+        }
     }
 
     override suspend fun getById(id: String): Map<String, Any>? =
         mutex.withLock {
             docs[id]?.let {
-                // Convert DocProcessingStatus to Map<String, Any>
                 mapOf(
                     "status" to it.status.value,
                     "content_summary" to it.contentSummary,
@@ -86,6 +123,9 @@ class JsonDocStatusStorage(
     override suspend fun drop(): Map<String, String> {
         mutex.withLock {
             docs.clear()
+            if (file.exists()) {
+                file.delete()
+            }
         }
         return mapOf("status" to "success", "message" to "data dropped")
     }

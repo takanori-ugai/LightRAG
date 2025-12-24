@@ -3,6 +3,15 @@ package lightrag.kg.json
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.longOrNull
 import lightrag.core.types.BaseKVStorage
 import lightrag.core.types.EmbeddingFunc
 import java.io.File
@@ -20,6 +29,12 @@ class JsonKVStorage(
     private val workingDir = File(globalConfig["working_dir"] as? String ?: "./rag_storage")
     private val file = File(workingDir, "kv_store_$namespace.json")
 
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            prettyPrint = true
+        }
+
     override suspend fun initialize() {
         if (!workingDir.exists()) {
             workingDir.mkdirs()
@@ -27,21 +42,36 @@ class JsonKVStorage(
         if (file.exists()) {
             try {
                 val content = file.readText()
-                // Simple JSON deserialization (needs refining for complex types)
-                // For now assuming simplistic map structure for prototype
-                // Real implementation would need robust JSON handling for Map<String, Any>
+                if (content.isNotBlank()) {
+                    val jsonElement = json.parseToJsonElement(content)
+                    if (jsonElement is JsonObject) {
+                        val loadedData =
+                            jsonElement.entries.associate { (k, v) ->
+                                @Suppress("UNCHECKED_CAST")
+                                k to (v.toAny() as? Map<String, Any> ?: emptyMap())
+                            }
+                        mutex.withLock {
+                            data.putAll(loadedData)
+                        }
+                        logger.info { "Loaded ${loadedData.size} records from ${file.absolutePath}" }
+                    }
+                }
             } catch (e: Exception) {
-                logger.error(e) { "Error loading KV storage" }
+                logger.error(e) { "Error loading KV storage from ${file.absolutePath}" }
             }
         }
     }
 
     override suspend fun indexDoneCallback() {
         mutex.withLock {
-            // Serialize and save to file
-            // Note: kotlinx.serialization with Map<String, Any> is tricky.
-            // Often requires custom serializers or Contextual serialization.
-            // For this skeleton, we assume in-memory persistence only or stub file IO
+            try {
+                val jsonObject = JsonObject(data.mapValues { it.value.toJsonElement() as JsonObject })
+                val content = json.encodeToString(JsonElement.serializer(), jsonObject)
+                file.writeText(content)
+                logger.debug { "Saved ${data.size} records to ${file.absolutePath}" }
+            } catch (e: Exception) {
+                logger.error(e) { "Error saving KV storage to ${file.absolutePath}" }
+            }
         }
     }
 
@@ -86,4 +116,31 @@ class JsonKVStorage(
         mutex.withLock {
             data.isEmpty()
         }
+
+    private fun Any?.toJsonElement(): JsonElement {
+        return when (this) {
+            null -> JsonNull
+            is Boolean -> JsonPrimitive(this)
+            is Number -> JsonPrimitive(this)
+            is String -> JsonPrimitive(this)
+            is List<*> -> JsonArray(this.map { it.toJsonElement() })
+            is Map<*, *> -> JsonObject(this.entries.associate { it.key.toString() to it.value.toJsonElement() })
+            else -> JsonPrimitive(this.toString())
+        }
+    }
+
+    private fun JsonElement.toAny(): Any? {
+        return when (this) {
+            is JsonNull -> null
+            is JsonPrimitive -> {
+                if (isString) {
+                    content
+                } else {
+                    booleanOrNull ?: longOrNull ?: doubleOrNull ?: content
+                }
+            }
+            is JsonArray -> this.map { it.toAny() }
+            is JsonObject -> this.mapValues { it.value.toAny() }
+        }
+    }
 }
