@@ -2,6 +2,7 @@ package lightrag.core
 
 import dev.langchain4j.model.chat.ChatLanguageModel
 import dev.langchain4j.model.embedding.EmbeddingModel
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import lightrag.core.types.BaseGraphStorage
 import lightrag.core.types.BaseKVStorage
@@ -21,8 +22,6 @@ import lightrag.operate.naiveQuery
 import lightrag.utils.computeMd5
 import lightrag.utils.generateTrackId
 import java.time.Instant
-
-import kotlinx.serialization.SerialName
 
 @Serializable
 data class QueryParam(

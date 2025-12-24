@@ -14,7 +14,10 @@ import kotlinx.serialization.Serializable
 import lightrag.core.LightRAG
 
 @Serializable
-data class InsertTextRequest(val text: String, @SerialName("file_source") val fileSource: String? = null)
+data class InsertTextRequest(
+    val text: String,
+    @SerialName("file_source") val fileSource: String? = null,
+)
 
 @Serializable
 data class InsertTextsRequest(
@@ -23,10 +26,16 @@ data class InsertTextsRequest(
 )
 
 @Serializable
-data class InsertResponse(val status: String, val message: String, @SerialName("track_id") val trackId: String)
+data class InsertResponse(
+    val status: String,
+    val message: String,
+    @SerialName("track_id") val trackId: String,
+)
 
 @Serializable
-data class DeleteDocRequest(@SerialName("doc_ids") val docIds: List<String>)
+data class DeleteDocRequest(
+    @SerialName("doc_ids") val docIds: List<String>,
+)
 
 fun Application.configureDocumentRoutes(rag: LightRAG) {
     routing {
