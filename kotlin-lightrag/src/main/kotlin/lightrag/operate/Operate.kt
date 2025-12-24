@@ -59,7 +59,8 @@ fun chunkingByTokenSize(
                 val chunkTokens = tokenizer(chunk)
                 if (chunkTokens.size > chunkTokenSize) {
                     logger.warn {
-                        "Chunk split_by_character exceeds token limit: len=${chunkTokens.size} limit=$chunkTokenSize"
+                        "Chunk split_by_character exceeds token limit: " +
+                            "len=${chunkTokens.size} limit=$chunkTokenSize"
                     }
                     // In Python code it raises exception, here we can log and maybe truncate or skip?
                     // Python raises ChunkTokenLimitExceededError.
@@ -76,7 +77,9 @@ fun chunkingByTokenSize(
                     while (start < chunkTokens.size) {
                         val end = minOf(start + chunkTokenSize, chunkTokens.size)
                         val chunkContent = decoder(chunkTokens.subList(start, end))
-                        newChunks.add(minOf(chunkTokenSize, chunkTokens.size - start) to chunkContent)
+                        newChunks.add(
+                            minOf(chunkTokenSize, chunkTokens.size - start) to chunkContent,
+                        )
                         start += (chunkTokenSize - chunkOverlapTokenSize)
                     }
                 } else {
@@ -121,7 +124,9 @@ suspend fun extractEntities(
     val nodes = mutableMapOf<String, MutableList<EntityExtractionResult>>()
     val edges = mutableMapOf<String, MutableList<RelationExtractionResult>>()
 
-    val entityTypes = (globalConfig["entity_types"] as? List<*>)?.map { it.toString() } ?: listOf("Person", "Organization", "Location")
+    val entityTypes =
+        (globalConfig["entity_types"] as? List<*>)?.map { it.toString() }
+            ?: listOf("Person", "Organization", "Location")
     val language = globalConfig["language"] as? String ?: "English"
 
     val examples = Prompts.ENTITY_EXTRACTION_EXAMPLES.joinToString("\n")
@@ -162,7 +167,8 @@ suspend fun extractEntities(
             val response: AiMessage = model.generate(messages).content()
             val responseText = response.text()
 
-            val (chunkNodes, chunkEdges) = processExtractionResult(responseText, chunkKey, Prompts.DEFAULT_TUPLE_DELIMITER)
+            val (chunkNodes, chunkEdges) =
+                processExtractionResult(responseText, chunkKey, Prompts.DEFAULT_TUPLE_DELIMITER)
 
             chunkNodes.forEach { (name, list) ->
                 nodes.computeIfAbsent(name) { mutableListOf() }.addAll(list)
@@ -327,7 +333,7 @@ suspend fun kgQuery(
 
     // 2. Search (Local/Global/Hybrid) - simplified to Local Search
     // Fetch related entities from entitiesVdb
-    val entities = entitiesVdb.query(query, queryParam.top_k)
+    val entities = entitiesVdb.query(query, queryParam.topK)
 
     // Build context
     val contextBuilder = StringBuilder()
@@ -336,7 +342,9 @@ suspend fun kgQuery(
     val entitiesStr =
         entities.joinToString("\n") {
             // Simplified entity string
-            "{ \"entity_name\": \"${it["entity_name"]}\", \"content\": \"${JsonUtils.escape(it["content"]?.toString() ?: "")}\" }"
+            "{ \"entity_name\": \"${it["entity_name"]}\", \"content\": \"${
+                JsonUtils.escape(it["content"]?.toString() ?: "")
+            }\" }"
         }
 
     // Fetch Relations (Simplified implementation)
@@ -380,10 +388,9 @@ suspend fun kgQuery(
     }
 
     val relationsStr =
-        edges.take(queryParam.top_k).joinToString("\n") {
-            "{ \"src_id\": \"${it["src_id"]}\", \"tgt_id\": \"${it["tgt_id"]}\", \"content\": \"${JsonUtils.escape(
-                it["description"] ?: "",
-            )}\" }"
+        edges.take(queryParam.topK).joinToString("\n") {
+            "{ \"src_id\": \"${it["src_id"]}\", \"tgt_id\": \"${it["tgt_id"]}\", " +
+                "\"content\": \"${JsonUtils.escape(it["description"] ?: "")}\" }"
         }
 
     // Fetch Text Chunks
@@ -421,15 +428,15 @@ suspend fun kgQuery(
 
     // 3. LLM call
     val sysPromptTemplate = systemPrompt ?: Prompts.RAG_RESPONSE
-    val userPrompt = if (queryParam.response_type != null) "\n\n${queryParam.response_type}" else "n/a"
+    val userPrompt = if (queryParam.responseType != null) "\n\n${queryParam.responseType}" else "n/a"
 
     val sysPrompt =
         sysPromptTemplate
-            .replace("{response_type}", queryParam.response_type ?: "Multiple Paragraphs")
+            .replace("{response_type}", queryParam.responseType ?: "Multiple Paragraphs")
             .replace("{user_prompt}", userPrompt)
             .replace("{context_data}", contextContent)
 
-    if (queryParam.only_need_context) {
+    if (queryParam.onlyNeedContext) {
         return contextContent
     }
 
@@ -463,7 +470,7 @@ suspend fun naiveQuery(
     // Basic vector search
     // In Python: _get_vector_context -> process_chunks_unified -> generate_reference_list_from_chunks -> build context -> LLM
 
-    val searchTopK = queryParam.top_k
+    val searchTopK = queryParam.topK
     // queryParam.chunk_top_k is not in QueryParam class yet, assuming top_k
 
     val results = chunksVdb.query(query, searchTopK)
@@ -486,7 +493,9 @@ suspend fun naiveQuery(
     // For now, simple context building (simplification of Python logic)
     val textChunksStr =
         docChunks.joinToString("\n") { chunk ->
-            "{\"reference_id\": \"${chunk["reference_id"]}\", \"content\": \"${JsonUtils.escape(chunk["content"].toString())}\"}"
+            "{\"reference_id\": \"${chunk["reference_id"]}\", \"content\": \"${
+                JsonUtils.escape(chunk["content"].toString())
+            }\"}"
         }
 
     val referenceListStr =
@@ -501,16 +510,16 @@ suspend fun naiveQuery(
 
     val sysPromptTemplate = systemPrompt ?: Prompts.NAIVE_RAG_RESPONSE
 
-    val userPrompt = if (queryParam.response_type != null) "\n\n${queryParam.response_type}" else "n/a" // Assuming user_prompt logic
+    val userPrompt = if (queryParam.responseType != null) "\n\n${queryParam.responseType}" else "n/a" // Assuming user_prompt logic
 
     val sysPrompt =
         sysPromptTemplate
-            .replace("{response_type}", queryParam.response_type ?: "Multiple Paragraphs")
+            .replace("{response_type}", queryParam.responseType ?: "Multiple Paragraphs")
             // Wait, python code has user_prompt in QueryParam separate from user query
             .replace("{user_prompt}", userPrompt)
             .replace("{content_data}", contextContent)
 
-    if (queryParam.only_need_context) {
+    if (queryParam.onlyNeedContext) {
         return contextContent
     }
 

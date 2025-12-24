@@ -30,8 +30,10 @@ class LightRAGIntegrationTest {
                 val mockEmbeddingModel = mockk<EmbeddingModel>()
 
                 // 1. Mock Embedding: Return constant vector so cosine similarity is always 1.0
-                every { mockEmbeddingModel.embed(any<String>()) } returns Response.from(Embedding(FloatArray(384) { 0.1f }))
-                every { mockEmbeddingModel.embed(any<TextSegment>()) } returns Response.from(Embedding(FloatArray(384) { 0.1f }))
+                every { mockEmbeddingModel.embed(any<String>()) } returns
+                    Response.from(Embedding(FloatArray(384) { 0.1f }))
+                every { mockEmbeddingModel.embed(any<TextSegment>()) } returns
+                    Response.from(Embedding(FloatArray(384) { 0.1f }))
                 every { mockEmbeddingModel.embedAll(any<List<TextSegment>>()) } answers {
                     val input = firstArg<List<TextSegment>>()
                     Response.from(input.map { Embedding(FloatArray(384) { 0.1f }) })
@@ -109,8 +111,10 @@ class LightRAGIntegrationTest {
                 val mockEmbeddingModel = mockk<EmbeddingModel>()
 
                 // Mock Embedding
-                every { mockEmbeddingModel.embed(any<String>()) } returns Response.from(Embedding(FloatArray(384) { 0.1f }))
-                every { mockEmbeddingModel.embed(any<TextSegment>()) } returns Response.from(Embedding(FloatArray(384) { 0.1f }))
+                every { mockEmbeddingModel.embed(any<String>()) } returns
+                    Response.from(Embedding(FloatArray(384) { 0.1f }))
+                every { mockEmbeddingModel.embed(any<TextSegment>()) } returns
+                    Response.from(Embedding(FloatArray(384) { 0.1f }))
                 every { mockEmbeddingModel.embedAll(any<List<TextSegment>>()) } answers {
                     val input = firstArg<List<TextSegment>>()
                     Response.from(input.map { Embedding(FloatArray(384) { 0.1f }) })

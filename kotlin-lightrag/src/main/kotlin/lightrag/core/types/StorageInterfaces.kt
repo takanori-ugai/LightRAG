@@ -1,6 +1,7 @@
 package lightrag.core.types
 
 import kotlinx.serialization.Contextual
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 interface StorageNameSpace {
@@ -150,19 +151,29 @@ enum class DocStatus(val value: String) {
 
 @Serializable
 data class DocProcessingStatus(
-    val content_summary: String,
-    val content_length: Int,
-    val file_path: String,
+    @SerialName("content_summary")
+    val contentSummary: String,
+    @SerialName("content_length")
+    val contentLength: Int,
+    @SerialName("file_path")
+    val filePath: String,
     val status: DocStatus,
-    val created_at: String,
-    val updated_at: String,
-    val track_id: String? = null,
-    val chunks_count: Int? = null,
-    val chunks_list: List<String>? = null,
-    val error_msg: String? = null,
+    @SerialName("created_at")
+    val createdAt: String,
+    @SerialName("updated_at")
+    val updatedAt: String,
+    @SerialName("track_id")
+    val trackId: String? = null,
+    @SerialName("chunks_count")
+    val chunksCount: Int? = null,
+    @SerialName("chunks_list")
+    val chunksList: List<String>? = null,
+    @SerialName("error_msg")
+    val errorMsg: String? = null,
     // Simplified to String map for now
     val metadata: Map<String, String> = emptyMap(),
-    val multimodal_processed: Boolean? = null,
+    @SerialName("multimodal_processed")
+    val multimodalProcessed: Boolean? = null,
 )
 
 interface DocStatusStorage : BaseKVStorage {

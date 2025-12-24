@@ -9,6 +9,7 @@ import io.ktor.server.response.respondText
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import lightrag.core.LightRAG
 import lightrag.core.QueryParam
@@ -17,10 +18,14 @@ import lightrag.core.QueryParam
 data class QueryRequest(
     val query: String,
     val mode: String = "mix",
-    val only_need_context: Boolean? = null,
-    val response_type: String? = null,
-    val top_k: Int? = null,
-    val max_token_for_text_unit: Int? = null,
+    @SerialName("only_need_context")
+    val onlyNeedContext: Boolean? = null,
+    @SerialName("response_type")
+    val responseType: String? = null,
+    @SerialName("top_k")
+    val topK: Int? = null,
+    @SerialName("max_token_for_text_unit")
+    val maxTokenForTextUnit: Int? = null,
 )
 
 @Serializable
@@ -35,9 +40,9 @@ fun Application.configureQueryRoutes(rag: LightRAG) {
                 val param =
                     QueryParam(
                         mode = request.mode,
-                        only_need_context = request.only_need_context ?: false,
-                        response_type = request.response_type,
-                        top_k = request.top_k ?: 10,
+                        onlyNeedContext = request.onlyNeedContext ?: false,
+                        responseType = request.responseType,
+                        topK = request.topK ?: 10,
                     )
 
                 val result = rag.query(request.query, param)

@@ -31,14 +31,14 @@ class JsonDocStatusStorage(
                 // Convert DocProcessingStatus to Map<String, Any>
                 mapOf(
                     "status" to it.status.value,
-                    "content_summary" to it.content_summary,
-                    "content_length" to it.content_length,
-                    "created_at" to it.created_at,
-                    "updated_at" to it.updated_at,
-                    "file_path" to it.file_path,
-                    "track_id" to (it.track_id ?: ""),
-                    "chunks_count" to (it.chunks_count ?: 0),
-                    "error_msg" to (it.error_msg ?: ""),
+                    "content_summary" to it.contentSummary,
+                    "content_length" to it.contentLength,
+                    "created_at" to it.createdAt,
+                    "updated_at" to it.updatedAt,
+                    "file_path" to it.filePath,
+                    "track_id" to (it.trackId ?: ""),
+                    "chunks_count" to (it.chunksCount ?: 0),
+                    "error_msg" to (it.errorMsg ?: ""),
                 )
             }
         }
@@ -62,13 +62,15 @@ class JsonDocStatusStorage(
                 val newDoc =
                     DocProcessingStatus(
                         status = status,
-                        content_summary = map["content_summary"] as? String ?: existing?.content_summary ?: "",
-                        content_length = (map["content_length"]?.toString()?.toIntOrNull()) ?: existing?.content_length ?: 0,
-                        created_at = map["created_at"] as? String ?: existing?.created_at ?: "",
-                        updated_at = map["updated_at"] as? String ?: existing?.updated_at ?: "",
-                        file_path = map["file_path"] as? String ?: existing?.file_path ?: "",
-                        track_id = map["track_id"] as? String ?: existing?.track_id,
-                        error_msg = map["error_msg"] as? String ?: existing?.error_msg,
+                        contentSummary = map["content_summary"] as? String ?: existing?.contentSummary ?: "",
+                        contentLength =
+                            (map["content_length"]?.toString()?.toIntOrNull())
+                                ?: existing?.contentLength ?: 0,
+                        createdAt = map["created_at"] as? String ?: existing?.createdAt ?: "",
+                        updatedAt = map["updated_at"] as? String ?: existing?.updatedAt ?: "",
+                        filePath = map["file_path"] as? String ?: existing?.filePath ?: "",
+                        trackId = map["track_id"] as? String ?: existing?.trackId,
+                        errorMsg = map["error_msg"] as? String ?: existing?.errorMsg,
                     )
                 docs[id] = newDoc
             }
@@ -105,7 +107,7 @@ class JsonDocStatusStorage(
 
     override suspend fun getDocsByTrackId(trackId: String): Map<String, DocProcessingStatus> =
         mutex.withLock {
-            docs.filterValues { it.track_id == trackId }
+            docs.filterValues { it.trackId == trackId }
         }
 
     override suspend fun getDocsPaginated(
@@ -126,7 +128,7 @@ class JsonDocStatusStorage(
             val total = filtered.size
 
             // Sorting logic (simplified)
-            filtered = filtered.sortedBy { it.second.updated_at }
+            filtered = filtered.sortedBy { it.second.updatedAt }
             if (sortDirection == "desc") {
                 filtered = filtered.reversed()
             }
@@ -145,7 +147,7 @@ class JsonDocStatusStorage(
 
     override suspend fun getDocByFilePath(filePath: String): Map<String, Any>? =
         mutex.withLock {
-            val entry = docs.entries.find { it.value.file_path == filePath }
+            val entry = docs.entries.find { it.value.filePath == filePath }
             entry?.let { getById(it.key) }
         }
 }

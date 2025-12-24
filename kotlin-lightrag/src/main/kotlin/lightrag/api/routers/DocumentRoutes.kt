@@ -9,20 +9,24 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import lightrag.core.LightRAG
 
 @Serializable
-data class InsertTextRequest(val text: String, val file_source: String? = null)
+data class InsertTextRequest(val text: String, @SerialName("file_source") val fileSource: String? = null)
 
 @Serializable
-data class InsertTextsRequest(val texts: List<String>, val file_sources: List<String>? = null)
+data class InsertTextsRequest(
+    val texts: List<String>,
+    @SerialName("file_sources") val fileSources: List<String>? = null,
+)
 
 @Serializable
-data class InsertResponse(val status: String, val message: String, val track_id: String)
+data class InsertResponse(val status: String, val message: String, @SerialName("track_id") val trackId: String)
 
 @Serializable
-data class DeleteDocRequest(val doc_ids: List<String>)
+data class DeleteDocRequest(@SerialName("doc_ids") val docIds: List<String>)
 
 fun Application.configureDocumentRoutes(rag: LightRAG) {
     routing {
@@ -51,7 +55,7 @@ fun Application.configureDocumentRoutes(rag: LightRAG) {
             delete("/delete_document") {
                 val request = call.receive<DeleteDocRequest>()
                 // Simplified deletion
-                val result = request.doc_ids.map { rag.deleteByDocId(it) }
+                val result = request.docIds.map { rag.deleteByDocId(it) }
                 call.respond(result)
             }
         }

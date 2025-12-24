@@ -22,24 +22,40 @@ import lightrag.utils.computeMd5
 import lightrag.utils.generateTrackId
 import java.time.Instant
 
+import kotlinx.serialization.SerialName
+
 @Serializable
 data class QueryParam(
     val mode: String = "global",
-    val only_need_context: Boolean = false,
-    val only_need_prompt: Boolean = false,
-    val response_type: String? = "Multiple Paragraphs",
+    @SerialName("only_need_context")
+    val onlyNeedContext: Boolean = false,
+    @SerialName("only_need_prompt")
+    val onlyNeedPrompt: Boolean = false,
+    @SerialName("response_type")
+    val responseType: String? = "Multiple Paragraphs",
     val stream: Boolean = false,
-    val top_k: Int = 40,
-    val chunk_top_k: Int = 20,
-    val max_entity_tokens: Int = 6000,
-    val max_relation_tokens: Int = 8000,
-    val max_total_tokens: Int = 30000,
-    val hl_keywords: List<String> = emptyList(),
-    val ll_keywords: List<String> = emptyList(),
-    val conversation_history: List<Map<String, String>> = emptyList(),
-    val user_prompt: String? = null,
-    val enable_rerank: Boolean = true,
-    val include_references: Boolean = false,
+    @SerialName("top_k")
+    val topK: Int = 40,
+    @SerialName("chunk_top_k")
+    val chunkTopK: Int = 20,
+    @SerialName("max_entity_tokens")
+    val maxEntityTokens: Int = 6000,
+    @SerialName("max_relation_tokens")
+    val maxRelationTokens: Int = 8000,
+    @SerialName("max_total_tokens")
+    val maxTotalTokens: Int = 30000,
+    @SerialName("hl_keywords")
+    val hlKeywords: List<String> = emptyList(),
+    @SerialName("ll_keywords")
+    val llKeywords: List<String> = emptyList(),
+    @SerialName("conversation_history")
+    val conversationHistory: List<Map<String, String>> = emptyList(),
+    @SerialName("user_prompt")
+    val userPrompt: String? = null,
+    @SerialName("enable_rerank")
+    val enableRerank: Boolean = true,
+    @SerialName("include_references")
+    val includeReferences: Boolean = false,
 )
 
 class LightRAG(
@@ -223,7 +239,9 @@ class LightRAG(
 
                 // Get content
                 val docData = fullDocs.getById(docId)
-                val content = docData?.get("content") as? String ?: throw IllegalStateException("Doc content missing for $docId")
+                val content =
+                    docData?.get("content") as? String
+                        ?: throw IllegalStateException("Doc content missing for $docId")
 
                 // Chunking
                 // We use a reversible character-based "tokenizer" logic here for simplicity and robustness
@@ -265,7 +283,7 @@ class LightRAG(
                         mapOf(
                             "content" to v["content"]!!,
                             "full_doc_id" to v["full_doc_id"]!!,
-                            "file_path" to status.file_path,
+                            "file_path" to status.filePath,
                         )
                     }
                 chunksVdb.upsert(chunksVdbData)
@@ -289,7 +307,13 @@ class LightRAG(
             } catch (e: Exception) {
                 e.printStackTrace()
                 docStatusStorage.upsert(
-                    mapOf(docId to mapOf("status" to DocStatus.FAILED.value, "error_msg" to (e.message ?: "Unknown error"))),
+                    mapOf(
+                        docId to
+                            mapOf(
+                                "status" to DocStatus.FAILED.value,
+                                "error_msg" to (e.message ?: "Unknown error"),
+                            ),
+                    ),
                 )
             }
         }
