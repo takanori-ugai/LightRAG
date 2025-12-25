@@ -75,10 +75,26 @@ interface BaseGraphStorage : StorageNameSpace {
 
     suspend fun nodeDegree(nodeId: String): Int
 
+    suspend fun nodeDegreesBatch(nodeIds: List<String>): Map<String, Int> {
+        val result = mutableMapOf<String, Int>()
+        for (nodeId in nodeIds) {
+            result[nodeId] = nodeDegree(nodeId)
+        }
+        return result
+    }
+
     suspend fun edgeDegree(
         srcId: String,
         tgtId: String,
     ): Int
+
+    suspend fun edgeDegreesBatch(edgePairs: List<Pair<String, String>>): Map<Pair<String, String>, Int> {
+        val result = mutableMapOf<Pair<String, String>, Int>()
+        for (pair in edgePairs) {
+            result[pair] = edgeDegree(pair.first, pair.second)
+        }
+        return result
+    }
 
     suspend fun getNode(nodeId: String): Map<String, String>?
 
@@ -89,10 +105,30 @@ interface BaseGraphStorage : StorageNameSpace {
 
     suspend fun getNodeEdges(sourceNodeId: String): List<Pair<String, String>>?
 
+    suspend fun getNodesEdgesBatch(nodeIds: List<String>): Map<String, List<Pair<String, String>>> {
+        val result = mutableMapOf<String, List<Pair<String, String>>>()
+        for (nodeId in nodeIds) {
+            getNodeEdges(nodeId)?.let { result[nodeId] = it }
+        }
+        return result
+    }
+
     suspend fun getNodesBatch(nodeIds: List<String>): Map<String, Map<String, String>> {
         val result = mutableMapOf<String, Map<String, String>>()
         for (nodeId in nodeIds) {
             getNode(nodeId)?.let { result[nodeId] = it }
+        }
+        return result
+    }
+
+    suspend fun getEdgesBatch(edgePairs: List<Map<String, String>>): Map<Pair<String, String>, Map<String, String>> {
+        val result = mutableMapOf<Pair<String, String>, Map<String, String>>()
+        for (pair in edgePairs) {
+            val src = pair["src"]
+            val tgt = pair["tgt"]
+            if (src != null && tgt != null) {
+                getEdge(src, tgt)?.let { result[src to tgt] = it }
+            }
         }
         return result
     }

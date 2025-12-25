@@ -2,8 +2,8 @@ package lightrag.examples
 
 import kotlinx.coroutines.runBlocking
 import lightrag.core.AddonConfig
-import lightrag.core.LightRagOverrides
 import lightrag.core.LightRAG
+import lightrag.core.LightRagOverrides
 import lightrag.core.QueryParam
 import lightrag.llm.LLMFactory
 import java.io.File

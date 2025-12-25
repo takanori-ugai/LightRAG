@@ -16,6 +16,7 @@ import lightrag.kg.json.JsonKVStorage
 import lightrag.kg.memory.InMemoryGraphStorage
 import lightrag.kg.memory.InMemoryVectorStorage
 import lightrag.llm.LLMFactory
+import lightrag.operate.NaiveQueryParams
 import lightrag.operate.chunkingByTokenSize
 import lightrag.operate.extractEntities
 import lightrag.operate.kgQuery
@@ -48,9 +49,9 @@ data class QueryParam(
     @SerialName("max_total_tokens")
     val maxTotalTokens: Int = 30000,
     @SerialName("hl_keywords")
-    val hlKeywords: List<String> = emptyList(),
+    var hlKeywords: List<String> = emptyList(),
     @SerialName("ll_keywords")
-    val llKeywords: List<String> = emptyList(),
+    var llKeywords: List<String> = emptyList(),
     @SerialName("conversation_history")
     val conversationHistory: List<Map<String, String>> = emptyList(),
     @SerialName("user_prompt")
@@ -336,12 +337,14 @@ class LightRAG(
             "naive" -> {
                 val content =
                     naiveQuery(
-                        query = query,
-                        chunksVdb = chunksVdb,
-                        queryParam = param,
-                        globalConfig = globalConfig,
-                        chatModel = chatModel,
-                        hashingKv = hashingKv,
+                        NaiveQueryParams(
+                            query = query,
+                            chunksVdb = chunksVdb,
+                            queryParam = param,
+                            globalConfig = globalConfig,
+                            chatModel = chatModel,
+                            hashingKv = hashingKv,
+                        ),
                     )
                 QueryResult(content = content)
             }
