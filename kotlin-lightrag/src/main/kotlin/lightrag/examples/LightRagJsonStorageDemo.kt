@@ -71,5 +71,15 @@ fun main() =
             println(result)
         }
 
+        // Persist JSON-backed storages (KV, DocStatus, Vectors)
+        rag.docStatusStorage.indexDoneCallback()
+        rag.fullDocs.indexDoneCallback()
+        rag.textChunks.indexDoneCallback()
+        rag.fullEntities.indexDoneCallback()
+        rag.fullRelations.indexDoneCallback()
+        rag.chunksVdb.indexDoneCallback()
+        rag.entitiesVdb.indexDoneCallback()
+        rag.relationshipsVdb.indexDoneCallback()
+
         println("\nDone! Data persisted under $workingDir using JSON-backed storages.")
     }

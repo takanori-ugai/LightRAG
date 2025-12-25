@@ -130,18 +130,21 @@ class LightRAG(
             namespace = "chunks_vdb",
             workspace = "default",
             embeddingFunc = embedding,
+            globalConfig = globalConfig,
         )
     val entitiesVdb: BaseVectorStorage =
         InMemoryVectorStorage(
             namespace = "entities_vdb",
             workspace = "default",
             embeddingFunc = embedding,
+            globalConfig = globalConfig,
         )
     val relationshipsVdb: BaseVectorStorage =
         InMemoryVectorStorage(
             namespace = "relationships_vdb",
             workspace = "default",
             embeddingFunc = embedding,
+            globalConfig = globalConfig,
         )
 
     // Graph Storage

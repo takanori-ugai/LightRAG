@@ -5,9 +5,18 @@ import dev.langchain4j.data.segment.TextSegment
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.store.embedding.CosineSimilarity
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.longOrNull
 import lightrag.core.types.BaseVectorStorage
 import lightrag.core.types.EmbeddingFunc
-import lightrag.kg.memory.Metadata
+import java.io.File
 
 private val logger = KotlinLogging.logger {}
 
@@ -23,6 +32,13 @@ class InMemoryVectorStorage(
     // Using ConcurrentHashMap for thread safety might be better, but MutableMap is fine for simple impl
     private val vectors = mutableMapOf<String, List<Float>>()
     private val metadata = mutableMapOf<String, Metadata>()
+    private val workingDir = File(globalConfig["working_dir"] as? String ?: "./rag_storage")
+    private val file = File(workingDir, "vdb_$namespace.json")
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            prettyPrint = true
+        }
 
     private fun debug(msg: () -> String) {
         if (logger.isDebugEnabled()) {
@@ -30,14 +46,69 @@ class InMemoryVectorStorage(
         }
     }
 
+    override suspend fun initialize() {
+        if (!workingDir.exists()) {
+            workingDir.mkdirs()
+        }
+        if (!file.exists()) return
+
+        try {
+            val content = file.readText()
+            if (content.isNotBlank()) {
+                val jsonElement = json.parseToJsonElement(content)
+                if (jsonElement is JsonObject) {
+                    val loadedVectors = mutableMapOf<String, List<Float>>()
+                    val loadedMetadata = mutableMapOf<String, Metadata>()
+                    jsonElement.entries.forEach { (id, value) ->
+                        if (value is JsonObject) {
+                            val vec = (value["vector"] as? JsonArray)?.mapNotNull { it.toAny() as? Number }?.map { it.toFloat() }
+                            val metaObj = value["metadata"]
+                            val rawMap = (metaObj?.toAny() as? Map<String, Any>) ?: emptyMap()
+                            if (vec != null) {
+                                loadedVectors[id] = vec
+                            }
+                            loadedMetadata[id] = mapToMetadata(rawMap)
+                        }
+                    }
+                    vectors.putAll(loadedVectors)
+                    metadata.putAll(loadedMetadata)
+                    logger.info { "Loaded ${vectors.size} vectors for '$namespace' from ${file.absolutePath}" }
+                }
+            }
+        } catch (e: Exception) {
+            logger.error(e) { "Error loading vector storage from ${file.absolutePath}" }
+        }
+    }
+
     override suspend fun indexDoneCallback() {
-        // No persistence for in-memory
+        try {
+            if (!workingDir.exists()) {
+                workingDir.mkdirs()
+            }
+            val jsonObject =
+                JsonObject(
+                    vectors.mapValues { (id, vec) ->
+                        val meta = metadata[id]?.raw ?: emptyMap()
+                        JsonObject(
+                            mapOf(
+                                "vector" to vec.toJsonElement(),
+                                "metadata" to meta.toJsonElement(),
+                            ),
+                        )
+                    },
+                )
+            val content = json.encodeToString(JsonElement.serializer(), jsonObject)
+            file.writeText(content)
+            debug { "[$namespace/$workspace] Persisted ${vectors.size} vectors to ${file.absolutePath}" }
+        } catch (e: Exception) {
+            logger.error(e) { "Error saving vector storage to ${file.absolutePath}" }
+        }
     }
 
     override suspend fun drop(): Map<String, String> {
         vectors.clear()
         metadata.clear()
-        return mapOf("status" to "success", "message" to "data dropped")
+        return mapOf("status" to "success", "message" to "data dropped (file retained at ${file.absolutePath})")
     }
 
     override suspend fun query(
@@ -194,5 +265,32 @@ class InMemoryVectorStorage(
             tgtId = tgtId,
             raw = meta,
         )
+    }
+
+    private fun Any?.toJsonElement(): JsonElement {
+        return when (this) {
+            null -> JsonNull
+            is Boolean -> JsonPrimitive(this)
+            is Number -> JsonPrimitive(this)
+            is String -> JsonPrimitive(this)
+            is List<*> -> JsonArray(this.map { it.toJsonElement() })
+            is Map<*, *> -> JsonObject(this.entries.associate { it.key.toString() to it.value.toJsonElement() })
+            else -> JsonPrimitive(this.toString())
+        }
+    }
+
+    private fun JsonElement.toAny(): Any? {
+        return when (this) {
+            is JsonNull -> null
+            is JsonPrimitive -> {
+                if (isString) {
+                    content
+                } else {
+                    booleanOrNull ?: longOrNull ?: doubleOrNull ?: content
+                }
+            }
+            is JsonArray -> this.map { it.toAny() }
+            is JsonObject -> this.mapValues { it.value.toAny() }
+        }
     }
 }
