@@ -65,8 +65,8 @@ class Neo4jGraphStorage(
         }
 
         database =
-            System.getenv("NEO4J_DATABASE") ?:
-            ((globalConfig["neo4j"] as? Map<*, *>)?.get("database") as? String)
+            System.getenv("NEO4J_DATABASE")
+                ?: ((globalConfig["neo4j"] as? Map<*, *>)?.get("database") as? String)
     }
 
     private fun sessionConfig(): SessionConfig {

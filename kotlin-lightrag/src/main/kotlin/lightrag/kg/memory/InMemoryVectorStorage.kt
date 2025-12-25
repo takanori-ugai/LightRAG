@@ -7,6 +7,7 @@ import dev.langchain4j.store.embedding.CosineSimilarity
 import io.github.oshai.kotlinlogging.KotlinLogging
 import lightrag.core.types.BaseVectorStorage
 import lightrag.core.types.EmbeddingFunc
+import lightrag.kg.memory.Metadata
 
 private val logger = KotlinLogging.logger {}
 
@@ -21,10 +22,10 @@ class InMemoryVectorStorage(
 
     // Using ConcurrentHashMap for thread safety might be better, but MutableMap is fine for simple impl
     private val vectors = mutableMapOf<String, List<Float>>()
-    private val metadata = mutableMapOf<String, Map<String, Any>>()
+    private val metadata = mutableMapOf<String, Metadata>()
 
     private fun debug(msg: () -> String) {
-        if (logger.isDebugEnabled) {
+        if (logger.isDebugEnabled()) {
             logger.debug(msg)
         }
     }
@@ -80,7 +81,8 @@ class InMemoryVectorStorage(
         }
 
         return results.map { (id, score, meta) ->
-            (meta ?: emptyMap()) + mapOf("id" to id, "score" to score, "distance" to score)
+            val raw = meta?.raw ?: emptyMap()
+            raw + mapOf("id" to id, "score" to score, "distance" to score)
         }
     }
 
@@ -94,25 +96,21 @@ class InMemoryVectorStorage(
             "[$namespace/$workspace] Upsert ${data.size} items. Has embedding model: ${embeddingModel != null}"
         }
 
-        data.forEach { (id, meta) ->
+        data.forEach { (id, metaMap) ->
+            val meta = mapToMetadata(metaMap)
             metadata[id] = meta
-            val content = meta["content"] as? String
+            val content = meta.content
 
             if (content != null && embeddingModel != null) {
-                // Generate embedding
-                try {
-                    val embedding = embeddingModel.embed(TextSegment.from(content)).content()
-                    vectors[id] = embedding.vector().toList()
-                } catch (e: Exception) {
-                    logger.error(e) { "Error embedding content for id $id" }
-                }
-            } else if (meta.containsKey("vector")) {
-                // If vector is provided directly
-                @Suppress("UNCHECKED_CAST")
-                val vec = meta["vector"] as? List<Float>
-                if (vec != null) {
+                val vec = embed(content)
+                if (vec.isNotEmpty()) {
                     vectors[id] = vec
+                } else {
+                    logger.error { "Error embedding content for id $id" }
                 }
+            } else if (meta.vector != null) {
+                // If vector is provided directly
+                vectors[id] = meta.vector
             } else {
                 if (embeddingModel == null) {
                     logger.warn { "No embedding model provided for upsert in '$namespace'" }
@@ -130,7 +128,12 @@ class InMemoryVectorStorage(
     private fun embed(text: String): List<Float> {
         val embeddingModel = embeddingFunc as? EmbeddingModel ?: return emptyList()
         return try {
-            embeddingModel.embed(text).content().vector().toList()
+            val response = embeddingModel.embed(text)
+            val content = response.content()
+            when (content) {
+                is Embedding -> content.vector().toList()
+                else -> emptyList()
+            }
         } catch (e: Exception) {
             logger.error(e) { "Error embedding text: '$text'" }
             emptyList()
@@ -141,7 +144,7 @@ class InMemoryVectorStorage(
         // Remove entities where entity_name matches
         val idsToDelete =
             metadata.filter {
-                it.value["entity_name"] == entityName
+                it.value.entityName == entityName
             }.keys
         delete(idsToDelete.toList())
     }
@@ -150,17 +153,17 @@ class InMemoryVectorStorage(
         // Remove relations where src_id or tgt_id matches
         val idsToDelete =
             metadata.filter {
-                it.value["src_id"] == entityName || it.value["tgt_id"] == entityName
+                it.value.srcId == entityName || it.value.tgtId == entityName
             }.keys
         delete(idsToDelete.toList())
     }
 
     override suspend fun getById(id: String): Map<String, Any>? {
-        return metadata[id]
+        return metadata[id]?.raw
     }
 
     override suspend fun getByIds(ids: List<String>): List<Map<String, Any>> {
-        return ids.mapNotNull { metadata[it] }
+        return ids.mapNotNull { metadata[it]?.raw }
     }
 
     override suspend fun delete(ids: List<String>) {
@@ -174,5 +177,22 @@ class InMemoryVectorStorage(
         return ids.mapNotNull { id ->
             vectors[id]?.let { id to it }
         }.toMap()
+    }
+
+    private fun mapToMetadata(meta: Map<String, Any>): Metadata {
+        val content = meta["content"] as? String
+        @Suppress("UNCHECKED_CAST")
+        val vector = meta["vector"] as? List<Float>
+        val entityName = meta["entity_name"] as? String
+        val srcId = meta["src_id"] as? String
+        val tgtId = meta["tgt_id"] as? String
+        return Metadata(
+            content = content,
+            vector = vector,
+            entityName = entityName,
+            srcId = srcId,
+            tgtId = tgtId,
+            raw = meta,
+        )
     }
 }

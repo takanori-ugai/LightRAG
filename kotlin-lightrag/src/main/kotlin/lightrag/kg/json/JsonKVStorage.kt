@@ -24,7 +24,7 @@ class JsonKVStorage(
     override val globalConfig: Map<String, Any> = emptyMap(),
     override val embeddingFunc: EmbeddingFunc? = null,
 ) : BaseKVStorage {
-    private val data = mutableMapOf<String, Map<String, Any>>()
+    private val data = mutableMapOf<String, KVEntry>()
     private val mutex = Mutex()
     private val workingDir = File(globalConfig["working_dir"] as? String ?: "./rag_storage")
     private val file = File(workingDir, "kv_store_$namespace.json")
@@ -48,7 +48,8 @@ class JsonKVStorage(
                         val loadedData =
                             jsonElement.entries.associate { (k, v) ->
                                 @Suppress("UNCHECKED_CAST")
-                                k to (v.toAny() as? Map<String, Any> ?: emptyMap())
+                                val rawMap = (v.toAny() as? Map<String, Any>) ?: emptyMap()
+                                k to KVEntry(KVValue(rawMap))
                             }
                         mutex.withLock {
                             data.putAll(loadedData)
@@ -65,7 +66,7 @@ class JsonKVStorage(
     override suspend fun indexDoneCallback() {
         mutex.withLock {
             try {
-                val jsonObject = JsonObject(data.mapValues { it.value.toJsonElement() as JsonObject })
+                val jsonObject = JsonObject(data.mapValues { it.value.value.data.toJsonElement() as JsonObject })
                 val content = json.encodeToString(JsonElement.serializer(), jsonObject)
                 file.writeText(content)
                 logger.debug { "Saved ${data.size} records to ${file.absolutePath}" }
@@ -77,12 +78,12 @@ class JsonKVStorage(
 
     override suspend fun getById(id: String): Map<String, Any>? =
         mutex.withLock {
-            data[id]
+            data[id]?.value?.data
         }
 
     override suspend fun getByIds(ids: List<String>): List<Map<String, Any>> =
         mutex.withLock {
-            ids.mapNotNull { data[it] }
+            ids.mapNotNull { data[it]?.value?.data }
         }
 
     override suspend fun filterKeys(keys: Set<String>): Set<String> =
@@ -92,7 +93,8 @@ class JsonKVStorage(
 
     override suspend fun upsert(data: Map<String, Map<String, Any>>) {
         mutex.withLock {
-            this.data.putAll(data)
+            val wrapped = data.mapValues { KVEntry(KVValue(it.value)) }
+            this.data.putAll(wrapped)
         }
     }
 
