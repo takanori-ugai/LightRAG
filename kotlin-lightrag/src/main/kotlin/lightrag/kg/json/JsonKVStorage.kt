@@ -21,7 +21,7 @@ private val logger = KotlinLogging.logger {}
 class JsonKVStorage(
     override val namespace: String,
     override val workspace: String,
-    override val globalConfig: Map<String, Any> = emptyMap(),
+    override val globalConfig: Map<String, Any?> = emptyMap(),
     override val embeddingFunc: EmbeddingFunc? = null,
 ) : BaseKVStorage {
     private val data = mutableMapOf<String, KVEntry>()

@@ -7,7 +7,7 @@ import kotlinx.serialization.Serializable
 interface StorageNameSpace {
     val namespace: String
     val workspace: String
-    val globalConfig: Map<String, Any>
+    val globalConfig: Map<String, Any?>
 
     suspend fun initialize() {}
 

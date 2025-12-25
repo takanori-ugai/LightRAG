@@ -1,7 +1,6 @@
 package lightrag.kg.memory
 
 import dev.langchain4j.data.embedding.Embedding
-import dev.langchain4j.data.segment.TextSegment
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.store.embedding.CosineSimilarity
 import io.github.oshai.kotlinlogging.KotlinLogging
@@ -23,7 +22,7 @@ private val logger = KotlinLogging.logger {}
 class InMemoryVectorStorage(
     override val namespace: String,
     override val workspace: String,
-    override val globalConfig: Map<String, Any> = emptyMap(),
+    override val globalConfig: Map<String, Any?> = emptyMap(),
     override val embeddingFunc: EmbeddingFunc = Any(),
 ) : BaseVectorStorage {
     override val cosineBetterThanThreshold: Double = 0.8
@@ -252,6 +251,7 @@ class InMemoryVectorStorage(
 
     private fun mapToMetadata(meta: Map<String, Any>): Metadata {
         val content = meta["content"] as? String
+
         @Suppress("UNCHECKED_CAST")
         val vector = meta["vector"] as? List<Float>
         val entityName = meta["entity_name"] as? String

@@ -66,7 +66,7 @@ fun main() {
             rag.query(
                 "What are the top themes in this story?",
                 QueryParam(mode = "naive"),
-            ),
+            )?.content,
         )
 
         // Perform local search
@@ -75,7 +75,7 @@ fun main() {
             rag.query(
                 "What are the top themes in this story?",
                 QueryParam(mode = "local"),
-            ),
+            )?.content,
         )
 
         // Perform global search
@@ -84,7 +84,7 @@ fun main() {
             rag.query(
                 "What are the top themes in this story?",
                 QueryParam(mode = "global"),
-            ),
+            )?.content,
         )
 
         // Perform hybrid search
@@ -93,7 +93,7 @@ fun main() {
             rag.query(
                 "What are the top themes in this story?",
                 QueryParam(mode = "hybrid"),
-            ),
+            )?.content,
         )
 
         // Finalize (Close connection)

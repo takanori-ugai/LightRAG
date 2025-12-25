@@ -5,13 +5,17 @@ import dev.langchain4j.data.message.SystemMessage
 import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.chat.ChatLanguageModel
 import io.github.oshai.kotlinlogging.KotlinLogging
+import lightrag.core.CacheData
 import lightrag.core.Constants
 import lightrag.core.QueryParam
+import lightrag.core.QueryParamCache
+import lightrag.core.QueryResult
 import lightrag.core.types.BaseGraphStorage
 import lightrag.core.types.BaseKVStorage
 import lightrag.core.types.BaseVectorStorage
 import lightrag.utils.JsonUtils
 import lightrag.utils.Prompts
+import lightrag.utils.computeMd5
 
 private val logger = KotlinLogging.logger {}
 
@@ -113,7 +117,7 @@ fun chunkingByTokenSize(
 
 suspend fun extractEntities(
     chunks: Map<String, Map<String, Any>>,
-    globalConfig: Map<String, Any>,
+    globalConfig: Map<String, Any?>,
 ): Pair<Map<String, List<EntityExtractionResult>>, Map<String, List<RelationExtractionResult>>> {
     val model = globalConfig["llm_model_func"] as? ChatLanguageModel
     if (model == null) {
@@ -232,7 +236,7 @@ suspend fun mergeNodesAndEdges(
     knowledgeGraphInst: BaseGraphStorage,
     entitiesVdb: BaseVectorStorage,
     relationshipsVdb: BaseVectorStorage,
-    globalConfig: Map<String, Any>,
+    globalConfig: Map<String, Any?>,
 ) {
     // 1. Process Nodes
     for ((name, entityList) in nodes) {
@@ -311,15 +315,14 @@ suspend fun kgQuery(
     relationshipsVdb: BaseVectorStorage,
     textChunksDb: BaseKVStorage,
     queryParam: QueryParam,
-    // Changed from dict[str, str] to Map<String, Any> to be more flexible
-    globalConfig: Map<String, Any>,
+    globalConfig: Map<String, Any?>,
     hashingKv: BaseKVStorage? = null,
     systemPrompt: String? = null,
     chunksVdb: BaseVectorStorage? = null,
     chatModel: ChatLanguageModel? = null,
-): String? {
+): QueryResult? {
     if (query.isBlank()) {
-        return Prompts.FAIL_RESPONSE
+        return QueryResult(content = Prompts.FAIL_RESPONSE)
     }
 
     val model = chatModel ?: globalConfig["llm_model_func"] as? ChatLanguageModel
@@ -440,28 +443,103 @@ suspend fun kgQuery(
             .replace("{context_data}", contextContent)
 
     if (queryParam.onlyNeedContext) {
-        return contextContent
+        return QueryResult(content = contextContent)
     }
 
-    try {
-        val messages =
-            listOf(
-                SystemMessage(sysPrompt),
-                UserMessage(query),
-            )
-        val response: AiMessage = model.generate(messages).content()
-        return response.text()
-    } catch (e: Exception) {
-        logger.error(e) { "Error generating response in kgQuery" }
-        return "Error generating response."
+    // Build cache key
+    val hlKeywordsStr = keywords.joinToString(",")
+    val llKeywordsStr = "" // Not available in the current implementation
+    val cacheSeed =
+        listOf(
+            queryParam.mode,
+            query,
+            queryParam.responseType ?: "",
+            queryParam.topK.toString(),
+            queryParam.chunkTopK.toString(),
+            queryParam.maxEntityTokens.toString(),
+            queryParam.maxRelationTokens.toString(),
+            queryParam.maxTotalTokens.toString(),
+            hlKeywordsStr,
+            llKeywordsStr,
+            queryParam.userPrompt ?: "",
+            queryParam.enableRerank.toString(),
+        ).joinToString("|")
+    val cacheKey = "kg_query_cache_${computeMd5(cacheSeed)}"
+
+    // Try cache if provided
+    if (hashingKv != null && (globalConfig["enable_llm_cache"] as? Boolean == true)) {
+        val cached = hashingKv.getById(cacheKey)
+        val cachedContent = cached?.get("content") as? String
+        if (!cachedContent.isNullOrEmpty()) {
+            logger.info { " == LLM cache == Query cache hit, using cached response as query result" }
+            return QueryResult(content = cachedContent, rawData = null)
+        }
     }
+
+    val response =
+        try {
+            val messages =
+                listOf(
+                    SystemMessage(sysPrompt),
+                    UserMessage(query),
+                )
+            model.generate(messages).content().text()
+        } catch (e: Exception) {
+            logger.error(e) { "Error generating response in kgQuery" }
+            "Error generating response."
+        }
+
+    // The user's request implies handling for streaming and non-streaming responses.
+    // For now we assume a non-streaming response (String).
+    // A full implementation would need to handle Flow<String> for streaming.
+
+    if (hashingKv != null && (globalConfig["enable_llm_cache"] as? Boolean == true)) {
+        val queryParamDict =
+            QueryParamCache(
+                mode = queryParam.mode,
+                responseType = queryParam.responseType,
+                topK = queryParam.topK,
+                chunkTopK = queryParam.chunkTopK,
+                maxEntityTokens = queryParam.maxEntityTokens,
+                maxRelationTokens = queryParam.maxRelationTokens,
+                maxTotalTokens = queryParam.maxTotalTokens,
+                hlKeywords = hlKeywordsStr,
+                llKeywords = llKeywordsStr,
+                userPrompt = queryParam.userPrompt ?: "",
+                enableRerank = queryParam.enableRerank,
+            )
+        saveToCache(
+            hashingKv,
+            CacheData(
+                argsHash = cacheKey,
+                content = response,
+                prompt = query,
+                mode = queryParam.mode,
+                cacheType = "query",
+                queryParam = queryParamDict,
+            ),
+        )
+    }
+    var responseContent = response
+    if (responseContent.length > sysPrompt.length) {
+        responseContent =
+            responseContent.replace(sysPrompt, "")
+                .replace("user", "")
+                .replace("model", "")
+                .replace(query, "")
+                .replace("<system>", "")
+                .replace("</system>", "")
+                .trim()
+    }
+
+    return QueryResult(content = responseContent, rawData = null)
 }
 
 suspend fun naiveQuery(
     query: String,
     chunksVdb: BaseVectorStorage,
     queryParam: QueryParam,
-    globalConfig: Map<String, Any>,
+    globalConfig: Map<String, Any?>,
     hashingKv: BaseKVStorage? = null,
     systemPrompt: String? = null,
     chatModel: ChatLanguageModel? = null,
@@ -470,11 +548,8 @@ suspend fun naiveQuery(
         return Prompts.FAIL_RESPONSE
     }
 
-    // Basic vector search
-    // In Python: _get_vector_context -> process_chunks_unified -> generate_reference_list_from_chunks -> build context -> LLM
-
-    val searchTopK = queryParam.topK
-    // queryParam.chunk_top_k is not in QueryParam class yet, assuming top_k
+    // Basic vector search (naive: direct topK from chunks VDB)
+    val searchTopK = queryParam.chunkTopK.coerceAtMost(queryParam.topK)
 
     val results = chunksVdb.query(query, searchTopK)
     if (results.isEmpty()) {
@@ -487,9 +562,11 @@ suspend fun naiveQuery(
 
     val docChunks =
         results.mapIndexed { index, res ->
+            val content = res["content"] ?: ""
             mapOf(
                 "reference_id" to "${index + 1}",
-                "content" to (res["content"] ?: ""),
+                "content" to content,
+                "file_path" to (res["file_path"] ?: "unknown_source"),
             )
         }
 
@@ -502,9 +579,9 @@ suspend fun naiveQuery(
         }
 
     val referenceListStr =
-        results.mapIndexed { index, res ->
-            "[${index + 1}] ${res["file_path"] ?: "unknown_source"}"
-        }.joinToString("\n")
+        docChunks.joinToString("\n") { chunk ->
+            "[${chunk["reference_id"]}] ${chunk["file_path"] ?: "unknown_source"}"
+        }
 
     val contextContent =
         contextBuilder.toString()
@@ -514,10 +591,16 @@ suspend fun naiveQuery(
     val sysPromptTemplate = systemPrompt ?: Prompts.NAIVE_RAG_RESPONSE
 
     val userPrompt =
-        if (queryParam.responseType != null) {
-            "\n\n${queryParam.responseType}"
-        } else {
-            "n/a"
+        buildString {
+            if (!queryParam.userPrompt.isNullOrBlank()) {
+                append(queryParam.userPrompt)
+            } else {
+                append("n/a")
+            }
+            if (!queryParam.responseType.isNullOrBlank()) {
+                append("\n\n")
+                append(queryParam.responseType)
+            }
         }
 
     val sysPrompt =
@@ -533,6 +616,10 @@ suspend fun naiveQuery(
         return contextContent
     }
 
+    if (queryParam.onlyNeedPrompt) {
+        return listOf(sysPrompt, "---User Query---", query).joinToString("\n")
+    }
+
     // Call LLM
     val model = chatModel ?: globalConfig["llm_model_func"] as? ChatLanguageModel
 
@@ -541,16 +628,45 @@ suspend fun naiveQuery(
         return "Error: No LLM model configured."
     }
 
-    try {
+    // Build cache key
+    val cacheKeySeed =
+        listOf(
+            queryParam.mode,
+            query,
+            queryParam.responseType ?: "",
+            queryParam.topK.toString(),
+            queryParam.chunkTopK.toString(),
+            queryParam.userPrompt ?: "",
+            queryParam.enableRerank.toString(),
+        ).joinToString("|")
+    val cacheKey = "query_cache_${computeMd5(cacheKeySeed)}"
+
+    // Try cache if provided
+    if (hashingKv != null) {
+        val cached = hashingKv.getById(cacheKey)
+        val cachedContent = cached?.get("content") as? String
+        if (!cachedContent.isNullOrEmpty()) {
+            logger.info { " == LLM cache == Query cache hit, using cached response as query result" }
+            return cachedContent
+        }
+    }
+
+    // Call LLM
+    return try {
         val messages =
             listOf(
                 SystemMessage(sysPrompt),
                 UserMessage(query),
             )
         val response: AiMessage = model.generate(messages).content()
-        return response.text()
+        val text = response.text()
+
+        if (hashingKv != null) {
+            hashingKv.upsert(mapOf(cacheKey to mapOf("content" to text)))
+        }
+        text
     } catch (e: Exception) {
         logger.error(e) { "Error generating response in naiveQuery" }
-        return "Error generating response."
+        "Error generating response."
     }
 }

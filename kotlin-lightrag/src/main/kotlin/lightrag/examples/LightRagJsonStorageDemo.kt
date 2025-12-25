@@ -68,7 +68,7 @@ fun main() =
                         includeReferences = true,
                     ),
                 )
-            println(result)
+            println(result?.content)
         }
 
         // Persist JSON-backed storages (KV, DocStatus, Vectors)

@@ -17,7 +17,7 @@ private val logger = KotlinLogging.logger {}
 class JsonDocStatusStorage(
     override val namespace: String,
     override val workspace: String,
-    override val globalConfig: Map<String, Any> = emptyMap(),
+    override val globalConfig: Map<String, Any?> = emptyMap(),
     override val embeddingFunc: EmbeddingFunc? = null,
 ) : DocStatusStorage {
     private val docs = mutableMapOf<String, DocProcessingStatus>()

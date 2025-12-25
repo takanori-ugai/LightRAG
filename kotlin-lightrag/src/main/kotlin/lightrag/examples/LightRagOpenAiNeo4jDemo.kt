@@ -137,7 +137,7 @@ fun main() =
                             includeReferences = true,
                         ),
                     )
-                println(result)
+                println(result?.content)
             } catch (e: Exception) {
                 println("Error querying mode $mode: ${e.message}")
             }

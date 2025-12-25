@@ -1,7 +1,9 @@
 package lightrag.core
 
+import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.chat.ChatLanguageModel
 import dev.langchain4j.model.embedding.EmbeddingModel
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import lightrag.core.types.BaseGraphStorage
@@ -22,6 +24,8 @@ import lightrag.operate.naiveQuery
 import lightrag.utils.computeMd5
 import lightrag.utils.generateTrackId
 import java.time.Instant
+
+private val logger = KotlinLogging.logger {}
 
 @Serializable
 data class QueryParam(
@@ -59,38 +63,35 @@ data class QueryParam(
 
 class LightRAG(
     val workingDir: String = "./rag_storage",
-    // Allow injecting custom models, or configuring via binding strings
     chatModel: ChatLanguageModel? = null,
     embeddingModel: EmbeddingModel? = null,
+    val hashingKv: BaseKVStorage? = null,
     llmBinding: String = "ollama",
     llmModelName: String = "llama3",
     embeddingBinding: String = "ollama",
     embeddingModelName: String = "all-minilm",
     graphStorageName: String = "InMemoryGraphStorage",
-    addonConfig: Map<String, Any> = emptyMap(),
+    addonConfig: Map<String, Any?> = emptyMap(),
 ) {
-    // Initialize LLM and Embedding models
-    private val model: ChatLanguageModel =
+    val chatModel: ChatLanguageModel =
         chatModel ?: LLMFactory.createChatModel(llmBinding, llmModelName)
 
     private val embedding: EmbeddingModel =
         embeddingModel ?: LLMFactory.createEmbeddingModel(embeddingBinding, embeddingModelName)
 
-    // Global config equivalent
-    val globalConfig: Map<String, Any> =
+    val globalConfig: Map<String, Any?> =
         mapOf(
-            "llm_model_func" to model,
+            "llm_model_func" to chatModel,
             "embedding_func" to embedding,
             "tokenizer" to { text: String -> text.split(Regex("\\s+")).map { it.hashCode() } },
-            // Placeholder tokenizer
             "chunk_token_size" to 1200,
             "chunk_overlap_token_size" to 100,
             "entity_types" to listOf("Person", "Organization", "Location", "Event", "Concept"),
             "language" to "English",
             "working_dir" to workingDir,
+            "enable_llm_cache" to (hashingKv != null),
         ) + addonConfig
 
-    // Initialize Storages
     val docStatusStorage: DocStatusStorage =
         JsonDocStatusStorage(
             namespace = "doc_status",
@@ -110,7 +111,6 @@ class LightRAG(
             globalConfig = mapOf("working_dir" to workingDir),
         )
 
-    // Additional storages to match Python implementation
     val fullEntities: BaseKVStorage =
         JsonKVStorage(
             namespace = "full_entities",
@@ -124,7 +124,6 @@ class LightRAG(
             globalConfig = mapOf("working_dir" to workingDir),
         )
 
-    // Vector Storages
     val chunksVdb: BaseVectorStorage =
         InMemoryVectorStorage(
             namespace = "chunks_vdb",
@@ -147,7 +146,6 @@ class LightRAG(
             globalConfig = globalConfig,
         )
 
-    // Graph Storage
     val chunkEntityRelationGraph: BaseGraphStorage =
         when (graphStorageName) {
             "MongoGraphStorage" -> {
@@ -171,9 +169,8 @@ class LightRAG(
                 )
         }
 
-    // Alias for backward compatibility if needed, but pointing to specific ones is better
-    val kvStorage: BaseKVStorage = textChunks // Default kvStorage points to textChunks
-    val vectorStorage: BaseVectorStorage = entitiesVdb // Default to entities?
+    val kvStorage: BaseKVStorage = textChunks
+    val vectorStorage: BaseVectorStorage = entitiesVdb
     val graphStorage: BaseGraphStorage = chunkEntityRelationGraph
 
     suspend fun insert(input: String): String {
@@ -192,10 +189,9 @@ class LightRAG(
         trackId: String,
         filePaths: List<String>? = null,
     ): String {
-        // 1. Validate and deduplicate
         val effectiveFilePaths = filePaths ?: List(input.size) { "unknown_source" }
 
-        val uniqueContent = mutableMapOf<String, Pair<String, String>>() // md5 -> (content, filePath)
+        val uniqueContent = mutableMapOf<String, Pair<String, String>>()
 
         for (i in input.indices) {
             val content = input[i]
@@ -204,20 +200,17 @@ class LightRAG(
             uniqueContent[md5] = content to path
         }
 
-        // 2. Filter out already processed documents
         val newDocs = mutableMapOf<String, Map<String, Any>>()
         val allNewDocIds = uniqueContent.keys
         val missingDocIds = docStatusStorage.filterKeys(allNewDocIds)
 
-        // filterKeys returns keys that are NOT in storage, so we should process them.
         val uniqueNewDocIds = missingDocIds
 
         uniqueNewDocIds.forEach { docId ->
             val (content, path) = uniqueContent[docId]!!
-            // Use String values where possible to simplify serialization, cast Any if needed by storage
             newDocs[docId] =
                 mapOf(
-                    "status" to DocStatus.PENDING.toString(),
+                    "status" to DocStatus.PENDING.value,
                     "content_summary" to (content.take(100) + "..."),
                     "content_length" to content.length.toString(),
                     "created_at" to Instant.now().toString(),
@@ -231,7 +224,6 @@ class LightRAG(
             return trackId
         }
 
-        // 3. Store full doc content
         val fullDocsData =
             uniqueNewDocIds.associateWith { docId ->
                 val (content, path) = uniqueContent[docId]!!
@@ -239,37 +231,27 @@ class LightRAG(
             }
         fullDocs.upsert(fullDocsData)
 
-        // 4. Store doc status
         docStatusStorage.upsert(newDocs)
 
         return trackId
     }
 
     private suspend fun pipelineProcessEnqueueDocuments() {
-        // 1. Get pending documents
         val pendingDocs = docStatusStorage.getDocsByStatus(DocStatus.PENDING)
         if (pendingDocs.isEmpty()) return
 
         val chunkTokenSize = globalConfig["chunk_token_size"] as? Int ?: 1200
         val chunkOverlapTokenSize = globalConfig["chunk_overlap_token_size"] as? Int ?: 100
 
-        // 2. Process each document
         pendingDocs.forEach { (docId, status) ->
             try {
-                // Update status to PROCESSING
-                docStatusStorage.upsert(mapOf(docId to mapOf("status" to DocStatus.PROCESSING.toString())))
+                docStatusStorage.upsert(mapOf(docId to mapOf("status" to DocStatus.PROCESSING.value)))
 
-                // Get content
                 val docData = fullDocs.getById(docId)
                 val content =
                     docData?.get("content") as? String
                         ?: throw IllegalStateException("Doc content missing for $docId")
 
-                // Chunking
-                // We use a reversible character-based "tokenizer" logic here for simplicity and robustness
-                // or just split by token size but keep strings.
-                // The chunkingByTokenSize function signature requires (String) -> List<Int> and (List<Int>) -> String
-                // We can implement a simple character-level tokenizer which is 100% safe.
                 val tokenizer: (String) -> List<Int> = { it.map { c -> c.code } }
                 val decoder: (List<Int>) -> String = { list -> list.map { it.toChar() }.joinToString("") }
 
@@ -282,7 +264,6 @@ class LightRAG(
                         chunkOverlapTokenSize = chunkOverlapTokenSize,
                     )
 
-                // Prepare chunks for storage and extraction
                 val chunksData = mutableMapOf<String, Map<String, Any>>()
                 chunks.forEach { chunk ->
                     val chunkId = computeMd5(chunk.content)
@@ -295,11 +276,7 @@ class LightRAG(
                         )
                 }
 
-                // Upsert chunks to KV and VectorDB
                 textChunks.upsert(chunksData)
-                // In Python, chunks_vdb stores vectors. Here we need to embed.
-                // InMemoryVectorStorage handles embedding in upsert if embeddingFunc is present.
-                // But data needs to be structured correctly.
                 val chunksVdbData =
                     chunksData.mapValues { (_, v) ->
                         mapOf(
@@ -310,11 +287,8 @@ class LightRAG(
                     }
                 chunksVdb.upsert(chunksVdbData)
 
-                // Extract Entities and Relations
-                // Passing chunksData directly
                 val (nodes, edges) = extractEntities(chunksData, globalConfig)
 
-                // Merge and Upsert Graph
                 mergeNodesAndEdges(
                     nodes = nodes,
                     edges = edges,
@@ -324,7 +298,6 @@ class LightRAG(
                     globalConfig = globalConfig,
                 )
 
-                // Update Status to PROCESSED
                 docStatusStorage.upsert(mapOf(docId to mapOf("status" to DocStatus.PROCESSED.value)))
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -344,7 +317,7 @@ class LightRAG(
     suspend fun query(
         query: String,
         param: QueryParam,
-    ): String {
+    ): QueryResult? {
         return when (param.mode) {
             "local", "global", "hybrid", "mix" -> {
                 kgQuery(
@@ -356,29 +329,30 @@ class LightRAG(
                     queryParam = param,
                     globalConfig = globalConfig,
                     chunksVdb = chunksVdb,
-                ) ?: "No result generated."
+                    chatModel = chatModel,
+                    hashingKv = hashingKv,
+                )
             }
             "naive" -> {
-                naiveQuery(
-                    query = query,
-                    chunksVdb = chunksVdb,
-                    queryParam = param,
-                    globalConfig = globalConfig,
-                ) ?: "No result generated."
+                val content =
+                    naiveQuery(
+                        query = query,
+                        chunksVdb = chunksVdb,
+                        queryParam = param,
+                        globalConfig = globalConfig,
+                        chatModel = chatModel,
+                        hashingKv = hashingKv,
+                    )
+                QueryResult(content = content)
             }
             "bypass" -> {
-                // Direct LLM call
-                try {
-                    val messages = mutableListOf<dev.langchain4j.data.message.ChatMessage>()
-                    // If we have conversation history, we could add it here
-                    // For now, just user query
-                    messages.add(dev.langchain4j.data.message.UserMessage(query))
-                    model.generate(messages).content().text()
-                } catch (e: Exception) {
-                    "Error generating response: ${e.message}"
-                }
+                val response = chatModel.generate(UserMessage(query))
+                QueryResult(content = response?.content()?.text())
             }
-            else -> throw IllegalArgumentException("Unknown mode: ${param.mode}")
+            else -> {
+                logger.error { "Unsupported query mode: ${param.mode}" }
+                null
+            }
         }
     }
 
@@ -387,7 +361,6 @@ class LightRAG(
     }
 
     suspend fun deleteByDocId(docId: String): Map<String, String> {
-        // Mock deletion logic using storage
         docStatusStorage.delete(listOf(docId))
         return mapOf("status" to "success", "doc_id" to docId)
     }

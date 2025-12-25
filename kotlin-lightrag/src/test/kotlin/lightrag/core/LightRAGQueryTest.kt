@@ -89,6 +89,7 @@ class LightRAGQueryTest {
 
                 // Verification
                 assertNotNull(result)
+                assertNotNull(result.content)
                 // Relaxed assertion: check for either standard mock response or the specific one.
                 // The issue is likely that "Naive query response based on context" is not returned
                 // because the mock condition is not matching exactly what "NaiveQuery" sends.
@@ -96,14 +97,14 @@ class LightRAGQueryTest {
 
                 // If the test fails, it's because result does not contain "Naive query response".
                 // Let's check if it contains "Mock response" which would mean it fell through.
-                if (result.contains("Mock response")) {
+                if (result.content!!.contains("Mock response")) {
                     // Acceptable for now as it proves flow connectivity
                     assertTrue(true)
                 } else {
                     assertTrue(
-                        result.contains("Naive query response") ||
-                            result.contains("Mock response"),
-                        "Result was: $result",
+                        result.content!!.contains("Naive query response") ||
+                            result.content!!.contains("Mock response"),
+                        "Result was: ${result.content}",
                     )
                 }
 
@@ -170,7 +171,8 @@ class LightRAGQueryTest {
                 val result = rag.query("Tell me about Apple", param)
 
                 assertNotNull(result)
-                assertTrue(result.contains("KG query response"))
+                assertNotNull(result.content)
+                assertTrue(result.content!!.contains("KG query response"))
 
                 tempDir.deleteRecursively()
             } catch (e: Throwable) {
@@ -189,7 +191,7 @@ class LightRAGQueryTest {
 
                 every { mockEmbeddingModel.embed(any<String>()) } returns
                     Response.from(Embedding(FloatArray(384) { 0.1f }))
-                every { mockChatModel.generate(any<List<ChatMessage>>()) } returns
+                every { mockChatModel.generate(any<UserMessage>()) } returns
                     Response.from(AiMessage("Direct LLM response"))
 
                 val tempDir = File("build/tmp/test_rag_query_bypass_${System.currentTimeMillis()}")
@@ -205,7 +207,7 @@ class LightRAGQueryTest {
                 val param = QueryParam(mode = "bypass")
                 val result = rag.query("Hello", param)
 
-                assertEquals("Direct LLM response", result)
+                assertEquals("Direct LLM response", result?.content)
 
                 tempDir.deleteRecursively()
             } catch (e: Throwable) {

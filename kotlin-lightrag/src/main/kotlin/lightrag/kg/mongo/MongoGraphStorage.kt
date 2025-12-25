@@ -18,7 +18,7 @@ private val logger = KotlinLogging.logger {}
 
 class MongoGraphStorage(
     override val namespace: String,
-    override val globalConfig: Map<String, Any>,
+    override val globalConfig: Map<String, Any?>,
     override val embeddingFunc: EmbeddingFunc?,
 ) : BaseGraphStorage {
     override val workspace: String = globalConfig["working_dir"] as? String ?: "./rag_storage"

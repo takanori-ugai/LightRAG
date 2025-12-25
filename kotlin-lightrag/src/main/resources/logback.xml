@@ -1,7 +1,7 @@
 <configuration scan="true" scanPeriod="30 seconds">
     <property name="ROOT_LOG_LEVEL" value="${ROOT_LOG_LEVEL:-INFO}" />
     <property name="LIGHTRAG_LOG_LEVEL" value="${LIGHTRAG_LOG_LEVEL:-DEBUG}" />
-    <property name="NEO4J_LOG_LEVEL" value="${NEO4J_LOG_LEVEL:-INFO}" />
+    <property name="NEO4J_LOG_LEVEL" value="${NEO4J_LOG_LEVEL:-DEBUG}" />
     <property name="LANGCHAIN4J_LOG_LEVEL" value="${LANGCHAIN4J_LOG_LEVEL:-DEBUG}" />
     <property name="LANGCHAIN4J_HTTP_LOG_LEVEL" value="${LANGCHAIN4J_HTTP_LOG_LEVEL:-DEBUG}" />
     <property name="OPENAI4J_LOG_LEVEL" value="${OPENAI4J_LOG_LEVEL:-TRACE}" />

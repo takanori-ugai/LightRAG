@@ -115,7 +115,7 @@ fun main() =
                         queryText,
                         QueryParam(mode = mode),
                     )
-                println(result)
+                println(result?.content)
             } catch (e: Exception) {
                 println("Error querying mode $mode: ${e.message}")
             }

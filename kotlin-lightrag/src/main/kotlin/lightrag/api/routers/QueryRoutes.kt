@@ -46,7 +46,7 @@ fun Application.configureQueryRoutes(rag: LightRAG) {
                     )
 
                 val result = rag.query(request.query, param)
-                call.respond(QueryResponse(result))
+                call.respond(QueryResponse(result?.content ?: "No result generated."))
             }
 
             post("/stream") {
