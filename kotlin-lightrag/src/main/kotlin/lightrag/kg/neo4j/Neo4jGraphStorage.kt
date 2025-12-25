@@ -720,13 +720,19 @@ class Neo4jGraphStorage(
                 val node = result.next().get("n").asNode()
                 val props = node.asMap().toMutableMap()
                 val entityId = props["entity_id"]?.toString() ?: return@use
-                queue.add(Triple(props, null, 0))
+                val nodeMap =
+                    mapOf(
+                        "id" to entityId,
+                        "labels" to listOf(entityId),
+                        "properties" to props,
+                    )
+                queue.add(Triple(nodeMap, null, 0))
             }
         }
 
         while (queue.isNotEmpty() && visitedNodes.size < maxNodes) {
             val (currentNode, currentEdge, currentDepth) = queue.removeFirst()
-            val currentEntityId = currentNode["entity_id"].toString()
+            val currentEntityId = currentNode["id"].toString()
 
             if (shouldSkipNode(currentEntityId, currentDepth, maxDepth, visitedNodes)) continue
 
@@ -796,13 +802,18 @@ class Neo4jGraphStorage(
                 val bEntityId = bProps["entity_id"]?.toString() ?: continue
                 val rProps = r.asMap().toMutableMap()
                 val edgeId = r.elementId()
+                val edgeMap =
+                    mutableMapOf<String, Any>(
+                        "id" to edgeId,
+                        "type" to r.type(),
+                        "source" to currentEntityId,
+                        "target" to bEntityId,
+                        "properties" to rProps,
+                    )
 
                 if (visitedEdges.contains(edgeId)) continue
 
                 val pair = setOf(currentEntityId, bEntityId)
-                val edgeMap = rProps
-                edgeMap["source"] = currentEntityId
-                edgeMap["target"] = bEntityId
 
                 if (pair !in visitedEdgePairs) {
                     if (visitedNodes.contains(bEntityId) || currentDepth < maxDepth) {
@@ -814,7 +825,13 @@ class Neo4jGraphStorage(
 
                 if (!visitedNodes.contains(bEntityId)) {
                     if (currentDepth < maxDepth) {
-                        queue.add(Triple(bProps, null, currentDepth + 1))
+                        val neighborNode =
+                            mapOf(
+                                "id" to bEntityId,
+                                "labels" to listOf(bEntityId),
+                                "properties" to bProps,
+                            )
+                        queue.add(Triple(neighborNode, null, currentDepth + 1))
                     }
                 }
             }
@@ -868,7 +885,13 @@ class Neo4jGraphStorage(
                     val entityId = props["entity_id"] as? String
                     if (entityId != null) {
                         idToEntityId[node.elementId()] = entityId
-                        nodes.add(props)
+                        nodes.add(
+                            mapOf(
+                                "id" to entityId,
+                                "labels" to listOf(entityId),
+                                "properties" to props,
+                            ),
+                        )
                     }
                 }
 
@@ -881,9 +904,15 @@ class Neo4jGraphStorage(
 
                     if (srcEntityId != null && tgtEntityId != null) {
                         val edgeProps = rel.asMap().toMutableMap()
-                        edgeProps["source"] = srcEntityId
-                        edgeProps["target"] = tgtEntityId
-                        edges.add(edgeProps)
+                        edges.add(
+                            mapOf(
+                                "id" to rel.elementId(),
+                                "type" to rel.type(),
+                                "source" to srcEntityId,
+                                "target" to tgtEntityId,
+                                "properties" to edgeProps,
+                            ),
+                        )
                     }
                 }
             }
