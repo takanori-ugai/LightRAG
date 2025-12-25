@@ -7,7 +7,7 @@ data class AddonConfig(
 ) {
     fun toMap(): Map<String, Any> {
         val base = mutableMapOf<String, Any>()
-        neo4j?.let { base["neo4j"] = it }
+        neo4j?.let { base["neo4j"] = it.toMap().filterValues { value -> value != null } }
         base.putAll(overrides.toMap())
         base.putAll(extras)
         return base

@@ -3,7 +3,10 @@ package lightrag.examples
 import dev.langchain4j.model.openai.OpenAiChatModel
 import dev.langchain4j.model.openai.OpenAiEmbeddingModel
 import kotlinx.coroutines.runBlocking
+import lightrag.core.AddonConfig
+import lightrag.core.LightRagOverrides
 import lightrag.core.LightRAG
+import lightrag.core.Neo4jConfig
 import lightrag.core.QueryParam
 import java.io.File
 import java.net.URI
@@ -71,11 +74,19 @@ fun main() =
                 .build()
 
         // Pass configuration to LightRAG via addonConfig
-        val neo4jConfig =
-            mapOf(
-                "uri" to neo4jUri,
-                "username" to neo4jUser,
-                "password" to neo4jPass,
+        val addonConfig =
+            AddonConfig(
+                neo4j =
+                    Neo4jConfig(
+                        uri = neo4jUri,
+                        username = neo4jUser,
+                        password = neo4jPass,
+                    ),
+                overrides =
+                    LightRagOverrides(
+                        chunkTokenSize = 50,
+                        chunkOverlapTokenSize = 2,
+                    ),
             )
 
         val rag =
@@ -84,7 +95,7 @@ fun main() =
                 chatModel = chatModel,
                 embeddingModel = embeddingModel,
                 graphStorageName = "Neo4jGraphStorage",
-                addonConfig = mapOf("neo4j" to neo4jConfig),
+                addonConfig = addonConfig,
             )
 
         // Initialize Neo4j Storage (Create indexes etc.)
@@ -135,6 +146,8 @@ fun main() =
                         QueryParam(
                             mode = mode,
                             includeReferences = true,
+                            topK = 2,
+                            chunkTopK = 2,
                         ),
                     )
                 println(result?.content)

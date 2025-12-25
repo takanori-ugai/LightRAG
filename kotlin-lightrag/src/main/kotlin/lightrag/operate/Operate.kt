@@ -4,12 +4,12 @@ import dev.langchain4j.data.message.AiMessage
 import dev.langchain4j.data.message.SystemMessage
 import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.chat.ChatLanguageModel
+import dev.langchain4j.model.chat.StreamingChatLanguageModel
+import dev.langchain4j.model.output.Response
 import io.github.oshai.kotlinlogging.KotlinLogging
-import lightrag.core.CacheData
-import lightrag.core.Constants
-import lightrag.core.QueryParam
-import lightrag.core.QueryParamCache
-import lightrag.core.QueryResult
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import lightrag.core.*
 import lightrag.core.types.BaseGraphStorage
 import lightrag.core.types.BaseKVStorage
 import lightrag.core.types.BaseVectorStorage
@@ -39,6 +39,11 @@ data class RelationExtractionResult(
     val keywords: String,
     val weight: Double,
     val sourceId: String,
+)
+
+data class ContextResult(
+    val contextStr: String,
+    val rawData: Map<String, Any?>?,
 )
 
 fun chunkingByTokenSize(
@@ -261,7 +266,7 @@ suspend fun mergeNodesAndEdges(
         val entityContent = "$name\n$longestDesc"
         val vdbData =
             mapOf(
-                lightrag.utils.computeMd5(name) to
+                computeMd5(name) to
                     mapOf(
                         "content" to entityContent,
                         "entity_name" to name,
@@ -297,7 +302,7 @@ suspend fun mergeNodesAndEdges(
         val relContent = "$allKeywords\t$src\n$tgt\n$longestDesc"
         val vdbData =
             mapOf(
-                lightrag.utils.computeMd5(key) to
+                computeMd5(key) to
                     mapOf(
                         "content" to relContent,
                         "src_id" to src,
@@ -308,29 +313,15 @@ suspend fun mergeNodesAndEdges(
     }
 }
 
-suspend fun kgQuery(
+suspend fun getContextStrForQuery(
     query: String,
+    queryParam: QueryParam,
     knowledgeGraphInst: BaseGraphStorage,
     entitiesVdb: BaseVectorStorage,
     relationshipsVdb: BaseVectorStorage,
+    chunksVdb: BaseVectorStorage?,
     textChunksDb: BaseKVStorage,
-    queryParam: QueryParam,
-    globalConfig: Map<String, Any?>,
-    hashingKv: BaseKVStorage? = null,
-    systemPrompt: String? = null,
-    chunksVdb: BaseVectorStorage? = null,
-    chatModel: ChatLanguageModel? = null,
-): QueryResult? {
-    if (query.isBlank()) {
-        return QueryResult(content = Prompts.FAIL_RESPONSE)
-    }
-
-    val model = chatModel ?: globalConfig["llm_model_func"] as? ChatLanguageModel
-    if (model == null) {
-        logger.error { "No ChatLanguageModel provided for kgQuery" }
-        return null
-    }
-
+): ContextResult {
     // 1. Keyword extraction (simplified for now - just use query as keyword)
     val keywords = listOf(query)
 
@@ -429,73 +420,185 @@ suspend fun kgQuery(
             .replace("{text_chunks_str}", textChunksStr)
             .replace("{reference_list_str}", referenceListStr)
 
-    // 3. LLM call
-    val sysPromptTemplate = systemPrompt ?: Prompts.RAG_RESPONSE
-    val userPrompt = if (queryParam.responseType != null) "\n\n${queryParam.responseType}" else "n/a"
+    val rawData = mapOf(
+        "entities" to entities,
+        "relations" to edges,
+        "chunks" to chunks,
+    )
+    return ContextResult(contextStr = contextContent, rawData = rawData)
+}
 
-    val sysPrompt =
-        sysPromptTemplate
-            .replace(
-                "{response_type}",
-                queryParam.responseType ?: "Multiple Paragraphs",
-            )
-            .replace("{user_prompt}", userPrompt)
-            .replace("{context_data}", contextContent)
-
-    if (queryParam.onlyNeedContext) {
-        return QueryResult(content = contextContent)
+suspend fun kgQuery(
+    query: String,
+    knowledgeGraphInst: BaseGraphStorage,
+    entitiesVdb: BaseVectorStorage,
+    relationshipsVdb: BaseVectorStorage,
+    textChunksDb: BaseKVStorage,
+    queryParam: QueryParam,
+    globalConfig: Map<String, Any?>,
+    hashingKv: BaseKVStorage? = null,
+    systemPrompt: String? = null,
+    chunksVdb: BaseVectorStorage? = null,
+    chatModel: ChatLanguageModel? = null,
+): QueryResult? {
+    if (query.isBlank()) {
+        return QueryResult(content = Prompts.FAIL_RESPONSE)
     }
 
-    // Build cache key
-    val hlKeywordsStr = keywords.joinToString(",")
-    val llKeywordsStr = "" // Not available in the current implementation
-    val cacheSeed =
-        listOf(
-            queryParam.mode,
-            query,
-            queryParam.responseType ?: "",
-            queryParam.topK.toString(),
-            queryParam.chunkTopK.toString(),
-            queryParam.maxEntityTokens.toString(),
-            queryParam.maxRelationTokens.toString(),
-            queryParam.maxTotalTokens.toString(),
-            hlKeywordsStr,
-            llKeywordsStr,
-            queryParam.userPrompt ?: "",
-            queryParam.enableRerank.toString(),
-        ).joinToString("|")
-    val cacheKey = "kg_query_cache_${computeMd5(cacheSeed)}"
+    val model = chatModel ?: globalConfig["llm_model_func"] as? ChatLanguageModel
+    if (model == null) {
+        logger.error { "No ChatLanguageModel provided for kgQuery" }
+        return null
+    }
 
-    // Try cache if provided
-    if (hashingKv != null && (globalConfig["enable_llm_cache"] as? Boolean == true)) {
-        val cached = hashingKv.getById(cacheKey)
+    val contextResult = getContextStrForQuery(
+        query,
+        queryParam,
+        knowledgeGraphInst,
+        entitiesVdb,
+        relationshipsVdb,
+        chunksVdb,
+        textChunksDb
+    )
+    val contextStr = contextResult.contextStr
+
+    val sysPromptTemplate = systemPrompt ?: Prompts.RAG_RESPONSE
+    val userPromptStr = queryParam.userPrompt?.let { "\n\n$it" } ?: "n/a"
+
+    val sysPrompt = sysPromptTemplate
+        .replace("{response_type}", queryParam.responseType ?: "Multiple Paragraphs")
+        .replace("{user_prompt}", userPromptStr)
+        .replace("{context_data}", contextStr)
+
+    if (queryParam.onlyNeedContext) {
+        return QueryResult(content = contextStr, rawData = contextResult.rawData)
+    }
+
+    if (queryParam.onlyNeedPrompt) {
+        return QueryResult(content = "$sysPrompt\n\n---\n\n$query", rawData = contextResult.rawData)
+    }
+
+    val hlKeywordsStr = query
+    val llKeywordsStr = ""
+    val cacheSeed = listOf(
+        queryParam.mode,
+        query,
+        queryParam.responseType ?: "",
+        queryParam.topK.toString(),
+        queryParam.chunkTopK.toString(),
+        queryParam.maxEntityTokens.toString(),
+        queryParam.maxRelationTokens.toString(),
+        queryParam.maxTotalTokens.toString(),
+        hlKeywordsStr,
+        llKeywordsStr,
+        queryParam.userPrompt ?: "",
+        queryParam.enableRerank.toString(),
+    ).joinToString("|")
+    val argsHash = "kg_query_cache_${computeMd5(cacheSeed)}"
+
+    if (hashingKv != null && globalConfig["enable_llm_cache"] as? Boolean == true) {
+        val cached = hashingKv.getById(argsHash)
         val cachedContent = cached?.get("content") as? String
         if (!cachedContent.isNullOrEmpty()) {
             logger.info { " == LLM cache == Query cache hit, using cached response as query result" }
-            return QueryResult(content = cachedContent, rawData = null)
+            return QueryResult(content = cachedContent, rawData = contextResult.rawData)
         }
     }
 
-    val response =
-        try {
-            val messages =
-                listOf(
-                    SystemMessage(sysPrompt),
-                    UserMessage(query),
+    if (queryParam.stream) {
+        val streamingModel = model as? StreamingChatLanguageModel
+        if (streamingModel == null) {
+            logger.error { "Streaming is requested but the model does not support it." }
+            return null
+        }
+
+        val responseIterator = flow {
+            // This is a simplification. Langchain4j streaming needs a handler.
+            // A real implementation would be more complex and might involve a custom handler.
+            // For now, let's assume we can iterate over the stream of tokens.
+            // The following is a placeholder for actual streaming logic.
+            // The 'tokenStream' is not an iterable of tokens.
+            // A correct implementation would look like this:
+            /*
+            val handler = object : StreamingResponseHandler<AiMessage> {
+                override fun onNext(token: String) {
+                    emit(token) // This is not correct with flow builder scope
+                }
+                override fun onComplete(response: Response<AiMessage>) {}
+                override fun onError(error: Throwable) {}
+            }
+            streamingModel.generate(messages, handler)
+            */
+            // The above is complex to set up in a flow. A simpler (but maybe less efficient) way:
+            val fullResponse = StringBuilder()
+            val blockingQueue = java.util.concurrent.LinkedBlockingQueue<String>()
+            val finalResponse = java.util.concurrent.CompletableFuture<Response<AiMessage>>()
+
+            streamingModel.generate(
+                listOf(SystemMessage(sysPrompt), UserMessage(query)),
+                object : dev.langchain4j.model.StreamingResponseHandler<AiMessage> {
+                    override fun onNext(token: String) {
+                        blockingQueue.put(token)
+                        fullResponse.append(token)
+                    }
+
+                    override fun onComplete(response: Response<AiMessage>) {
+                        blockingQueue.put("___END___")
+                        finalResponse.complete(response)
+                    }
+
+                    override fun onError(error: Throwable) {
+                        blockingQueue.put("___END___")
+                        finalResponse.completeExceptionally(error)
+                    }
+                }
+            )
+
+            while (true) {
+                val token = blockingQueue.take()
+                if (token == "___END___") break
+                emit(token)
+            }
+            finalResponse.get() // wait for completion
+
+            if (hashingKv != null && globalConfig["enable_llm_cache"] as? Boolean == true) {
+                val queryParamDict = QueryParamCache(
+                    mode = queryParam.mode,
+                    responseType = queryParam.responseType,
+                    topK = queryParam.topK,
+                    chunkTopK = queryParam.chunkTopK,
+                    maxEntityTokens = queryParam.maxEntityTokens,
+                    maxRelationTokens = queryParam.maxRelationTokens,
+                    maxTotalTokens = queryParam.maxTotalTokens,
+                    hlKeywords = hlKeywordsStr,
+                    llKeywords = llKeywordsStr,
+                    userPrompt = queryParam.userPrompt ?: "",
+                    enableRerank = queryParam.enableRerank,
                 )
-            model.generate(messages).content().text()
+                saveToCache(
+                    hashingKv,
+                    CacheData(
+                        argsHash = argsHash,
+                        content = fullResponse.toString(),
+                        prompt = query,
+                        mode = queryParam.mode,
+                        cacheType = "query",
+                        queryParam = queryParamDict,
+                    ),
+                )
+            }
+        }
+        return QueryResult(responseIterator = responseIterator, rawData = contextResult.rawData, isStreaming = true)
+    } else {
+        val responseText = try {
+            model.generate(listOf(SystemMessage(sysPrompt), UserMessage(query))).content().text()
         } catch (e: Exception) {
             logger.error(e) { "Error generating response in kgQuery" }
             "Error generating response."
         }
 
-    // The user's request implies handling for streaming and non-streaming responses.
-    // For now we assume a non-streaming response (String).
-    // A full implementation would need to handle Flow<String> for streaming.
-
-    if (hashingKv != null && (globalConfig["enable_llm_cache"] as? Boolean == true)) {
-        val queryParamDict =
-            QueryParamCache(
+        if (hashingKv != null && globalConfig["enable_llm_cache"] as? Boolean == true) {
+            val queryParamDict = QueryParamCache(
                 mode = queryParam.mode,
                 responseType = queryParam.responseType,
                 topK = queryParam.topK,
@@ -508,31 +611,32 @@ suspend fun kgQuery(
                 userPrompt = queryParam.userPrompt ?: "",
                 enableRerank = queryParam.enableRerank,
             )
-        saveToCache(
-            hashingKv,
-            CacheData(
-                argsHash = cacheKey,
-                content = response,
-                prompt = query,
-                mode = queryParam.mode,
-                cacheType = "query",
-                queryParam = queryParamDict,
-            ),
-        )
-    }
-    var responseContent = response
-    if (responseContent.length > sysPrompt.length) {
-        responseContent =
-            responseContent.replace(sysPrompt, "")
+            saveToCache(
+                hashingKv,
+                CacheData(
+                    argsHash = argsHash,
+                    content = responseText,
+                    prompt = query,
+                    mode = queryParam.mode,
+                    cacheType = "query",
+                    queryParam = queryParamDict,
+                ),
+            )
+        }
+
+        var responseContent = responseText
+        if (responseContent.length > sysPrompt.length) {
+            responseContent = responseContent
+                .replace(sysPrompt, "")
                 .replace("user", "")
                 .replace("model", "")
                 .replace(query, "")
                 .replace("<system>", "")
                 .replace("</system>", "")
                 .trim()
+        }
+        return QueryResult(content = responseContent, rawData = contextResult.rawData)
     }
-
-    return QueryResult(content = responseContent, rawData = null)
 }
 
 suspend fun naiveQuery(

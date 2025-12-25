@@ -71,7 +71,7 @@ class LightRAG(
     embeddingBinding: String = "ollama",
     embeddingModelName: String = "all-minilm",
     graphStorageName: String = "InMemoryGraphStorage",
-    addonConfig: Map<String, Any?> = emptyMap(),
+    addonConfig: AddonConfig = AddonConfig(),
 ) {
     val chatModel: ChatLanguageModel =
         chatModel ?: LLMFactory.createChatModel(llmBinding, llmModelName)
@@ -90,7 +90,7 @@ class LightRAG(
             "language" to "English",
             "working_dir" to workingDir,
             "enable_llm_cache" to (hashingKv != null),
-        ) + addonConfig
+        ) + addonConfig.toMap()
 
     val docStatusStorage: DocStatusStorage =
         JsonDocStatusStorage(

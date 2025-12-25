@@ -3,6 +3,7 @@ package lightrag.kg.neo4j
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import lightrag.core.Neo4jConfig
 import lightrag.core.types.BaseGraphStorage
 import lightrag.core.types.EmbeddingFunc
 import lightrag.core.types.KnowledgeGraph
@@ -28,6 +29,7 @@ class Neo4jGraphStorage(
     override val workspace: String
 
     private var driver: Driver? = null
+    private val providedConfig: Neo4jConfig? = parseNeo4jConfig()
     private val database: String?
 
     companion object {
@@ -66,7 +68,7 @@ class Neo4jGraphStorage(
 
         database =
             System.getenv("NEO4J_DATABASE")
-                ?: ((globalConfig["neo4j"] as? Map<*, *>)?.get("database") as? String)
+                ?: providedConfig?.database
     }
 
     private fun sessionConfig(): SessionConfig {
@@ -132,12 +134,24 @@ class Neo4jGraphStorage(
         return cjkPattern.containsMatchIn(text)
     }
 
+    private fun parseNeo4jConfig(): Neo4jConfig? {
+        return when (val config = globalConfig["neo4j"]) {
+            is Neo4jConfig -> config
+            is Map<*, *> ->
+                Neo4jConfig(
+                    uri = config["uri"] as? String,
+                    username = config["username"] as? String,
+                    password = config["password"] as? String,
+                    database = config["database"] as? String,
+                )
+            else -> null
+        }
+    }
+
     override suspend fun initialize() {
-        val uri = System.getenv("NEO4J_URI") ?: (globalConfig["neo4j"] as? Map<*, *>)?.get("uri") as? String
-        val username =
-            System.getenv("NEO4J_USERNAME") ?: (globalConfig["neo4j"] as? Map<*, *>)?.get("username") as? String
-        val password =
-            System.getenv("NEO4J_PASSWORD") ?: (globalConfig["neo4j"] as? Map<*, *>)?.get("password") as? String
+        val uri = System.getenv("NEO4J_URI") ?: providedConfig?.uri
+        val username = System.getenv("NEO4J_USERNAME") ?: providedConfig?.username
+        val password = System.getenv("NEO4J_PASSWORD") ?: providedConfig?.password
 
         if (uri == null) {
             logger.error { "NEO4J_URI is not set" }
