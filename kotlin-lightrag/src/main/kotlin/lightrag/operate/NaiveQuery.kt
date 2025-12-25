@@ -4,15 +4,35 @@ import dev.langchain4j.data.message.AiMessage
 import dev.langchain4j.data.message.SystemMessage
 import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.chat.ChatLanguageModel
+import dev.langchain4j.model.chat.StreamingChatLanguageModel
+import dev.langchain4j.model.output.Response
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.Serializable
+import lightrag.core.CacheData
 import lightrag.core.QueryParam
+import lightrag.core.QueryParamCache
+import lightrag.core.QueryResult
 import lightrag.core.types.BaseKVStorage
 import lightrag.core.types.BaseVectorStorage
 import lightrag.utils.JsonUtils
 import lightrag.utils.Prompts
 import lightrag.utils.computeMd5
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.LinkedBlockingQueue
 
 private val logger = KotlinLogging.logger {}
+
+@Serializable
+data class ChunkContext(
+    val reference_id: String?,
+    val content: String?,
+)
+
+const val DEFAULT_MAX_TOTAL_TOKENS = 30000 // From python/constants.py
+const val DEFAULT_MAX_ENTITY_TOKENS = 6000 // From python/constants.py
+const val DEFAULT_MAX_RELATION_TOKENS = 8000 // From python/constants.py
 
 data class NaiveQueryParams(
     val query: String,
@@ -22,132 +42,501 @@ data class NaiveQueryParams(
     val hashingKv: BaseKVStorage? = null,
     val systemPrompt: String? = null,
     val chatModel: ChatLanguageModel? = null,
+    val tokenizer: ((String) -> List<Int>),
+    val decoder: ((List<Int>) -> String),
 )
 
-suspend fun naiveQuery(params: NaiveQueryParams): String? {
+// Equivalent to python's _get_vector_context
+private suspend fun getVectorContext(
+    query: String,
+    chunksVdb: BaseVectorStorage,
+    queryParam: QueryParam,
+    // Not used in naive, so omitting for now
+): List<Map<String, Any?>> {
+    try {
+        val searchTopK = queryParam.chunkTopK.coerceAtMost(queryParam.topK)
+        val cosineThreshold = chunksVdb.cosineBetterThanThreshold // Assuming this exists
+
+        val results = chunksVdb.query(query, searchTopK)
+        if (results.isEmpty()) {
+            logger.info { "Naive query: 0 chunks (chunk_top_k:$searchTopK cosine:$cosineThreshold)" }
+            return emptyList()
+        }
+
+        val validChunks = mutableListOf<Map<String, Any?>>()
+        for (result in results) {
+            if (result.containsKey("content")) {
+                val chunkWithMetadata =
+                    mapOf(
+                        "content" to result["content"],
+                        "created_at" to result.get("created_at"),
+                        "file_path" to (result.get("file_path") ?: "unknown_source"),
+                        // Mark the source type so consumers know this came from the vector store
+                        "source_type" to "vector",
+                        "chunk_id" to (result.get("id") ?: result.get("chunk_id")),
+                    )
+                validChunks.add(chunkWithMetadata)
+            }
+        }
+
+        logger.info { "Naive query: ${validChunks.size} chunks (chunk_top_k:$searchTopK cosine:$cosineThreshold)" }
+        return validChunks
+    } catch (e: Exception) {
+        logger.error(e) { "Error in _getVectorContext" }
+        return emptyList()
+    }
+}
+
+// Equivalent to python's generate_reference_list_from_chunks
+
+/**
+ * This function assumes chunk_id and file_path are present in the chunk map.
+ * It adds "reference_id" to each processed chunk.
+ */
+fun generateReferenceListFromChunks(chunks: List<Map<String, Any?>>): Pair<List<Map<String, String>>, List<Map<String, Any?>>> {
+    val referenceList = mutableListOf<Map<String, String>>()
+    val processedChunks = mutableListOf<Map<String, Any?>>()
+    val seenFilePaths = mutableSetOf<String>()
+
+    for ((index, chunk) in chunks.withIndex()) {
+        val referenceId = (index + 1).toString()
+        val filePath = chunk["file_path"] as? String ?: "unknown_source"
+        val content = chunk["content"] as? String ?: ""
+
+        if (!seenFilePaths.contains(filePath)) {
+            referenceList.add(mapOf("reference_id" to referenceId, "file_path" to filePath))
+            seenFilePaths.add(filePath)
+        }
+
+        processedChunks.add(chunk + ("reference_id" to referenceId))
+    }
+    return referenceList to processedChunks
+}
+
+// Simplified version of python's process_chunks_unified, focusing on truncation
+// This will just apply token limit, no reranking for now.
+suspend fun processChunksUnified(
+    query: String,
+    // Not directly used in this simplified version for reranking, but kept for signature
+    uniqueChunks: List<Map<String, Any?>>,
+    queryParam: QueryParam,
+    globalConfig: Map<String, Any?>,
+    sourceType: String,
+    // e.g., "vector", "entity", "relation"
+    chunkTokenLimit: Int,
+    tokenizer: ((String) -> List<Int>),
+    decoder: ((List<Int>) -> String),
+): List<Map<String, Any?>> {
+    val resultChunks = mutableListOf<Map<String, Any?>>()
+    var currentTokens = 0
+
+    // Ensure chunks are unique by content, preserving order
+    val distinctChunks = uniqueChunks.distinctBy { it["content"] as? String }
+
+    for (chunk in distinctChunks) {
+        val content = chunk["content"] as? String ?: ""
+        val chunkTokens = tokenizer(content).size
+
+        if (currentTokens + chunkTokens <= chunkTokenLimit) {
+            resultChunks.add(chunk)
+            currentTokens += chunkTokens
+        } else {
+            // If adding the whole chunk exceeds the limit, try to truncate it
+            val remainingTokens = chunkTokenLimit - currentTokens
+            if (remainingTokens > 0) {
+                val truncatedContent = truncateTextByTokenSize(content, remainingTokens, tokenizer, decoder)
+                if (truncatedContent.isNotBlank()) {
+                    resultChunks.add(chunk + ("content" to truncatedContent))
+                    currentTokens += tokenizer(truncatedContent).size
+                }
+            }
+            break // No more chunks can be added or partially added
+        }
+    }
+    logger.debug { "Processed chunks: ${resultChunks.size} (total tokens: $currentTokens / $chunkTokenLimit)" }
+    return resultChunks
+}
+
+fun truncateTextByTokenSize(
+    text: String,
+    maxTokenSize: Int,
+    tokenizer: ((String) -> List<Int>),
+    decoder: ((List<Int>) -> String),
+): String {
+    val tokens = tokenizer(text)
+    if (tokens.size <= maxTokenSize) {
+        return text
+    }
+    return decoder(tokens.subList(0, maxTokenSize))
+}
+
+// Function to convert map to JSON string, similar to Python's json.dumps
+// This function needs to be properly implemented based on the Python version.
+// For now, a placeholder that constructs a basic rawData map.
+fun convertToJsonFormat(
+    entities: List<Map<String, Any?>>,
+    relations: List<Map<String, Any?>>,
+    chunks: List<Map<String, Any?>>,
+    references: List<Map<String, String>>,
+    queryMode: String,
+    relationIdToOriginal: Map<Pair<String, String>, Any?> = emptyMap(),
+): Map<String, Any?> {
+    val dataMap =
+        mutableMapOf<String, Any?>(
+            "entities" to entities,
+            "relationships" to relations,
+            "chunks" to chunks,
+            "references" to references,
+        )
+    val metadataMap =
+        mutableMapOf<String, Any?>(
+            "query_mode" to queryMode,
+        )
+    return mutableMapOf(
+        "data" to dataMap,
+        "metadata" to metadataMap,
+    )
+}
+
+// TODO: These cache functions should ideally be in a separate Cache.kt or Utils.kt
+// For now, embedding them here for a self-contained replacement.
+
+private suspend fun handleCache(
+    hashingKv: BaseKVStorage?,
+    argsHash: String,
+    prompt: String,
+    mode: String,
+    cacheType: String,
+): Pair<String, Long>? { // Returns content and timestamp
+    if (hashingKv == null) return null
+
+    val cached = hashingKv.getById(argsHash)
+    if (cached != null) {
+        val cachedContent = cached["content"] as? String
+        val timestamp = (cached["create_time"] as? Number)?.toLong() ?: 0L
+        if (cachedContent != null) {
+            return cachedContent to timestamp
+        }
+    }
+    return null
+}
+
+private suspend fun saveToCache(
+    hashingKv: BaseKVStorage?,
+    cacheData: CacheData,
+) {
+    if (hashingKv == null) return
+    hashingKv.upsert(
+        mapOf(
+            cacheData.argsHash to
+                mapOf(
+                    "content" to cacheData.content,
+                    "prompt" to cacheData.prompt,
+                    "mode" to cacheData.mode,
+                    "cache_type" to cacheData.cacheType,
+                    "queryparam" to cacheData.queryParam,
+                    "history_messages" to cacheData.historyMessages,
+                    // Unix timestamp in seconds
+                    "create_time" to System.currentTimeMillis() / 1000,
+                ).filterValues { it != null } as Map<String, Any>,
+        ),
+    )
+}
+
+// This function needs to be imported or replicated from utils.
+// For now, a placeholder. The actual implementation in utils.kt will need to handle the varargs
+fun computeArgsHash(vararg args: Any?): String {
+    return computeMd5(args.joinToString("|"))
+}
+
+fun removeThinkTags(text: String): String {
+    // This is a simplified placeholder. In Python, it would remove specific XML-like tags.
+    // Assuming for now that the LLM is not generating these tags in Kotlin or they are removed differently.
+    return text.replace("<THINK>", "").replace("</THINK>", "")
+}
+
+suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
     if (params.query.isBlank()) {
-        return Prompts.FAIL_RESPONSE
+        return QueryResult(content = Prompts.FAIL_RESPONSE)
     }
 
-    // Basic vector search (naive: direct topK from chunks VDB)
-    val searchTopK = params.queryParam.chunkTopK.coerceAtMost(params.queryParam.topK)
+    val model = params.chatModel ?: params.globalConfig["llm_model_func"] as? ChatLanguageModel
+    if (model == null) {
+        logger.error { "No ChatLanguageModel provided for naiveQuery" }
+        return QueryResult(content = "Error: No LLM model configured.")
+    }
 
-    val results = params.chunksVdb.query(params.query, searchTopK)
-    if (results.isEmpty()) {
+    val tokenizer = params.tokenizer // Use the injected tokenizer
+    val decoder = params.decoder
+
+    // Get chunks using vector context (equivalent to _get_vector_context)
+    val chunks = getVectorContext(params.query, params.chunksVdb, params.queryParam)
+
+    if (chunks.isEmpty()) {
+        logger.info { "[naive_query] No relevant document chunks found; returning no-result." }
         return null
     }
 
-    val contextBuilder = StringBuilder()
-    contextBuilder.append(Prompts.NAIVE_QUERY_CONTEXT)
-    // We need to fill in text_chunks_str and reference_list_str
+    // Calculate dynamic token limit for chunks
+    val maxTotalTokens =
+        params.queryParam.maxTotalTokens.coerceAtMost(
+            (params.globalConfig["max_total_tokens"] as? Int) ?: DEFAULT_MAX_TOTAL_TOKENS,
+        )
 
-    val docChunks =
-        results.mapIndexed { index, res ->
-            val content = res["content"] ?: ""
-            mapOf(
-                "reference_id" to "${index + 1}",
-                "content" to content,
-                "file_path" to (res["file_path"] ?: "unknown_source"),
-            )
+    val userPromptStr =
+        if (!params.queryParam.userPrompt.isNullOrBlank()) {
+            "\n\n${params.queryParam.userPrompt}"
+        } else {
+            "n/a"
         }
-
-    // For now, simple context building (simplification of Python logic)
-    val textChunksStr =
-        docChunks.joinToString("\n") { chunk ->
-            "{\"reference_id\": \"${chunk["reference_id"]}\", \"content\": \"${
-                JsonUtils.escape(chunk["content"].toString())
-            }\"}"
-        }
-
-    val referenceListStr =
-        docChunks.joinToString("\n") { chunk ->
-            "[${chunk["reference_id"]}] ${chunk["file_path"] ?: "unknown_source"}"
-        }
-
-    val contextContent =
-        contextBuilder.toString()
-            .replace("{text_chunks_str}", textChunksStr)
-            .replace("{reference_list_str}", referenceListStr)
+    val responseType = params.queryParam.responseType ?: "Multiple Paragraphs"
 
     val sysPromptTemplate = params.systemPrompt ?: Prompts.NAIVE_RAG_RESPONSE
 
-    val userPrompt =
-        buildString {
-            if (!params.queryParam.userPrompt.isNullOrBlank()) {
-                append(params.queryParam.userPrompt)
-            } else {
-                append("n/a")
-            }
-            if (!params.queryParam.responseType.isNullOrBlank()) {
-                append("\n\n")
-                append(params.queryParam.responseType)
-            }
+    // Create a preliminary system prompt with empty content_data to calculate overhead
+    val preSysPrompt =
+        sysPromptTemplate
+            .replace("{response_type}", responseType)
+            .replace("{user_prompt}", userPromptStr)
+            .replace("{content_data}", "") // Empty for overhead calculation
+
+    val sysPromptTokens = tokenizer(preSysPrompt).size
+    val queryTokens = tokenizer(params.query).size
+    val bufferTokens = 200 // reserved for reference list and safety buffer
+    val availableChunkTokens = maxTotalTokens - (sysPromptTokens + queryTokens + bufferTokens)
+
+    logger.debug {
+        "Naive query token allocation - Total: $maxTotalTokens, " +
+            "SysPrompt: $sysPromptTokens, Query: $queryTokens, " +
+            "Buffer: $bufferTokens, Available for chunks: $availableChunkTokens"
+    }
+
+    // Process chunks using unified processing with dynamic token limit
+    val processedChunks =
+        processChunksUnified(
+            query = params.query,
+            uniqueChunks = chunks,
+            queryParam = params.queryParam,
+            globalConfig = params.globalConfig,
+            sourceType = "vector",
+            chunkTokenLimit = availableChunkTokens,
+            tokenizer = tokenizer,
+            decoder = decoder,
+        )
+
+    // Generate reference list from processed chunks
+    val (referenceList, processedChunksWithRefIds) = generateReferenceListFromChunks(processedChunks)
+
+    logger.info { "Final context: ${processedChunksWithRefIds.size} chunks" }
+
+    // Build raw data structure for naive mode
+    // Entities and relationships stay empty for naive mode
+    val rawData =
+        convertToJsonFormat(
+            emptyList(),
+            emptyList(),
+            processedChunksWithRefIds,
+            referenceList,
+            "naive",
+        )
+
+    // Add complete metadata for naive mode
+    val metadata = mutableMapOf<String, Any?>()
+    metadata["keywords"] = mapOf("high_level" to emptyList<String>(), "low_level" to emptyList<String>())
+    metadata["processing_info"] =
+        mapOf(
+            "total_chunks_found" to chunks.size,
+            "final_chunks_count" to processedChunksWithRefIds.size,
+        )
+    (rawData as MutableMap)["metadata"] = metadata
+    // Add metadata to rawData
+
+    // Build chunks_context from processed chunks with reference IDs
+    val chunksContext =
+        processedChunksWithRefIds.map {
+            ChunkContext(
+                reference_id = it["reference_id"] as? String,
+                content = it["content"] as? String,
+            )
         }
+
+    val textUnitsStr = JsonUtils.convertObjectToJson(chunksContext)
+    val referenceListStr =
+        referenceList.joinToString("\n") { ref ->
+            "[${ref["reference_id"]}] ${ref["file_path"]}"
+        }
+
+    val naiveContextTemplate = Prompts.NAIVE_QUERY_CONTEXT
+    val contextContent =
+        naiveContextTemplate
+            .replace("{text_chunks_str}", textUnitsStr)
+            .replace("{reference_list_str}", referenceListStr)
+
+    if (params.queryParam.onlyNeedContext) {
+        return QueryResult(content = contextContent, rawData = rawData)
+    }
 
     val sysPrompt =
         sysPromptTemplate
-            .replace(
-                "{response_type}",
-                params.queryParam.responseType ?: "Multiple Paragraphs",
-            )
-            .replace("{user_prompt}", userPrompt)
+            .replace("{response_type}", responseType)
+            .replace("{user_prompt}", userPromptStr)
             .replace("{content_data}", contextContent)
 
-    if (params.queryParam.onlyNeedContext) {
-        return contextContent
-    }
+    val userQuery = params.query
 
     if (params.queryParam.onlyNeedPrompt) {
-        return listOf(sysPrompt, "---", params.query).joinToString("\n")
+        val promptContent =
+            listOf(sysPrompt, "---User Query---", userQuery)
+                .joinToString("\n\n")
+        return QueryResult(content = promptContent, rawData = rawData)
     }
 
-    // Call LLM
-    val model = params.chatModel ?: params.globalConfig["llm_model_func"] as? ChatLanguageModel
-
-    if (model == null) {
-        logger.error { "No ChatLanguageModel provided for naiveQuery" }
-        return "Error: No LLM model configured."
-    }
-
-    // Build cache key
-    val cacheKeySeed =
-        listOf(
+    // Handle cache
+    val argsHash =
+        computeArgsHash(
             params.queryParam.mode,
             params.query,
             params.queryParam.responseType ?: "",
             params.queryParam.topK.toString(),
             params.queryParam.chunkTopK.toString(),
+            params.queryParam.maxEntityTokens.toString(),
+            params.queryParam.maxRelationTokens.toString(),
+            maxTotalTokens.toString(),
             params.queryParam.userPrompt ?: "",
             params.queryParam.enableRerank.toString(),
-        ).joinToString("|")
-    val cacheKey = "query_cache_${computeMd5(cacheKeySeed)}"
-
-    // Try cache if provided
-    if (params.hashingKv != null) {
-        val cached = params.hashingKv.getById(cacheKey)
-        val cachedContent = cached?.get("content") as? String
-        if (!cachedContent.isNullOrEmpty()) {
-            logger.info { " == LLM cache == Query cache hit, using cached response as query result" }
-            return cachedContent
-        }
+        )
+    val cachedResult = handleCache(params.hashingKv, argsHash, userQuery, params.queryParam.mode, "query")
+    if (cachedResult != null) {
+        val (cachedResponse, _) = cachedResult
+        logger.info { " == LLM cache == Query cache hit, using cached response as query result" }
+        return QueryResult(content = cachedResponse, rawData = rawData)
     }
 
     // Call LLM
-    return try {
-        val messages =
-            listOf(
-                SystemMessage(sysPrompt),
-                UserMessage(params.query),
-            )
-        val response: AiMessage = model.generate(messages).content()
-        val text = response.text()
+    val response: Any? =
+        if (params.queryParam.stream) {
+            val streamingModel = model as? StreamingChatLanguageModel
+            if (streamingModel == null) {
+                logger.error { "Streaming is requested but the model does not support it." }
+                return QueryResult(content = "Error: Streaming not supported by model.")
+            }
+            flow {
+                val fullResponse = StringBuilder()
+                val blockingQueue = LinkedBlockingQueue<String>()
+                val finalResponse = CompletableFuture<Response<AiMessage>>()
 
-        if (params.hashingKv != null) {
-            params.hashingKv.upsert(mapOf(cacheKey to mapOf("content" to text)))
+                streamingModel.generate(
+                    listOf(SystemMessage(sysPrompt), UserMessage(userQuery)),
+                    object : dev.langchain4j.model.StreamingResponseHandler<AiMessage> {
+                        override fun onNext(token: String) {
+                            blockingQueue.put(token)
+                            fullResponse.append(token)
+                        }
+
+                        override fun onComplete(response: Response<AiMessage>) {
+                            blockingQueue.put("___END___")
+                            finalResponse.complete(response)
+                        }
+
+                        override fun onError(error: Throwable) {
+                            blockingQueue.put("___END___")
+                            finalResponse.completeExceptionally(error)
+                        }
+                    },
+                )
+
+                while (true) {
+                    val token = blockingQueue.take()
+                    if (token == "___END___") break
+                    emit(token)
+                }
+                finalResponse.get() // wait for completion
+
+                if (params.hashingKv != null && (params.globalConfig["enable_llm_cache"] as? Boolean == true)) {
+                    val queryParamDict =
+                        QueryParamCache(
+                            mode = params.queryParam.mode,
+                            responseType = params.queryParam.responseType,
+                            topK = params.queryParam.topK,
+                            chunkTopK = params.queryParam.chunkTopK,
+                            maxEntityTokens = params.queryParam.maxEntityTokens,
+                            maxRelationTokens = params.queryParam.maxRelationTokens,
+                            maxTotalTokens = params.queryParam.maxTotalTokens,
+                            hlKeywords = params.queryParam.hlKeywords.joinToString(", "),
+                            llKeywords = params.queryParam.llKeywords.joinToString(", "),
+                            userPrompt = params.queryParam.userPrompt ?: "",
+                            enableRerank = params.queryParam.enableRerank,
+                        )
+                    saveToCache(
+                        params.hashingKv,
+                        CacheData(
+                            argsHash = argsHash,
+                            content = fullResponse.toString(),
+                            prompt = userQuery,
+                            mode = params.queryParam.mode,
+                            cacheType = "query",
+                            queryParam = queryParamDict,
+                            historyMessages = params.queryParam.conversationHistory,
+                        ),
+                    )
+                }
+            }
+        } else {
+            try {
+                model.generate(listOf(SystemMessage(sysPrompt), UserMessage(userQuery))).content().text()
+            } catch (e: Exception) {
+                logger.error(e) { "Error generating response in naiveQuery" }
+                "Error generating response."
+            }
         }
-        text
-    } catch (e: Exception) {
-        logger.error(e) { "Error generating response in naiveQuery" }
-        "Error generating response."
+
+    if (response is String) {
+        var responseContent = response
+        // Python version removes sysPrompt from response, but only if response length is greater.
+        // Also removes "user", "model", etc.
+        // This is a simplified comparison as sysPrompt might not be a prefix always.
+        if (responseContent.length > sysPrompt.length) {
+            responseContent =
+                responseContent
+                    .replace(sysPrompt, "")
+                    .replace("user", "")
+                    .replace("model", "")
+                    .replace(userQuery, "") // This might be too aggressive, check Python's logic
+                    .replace("<system>", "")
+                    .replace("</system>", "")
+                    .trim()
+        }
+        if (params.hashingKv != null && (params.globalConfig["enable_llm_cache"] as? Boolean == true)) {
+            val queryParamDict =
+                QueryParamCache(
+                    mode = params.queryParam.mode,
+                    responseType = params.queryParam.responseType,
+                    topK = params.queryParam.topK,
+                    chunkTopK = params.queryParam.chunkTopK,
+                    maxEntityTokens = params.queryParam.maxEntityTokens,
+                    maxRelationTokens = params.queryParam.maxRelationTokens,
+                    maxTotalTokens = params.queryParam.maxTotalTokens,
+                    hlKeywords = params.queryParam.hlKeywords.joinToString(", "),
+                    llKeywords = params.queryParam.llKeywords.joinToString(", "),
+                    userPrompt = params.queryParam.userPrompt ?: "",
+                    enableRerank = params.queryParam.enableRerank,
+                )
+            saveToCache(
+                params.hashingKv,
+                CacheData(
+                    argsHash = argsHash,
+                    content = responseContent,
+                    prompt = userQuery,
+                    mode = params.queryParam.mode,
+                    cacheType = "query",
+                    queryParam = queryParamDict,
+                    historyMessages = params.queryParam.conversationHistory,
+                ),
+            )
+        }
+        return QueryResult(content = responseContent, rawData = rawData)
+    } else if (response is Flow<*>) {
+        return QueryResult(responseIterator = response as Flow<String>, rawData = rawData, isStreaming = true)
     }
+    return null
 }

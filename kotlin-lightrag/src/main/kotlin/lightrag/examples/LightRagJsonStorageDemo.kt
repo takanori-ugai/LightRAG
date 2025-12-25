@@ -1,7 +1,9 @@
 package lightrag.examples
 
 import kotlinx.coroutines.runBlocking
+import lightrag.core.AddonConfig
 import lightrag.core.LightRAG
+import lightrag.core.LightRagOverrides
 import lightrag.core.QueryParam
 import lightrag.llm.LLMFactory
 import java.io.File
@@ -33,6 +35,14 @@ fun main() =
                 workingDir = workingDir,
                 chatModel = chatModel,
                 embeddingModel = embeddingModel,
+                addonConfig =
+                    AddonConfig(
+                        overrides =
+                            LightRagOverrides(
+                                chunkTokenSize = 50,
+                                chunkOverlapTokenSize = 2,
+                            ),
+                    ),
             )
 
         val bookFile = File("./book.txt")
@@ -66,6 +76,8 @@ fun main() =
                     QueryParam(
                         mode = mode,
                         includeReferences = true,
+                        topK = 5,
+                        chunkTopK = 2,
                     ),
                 )
             println(result?.content)

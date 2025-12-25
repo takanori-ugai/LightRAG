@@ -80,11 +80,15 @@ class LightRAG(
     private val embedding: EmbeddingModel =
         embeddingModel ?: LLMFactory.createEmbeddingModel(embeddingBinding, embeddingModelName)
 
+    val tokenizer: (String) -> List<Int> = { text: String -> text.split(" ", "\n", "\t").map { it.hashCode() } }
+    val decoder: (List<Int>) -> String = { list ->
+        list.map { it.toLong() }.map { Integer.toHexString(it.toInt()) }.joinToString("-")
+    }
+
     val globalConfig: Map<String, Any?> =
         mapOf(
             "llm_model_func" to chatModel,
             "embedding_func" to embedding,
-            "tokenizer" to { text: String -> text.split(Regex("\\s+")).map { it.hashCode() } },
             "chunk_token_size" to 1200,
             "chunk_overlap_token_size" to 100,
             "entity_types" to listOf("Person", "Organization", "Location", "Event", "Concept"),
@@ -253,9 +257,6 @@ class LightRAG(
                     docData?.get("content") as? String
                         ?: throw IllegalStateException("Doc content missing for $docId")
 
-                val tokenizer: (String) -> List<Int> = { it.map { c -> c.code } }
-                val decoder: (List<Int>) -> String = { list -> list.map { it.toChar() }.joinToString("") }
-
                 val chunks =
                     chunkingByTokenSize(
                         tokenizer = tokenizer,
@@ -335,18 +336,18 @@ class LightRAG(
                 )
             }
             "naive" -> {
-                val content =
-                    naiveQuery(
-                        NaiveQueryParams(
-                            query = query,
-                            chunksVdb = chunksVdb,
-                            queryParam = param,
-                            globalConfig = globalConfig,
-                            chatModel = chatModel,
-                            hashingKv = hashingKv,
-                        ),
-                    )
-                QueryResult(content = content)
+                naiveQuery(
+                    NaiveQueryParams(
+                        query = query,
+                        chunksVdb = chunksVdb,
+                        queryParam = param,
+                        globalConfig = globalConfig,
+                        chatModel = chatModel,
+                        hashingKv = hashingKv,
+                        tokenizer = tokenizer,
+                        decoder = decoder,
+                    ),
+                )
             }
             "bypass" -> {
                 val response = chatModel.generate(UserMessage(query))

@@ -133,9 +133,13 @@ fun chunkingByTokenSize(
     } else {
         var start = 0
         var index = 0
+        val words = content.split(" ")
         while (start < tokens.size) {
             val end = minOf(start + chunkTokenSize, tokens.size)
-            val chunkContent = decoder(tokens.subList(start, end))
+            val chunkContent =
+                words
+                    .subList(start, end)
+                    .joinToString(" ")
             results.add(
                 ChunkingResult(
                     minOf(chunkTokenSize, tokens.size - start),
