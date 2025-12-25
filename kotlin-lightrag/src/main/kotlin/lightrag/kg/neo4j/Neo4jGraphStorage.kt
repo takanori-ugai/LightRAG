@@ -28,7 +28,7 @@ class Neo4jGraphStorage(
     override val workspace: String
 
     private var driver: Driver? = null
-    private val database: String
+    private val database: String?
 
     companion object {
         private const val DEFAULT_POOL_SIZE = 100
@@ -64,7 +64,38 @@ class Neo4jGraphStorage(
             }
         }
 
-        database = System.getenv("NEO4J_DATABASE") ?: namespace.replace(Regex("[^a-zA-Z0-9-]"), "-")
+        database =
+            System.getenv("NEO4J_DATABASE") ?:
+            ((globalConfig["neo4j"] as? Map<*, *>)?.get("database") as? String)
+    }
+
+    private fun sessionConfig(): SessionConfig {
+        return database?.let { SessionConfig.forDatabase(it) } ?: SessionConfig.defaultConfig()
+    }
+
+    private fun databaseForLog(): String {
+        return database ?: "default"
+    }
+
+    private fun isDebugEnabled(): Boolean {
+        val flagFromConfig = (globalConfig["neo4j"] as? Map<*, *>)?.get("debug")?.toString()
+        val debugFlag = System.getenv("NEO4J_DEBUG") ?: flagFromConfig
+        return debugFlag?.lowercase() in setOf("1", "true", "yes", "on", "debug")
+    }
+
+    private fun logDebugInfo(
+        uri: String,
+        username: String?,
+        maxConnectionPoolSize: Int,
+        connectionTimeout: Long,
+        maxConnectionLifetime: Long,
+    ) {
+        if (!isDebugEnabled()) return
+        logger.debug {
+            "[$workspace] Neo4j debug -> uri=$uri, database=${databaseForLog()}, user=${username ?: "N/A"}, " +
+                "workspace_label=${getWorkspaceLabel()}, pool_size=$maxConnectionPoolSize, " +
+                "connection_timeout_ms=$connectionTimeout, max_connection_lifetime_ms=$maxConnectionLifetime"
+        }
     }
 
     private fun getWorkspaceLabel(): String {
@@ -119,6 +150,14 @@ class Neo4jGraphStorage(
         val maxConnectionLifetime =
             (System.getenv("NEO4J_MAX_CONNECTION_LIFETIME")?.toLongOrNull() ?: DEFAULT_MAX_LIFETIME_MS) // ms
 
+        logDebugInfo(
+            uri = uri,
+            username = username,
+            maxConnectionPoolSize = maxConnectionPoolSize,
+            connectionTimeout = connectionTimeout,
+            maxConnectionLifetime = maxConnectionLifetime,
+        )
+
         val config =
             org.neo4j.driver.Config.builder()
                 .withMaxConnectionPoolSize(maxConnectionPoolSize)
@@ -129,83 +168,55 @@ class Neo4jGraphStorage(
         driver = GraphDatabase.driver(uri, authToken, config)
 
         withContext(Dispatchers.IO) {
-            var connected = false
-            // Try to connect to the database and create it if it doesn't exist
-            val databasesToCheck = listOf(database, null) // null means default database
-
-            for (db in databasesToCheck) {
-                try {
-                    val sessionConfig = if (db != null) SessionConfig.forDatabase(db) else SessionConfig.defaultConfig()
-                    driver!!.session(sessionConfig).use { neoSession: Session ->
-                        try {
-                            neoSession.run("MATCH (n) RETURN n LIMIT 0").consume()
-                            logger.info { "[$workspace] Connected to ${db ?: "default"} at $uri" }
-                            connected = true
-                        } catch (e: ServiceUnavailableException) {
-                            logger.error { "[$workspace] Database ${db ?: "default"} at $uri is not available" }
-                            throw e
-                        }
-                    }
-                } catch (e: Neo4jException) {
-                    if (e is ClientException && e.code() == "Neo.ClientError.Database.DatabaseNotFound") {
-                        logger.info { "[$workspace] Database $db at $uri not found. Try to create specified database." }
-                        try {
-                            driver!!.session().use { neoSession: Session ->
-                                neoSession.run("CREATE DATABASE `$db` IF NOT EXISTS").consume()
-                                logger.info { "[$workspace] Database $db at $uri created" }
-                                connected = true
-                            }
-                        } catch (createEx: Neo4jException) {
-                            if (db == null) {
-                                logger.error { "[$workspace] Failed to create $db at $uri" }
-                                throw createEx
-                            }
-                            logger.warn {
-                                "[$workspace] Failed to create database $db, fallback to default. " +
-                                    "Error: ${createEx.message}"
-                            }
-                        }
-                    } else if (db == null && !connected) {
-                        // If we failed on default DB too
-                        logger.error { "[$workspace] Authentication or connection failed: ${e.message}" }
-                        throw e
-                    }
+            val sessionCfg = sessionConfig()
+            try {
+                driver!!.session(sessionCfg).use { neoSession: Session ->
+                    neoSession.run("MATCH (n) RETURN n LIMIT 0").consume()
                 }
-                if (connected) break
+                logger.info { "[$workspace] Connected to ${databaseForLog()} at $uri" }
+            } catch (e: ServiceUnavailableException) {
+                logger.error { "[$workspace] Database ${databaseForLog()} at $uri is not available" }
+                throw e
+            } catch (e: ClientException) {
+                logger.error {
+                    "[$workspace] Failed to access database ${databaseForLog()} at $uri: ${e.message}"
+                }
+                throw e
+            } catch (e: Neo4jException) {
+                logger.error { "[$workspace] Authentication or connection failed: ${e.message}" }
+                throw e
             }
 
-            if (connected) {
-                val workspaceLabel = getWorkspaceLabel()
-                // Create B-Tree index
-                try {
-                    driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
-                        neoSession.run(
-                            "CREATE INDEX IF NOT EXISTS FOR (n:`$workspaceLabel`) ON (n.entity_id)",
-                        ).consume()
-                        logger.info {
-                            "[$workspace] Ensured B-Tree index on entity_id for $workspaceLabel in $database"
-                        }
+            val workspaceLabel = getWorkspaceLabel()
+            // Create B-Tree index
+            try {
+                driver!!.session(sessionCfg).use { neoSession: Session ->
+                    neoSession.run(
+                        "CREATE INDEX IF NOT EXISTS FOR (n:`$workspaceLabel`) ON (n.entity_id)",
+                    ).consume()
+                    logger.info {
+                        "[$workspace] Ensured B-Tree index on entity_id for $workspaceLabel in " +
+                            databaseForLog()
                     }
-                } catch (e: Neo4jException) {
-                    logger.warn { "[$workspace] Failed to create B-Tree index: ${e.message}" }
                 }
-
-                // Create full-text index
-                createFulltextIndex(driver!!, database, workspaceLabel)
+            } catch (e: Neo4jException) {
+                logger.warn { "[$workspace] Failed to create B-Tree index: ${e.message}" }
             }
+
+            // Create full-text index
+            createFulltextIndex(driver!!, workspaceLabel)
         }
     }
 
     private fun createFulltextIndex(
         driver: Driver,
-        database: String,
         workspaceLabel: String,
     ) {
         val indexName = getFulltextIndexName(workspaceLabel)
         val legacyIndexName = "entity_id_fulltext_idx"
 
         try {
-            driver.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+            driver.session(sessionConfig()).use { neoSession: Session ->
                 val checkIndexQuery = "SHOW FULLTEXT INDEXES"
                 val result = neoSession.run(checkIndexQuery)
                 val indexes = result.list().map { it.asMap() }
@@ -328,7 +339,7 @@ class Neo4jGraphStorage(
         val workspaceLabel = getWorkspaceLabel()
         return withContext(Dispatchers.IO) {
             try {
-                driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+                driver!!.session(sessionConfig()).use { neoSession: Session ->
                     val query = "MATCH (n:`$workspaceLabel`) DETACH DELETE n"
                     neoSession.run(query).consume()
                 }
@@ -343,7 +354,7 @@ class Neo4jGraphStorage(
     override suspend fun hasNode(nodeId: String): Boolean =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
-            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+            driver!!.session(sessionConfig()).use { neoSession: Session ->
                 val query = "MATCH (n:`$workspaceLabel` {entity_id: \$entity_id}) RETURN count(n) > 0 AS node_exists"
                 val result = neoSession.run(query, mapOf("entity_id" to nodeId))
                 if (result.hasNext()) {
@@ -360,7 +371,7 @@ class Neo4jGraphStorage(
     ): Boolean =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
-            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+            driver!!.session(sessionConfig()).use { neoSession: Session ->
                 val query =
                     """
                     MATCH (a:`$workspaceLabel` {entity_id: ${'$'}source_entity_id})-[r]-(b:`$workspaceLabel` {entity_id: ${'$'}target_entity_id})
@@ -385,7 +396,7 @@ class Neo4jGraphStorage(
     override suspend fun nodeDegree(nodeId: String): Int =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
-            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+            driver!!.session(sessionConfig()).use { neoSession: Session ->
                 val query =
                     """
                     MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id})
@@ -413,7 +424,7 @@ class Neo4jGraphStorage(
     override suspend fun getNode(nodeId: String): Map<String, String>? =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
-            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+            driver!!.session(sessionConfig()).use { neoSession: Session ->
                 val query = "MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id}) RETURN n"
                 val result = neoSession.run(query, mapOf("entity_id" to nodeId))
                 if (result.hasNext()) {
@@ -440,7 +451,7 @@ class Neo4jGraphStorage(
     ): Map<String, String>? =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
-            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+            driver!!.session(sessionConfig()).use { neoSession: Session ->
                 val query =
                     """
                     MATCH (start:`$workspaceLabel` {entity_id: ${'$'}source_entity_id})-[r]-(end:`$workspaceLabel` {entity_id: ${'$'}target_entity_id})
@@ -481,7 +492,7 @@ class Neo4jGraphStorage(
     override suspend fun getNodeEdges(sourceNodeId: String): List<Pair<String, String>>? =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
-            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+            driver!!.session(sessionConfig()).use { neoSession: Session ->
                 val query =
                     """
                     MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id})
@@ -518,7 +529,7 @@ class Neo4jGraphStorage(
         val entityType = properties["entity_type"] ?: "UNKNOWN"
         require(properties.containsKey("entity_id")) { "Neo4j: node properties must contain an 'entity_id' field" }
 
-        driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+        driver!!.session(sessionConfig()).use { neoSession: Session ->
             neoSession.executeWrite { tx ->
                 val query =
                     """
@@ -538,7 +549,7 @@ class Neo4jGraphStorage(
         edgeData: Map<String, String>,
     ) = withContext(Dispatchers.IO) {
         val workspaceLabel = getWorkspaceLabel()
-        driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+        driver!!.session(sessionConfig()).use { neoSession: Session ->
             neoSession.executeWrite { tx ->
                 val query =
                     """
@@ -565,7 +576,7 @@ class Neo4jGraphStorage(
     override suspend fun deleteNode(nodeId: String) =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
-            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+            driver!!.session(sessionConfig()).use { neoSession: Session ->
                 neoSession.executeWrite { tx ->
                     val query =
                         """
@@ -585,7 +596,7 @@ class Neo4jGraphStorage(
     override suspend fun removeEdges(edges: List<Pair<String, String>>) =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
-            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+            driver!!.session(sessionConfig()).use { neoSession: Session ->
                 neoSession.executeWrite { tx ->
                     val query =
                         """
@@ -603,7 +614,7 @@ class Neo4jGraphStorage(
     override suspend fun getAllLabels(): List<String> =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
-            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+            driver!!.session(sessionConfig()).use { neoSession: Session ->
                 val query =
                     """
                     MATCH (n:`$workspaceLabel`)
@@ -629,7 +640,7 @@ class Neo4jGraphStorage(
 
             val workspaceLabel = getWorkspaceLabel()
 
-            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+            driver!!.session(sessionConfig()).use { neoSession: Session ->
                 if (nodeLabel == "*") {
                     // Wildcard case
                     val countQuery = "MATCH (n:`$workspaceLabel`) RETURN count(n) as total"
@@ -673,7 +684,7 @@ class Neo4jGraphStorage(
             return getKnowledgeGraphWildcard(maxNodes)
         }
 
-        driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+        driver!!.session(sessionConfig()).use { neoSession: Session ->
             val query = "MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id}) RETURN n"
             val result = neoSession.run(query, mapOf("entity_id" to nodeLabel))
             if (result.hasNext()) {
@@ -739,7 +750,7 @@ class Neo4jGraphStorage(
         queue: ArrayDeque<Triple<Map<String, Any>, Map<String, Any>?, Int>>,
         workspaceLabel: String,
     ) {
-        driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+        driver!!.session(sessionConfig()).use { neoSession: Session ->
             val query =
                 """
                 MATCH (a:`$workspaceLabel` {entity_id: ${'$'}entity_id})-[r]-(b)
@@ -787,7 +798,7 @@ class Neo4jGraphStorage(
         val edges = mutableListOf<Map<String, Any>>()
         var isTruncated = false
 
-        driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+        driver!!.session(sessionConfig()).use { neoSession: Session ->
             val countQuery = "MATCH (n:`$workspaceLabel`) RETURN count(n) as total"
             val total = neoSession.run(countQuery).single().get("total").asInt()
 
@@ -851,7 +862,7 @@ class Neo4jGraphStorage(
     override suspend fun getAllNodes(): List<Map<String, Any>> =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
-            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+            driver!!.session(sessionConfig()).use { neoSession: Session ->
                 val query = "MATCH (n:`$workspaceLabel`) RETURN n"
                 val result = neoSession.run(query)
                 result.list().map { record ->
@@ -866,7 +877,7 @@ class Neo4jGraphStorage(
     override suspend fun getAllEdges(): List<Map<String, Any>> =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
-            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+            driver!!.session(sessionConfig()).use { neoSession: Session ->
                 val query =
                     """
                     MATCH (a:`$workspaceLabel`)-[r]-(b:`$workspaceLabel`)
@@ -885,7 +896,7 @@ class Neo4jGraphStorage(
     override suspend fun getPopularLabels(limit: Int): List<String> =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
-            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+            driver!!.session(sessionConfig()).use { neoSession: Session ->
                 val query =
                     """
                     MATCH (n:`$workspaceLabel`)
@@ -914,7 +925,7 @@ class Neo4jGraphStorage(
             val isChinese = isChineseText(queryStrip)
             val indexName = getFulltextIndexName(workspaceLabel)
 
-            driver!!.session(SessionConfig.forDatabase(database)).use { neoSession: Session ->
+            driver!!.session(sessionConfig()).use { neoSession: Session ->
                 try {
                     // Try fulltext search
                     val cypherQuery: String

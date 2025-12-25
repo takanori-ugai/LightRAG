@@ -23,6 +23,12 @@ class InMemoryVectorStorage(
     private val vectors = mutableMapOf<String, List<Float>>()
     private val metadata = mutableMapOf<String, Map<String, Any>>()
 
+    private fun debug(msg: () -> String) {
+        if (logger.isDebugEnabled) {
+            logger.debug(msg)
+        }
+    }
+
     override suspend fun indexDoneCallback() {
         // No persistence for in-memory
     }
@@ -47,6 +53,10 @@ class InMemoryVectorStorage(
         if (vectors.isEmpty()) {
             logger.warn { "Vector storage '$namespace' is empty during query." }
             return emptyList()
+        }
+
+        debug {
+            "[$namespace/$workspace] Query='$query', topK=$topK, vectors=${vectors.size}, metadata=${metadata.size}"
         }
 
         // Calculate cosine similarity for all vectors
@@ -80,6 +90,9 @@ class InMemoryVectorStorage(
         // In Python LightRAG, upsert logic in vector storage often handles embedding if content is provided.
 
         val embeddingModel = embeddingFunc as? EmbeddingModel
+        debug {
+            "[$namespace/$workspace] Upsert ${data.size} items. Has embedding model: ${embeddingModel != null}"
+        }
 
         data.forEach { (id, meta) ->
             metadata[id] = meta
@@ -107,6 +120,10 @@ class InMemoryVectorStorage(
                     logger.warn { "No content provided for upsert id $id in '$namespace'" }
                 }
             }
+        }
+
+        debug {
+            "[$namespace/$workspace] Upsert completed. Total vectors=${vectors.size}, metadata=${metadata.size}"
         }
     }
 

@@ -122,14 +122,21 @@ fun main() =
 
         // Query
         val modes = listOf("naive", "local", "global", "hybrid")
-        val queryText = "What is Neo4j and how is it related to LightRAG?"
+        val queryText = "What are the top themes in this story?"
 
         modes.forEach { mode ->
             println("\n=====================")
             println("Query mode: $mode")
             println("=====================")
             try {
-                val result = rag.query(queryText, QueryParam(mode = mode))
+                val result =
+                    rag.query(
+                        queryText,
+                        QueryParam(
+                            mode = mode,
+                            includeReferences = true,
+                        ),
+                    )
                 println(result)
             } catch (e: Exception) {
                 println("Error querying mode $mode: ${e.message}")
