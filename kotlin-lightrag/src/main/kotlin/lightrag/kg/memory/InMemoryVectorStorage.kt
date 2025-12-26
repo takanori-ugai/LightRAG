@@ -24,7 +24,7 @@ class InMemoryVectorStorage(
     override val globalConfig: Map<String, Any?> = emptyMap(),
     override val embeddingFunc: EmbeddingModel,
 ) : BaseVectorStorage {
-    override val cosineBetterThanThreshold: Double = 0.8
+    override val cosineBetterThanThreshold: Double = 0.2
     override val metaFields: Set<String> = emptySet()
 
     // Using ConcurrentHashMap for thread safety might be better, but MutableMap is fine for simple impl
@@ -139,7 +139,10 @@ class InMemoryVectorStorage(
                     )
                 Triple(id, similarity, metadata[id])
             }
-                .filter { it.third != null }
+                .filter {
+                    logger.error { it }
+                    it.third != null && it.second >= cosineBetterThanThreshold
+                }
                 .sortedByDescending { it.second }
                 .take(topK)
 
