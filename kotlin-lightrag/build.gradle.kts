@@ -1,6 +1,7 @@
 plugins {
     kotlin("jvm") version "2.3.0"
-    id("io.ktor.plugin") version "2.3.9"
+    application
+    id("com.gradleup.shadow") version "9.2.0"
     kotlin("plugin.serialization") version "2.3.0"
     id("org.jlleitschuh.gradle.ktlint") version "12.1.0"
     id("io.gitlab.arturbosch.detekt") version "1.23.6"
@@ -21,16 +22,17 @@ application {
 
 repositories {
     mavenCentral()
+    gradlePluginPortal()
 }
 
 dependencies {
-    implementation("io.ktor:ktor-server-core:2.3.9")
-    implementation("io.ktor:ktor-server-netty:2.3.9")
-    implementation("io.ktor:ktor-server-content-negotiation:2.3.9")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.9")
-    implementation("io.ktor:ktor-server-swagger:2.3.9")
-    implementation("io.ktor:ktor-server-cors:2.3.9")
-    implementation("ch.qos.logback:logback-classic:1.4.14")
+    implementation("io.ktor:ktor-server-core:2.3.12")
+    implementation("io.ktor:ktor-server-netty:2.3.12")
+    implementation("io.ktor:ktor-server-content-negotiation:2.3.12")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.12")
+    implementation("io.ktor:ktor-server-swagger:2.3.12")
+    implementation("io.ktor:ktor-server-cors:2.3.12")
+    implementation("ch.qos.logback:logback-classic:1.5.13")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
     implementation("io.github.oshai:kotlin-logging-jvm:5.1.0")
@@ -45,12 +47,13 @@ dependencies {
     implementation("org.mongodb:bson-kotlinx:5.1.0")
     implementation("org.neo4j.driver:neo4j-java-driver:5.20.0")
 
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.22")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.3.0")
     testImplementation("io.mockk:mockk:1.13.9")
 }
 
 tasks {
     withType<Test> {
+        jvmArgs("-XX:+EnableDynamicAgentLoading")
         testLogging {
             events("passed", "skipped", "failed", "standardOut", "standardError")
             showStandardStreams = true
