@@ -38,9 +38,12 @@ dependencies {
     implementation("io.github.oshai:kotlin-logging-jvm:5.1.0")
 
     // LangChain4j dependencies
-    implementation("dev.langchain4j:langchain4j-core:0.31.0")
-    implementation("dev.langchain4j:langchain4j-open-ai:0.31.0")
-    implementation("dev.langchain4j:langchain4j-ollama:0.31.0")
+    implementation("dev.langchain4j:langchain4j:1.9.1")
+    implementation("dev.langchain4j:langchain4j-open-ai:1.9.1")
+    implementation("dev.langchain4j:langchain4j-ollama:1.9.1")
+
+    // JTokkit
+    implementation("com.knuddels:jtokkit:1.1.0")
 
     // MongoDB
     implementation("org.mongodb:mongodb-driver-kotlin-coroutine:5.1.0")

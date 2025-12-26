@@ -1,7 +1,11 @@
 package lightrag.core
 
-import dev.langchain4j.data.message.UserMessage
-import dev.langchain4j.model.chat.ChatLanguageModel
+import com.knuddels.jtokkit.Encodings
+import com.knuddels.jtokkit.api.Encoding
+import com.knuddels.jtokkit.api.EncodingRegistry
+import com.knuddels.jtokkit.api.EncodingType
+import com.knuddels.jtokkit.api.IntArrayList
+import dev.langchain4j.model.chat.ChatModel
 import dev.langchain4j.model.embedding.EmbeddingModel
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.SerialName
@@ -64,7 +68,7 @@ data class QueryParam(
 
 class LightRAG(
     val workingDir: String = "./rag_storage",
-    chatModel: ChatLanguageModel? = null,
+    chatModel: ChatModel? = null,
     embeddingModel: EmbeddingModel? = null,
     val hashingKv: BaseKVStorage? = null,
     llmBinding: String = "ollama",
@@ -80,15 +84,26 @@ class LightRAG(
         private const val SUMMARY_PREVIEW_LENGTH = 100
     }
 
-    val chatModel: ChatLanguageModel =
+    val chatModel: ChatModel =
         chatModel ?: LLMFactory.createChatModel(llmBinding, llmModelName)
 
     private val embedding: EmbeddingModel =
         embeddingModel ?: LLMFactory.createEmbeddingModel(embeddingBinding, embeddingModelName)
 
-    val tokenizer: (String) -> List<Int> = { text: String -> text.split(" ", "\n", "\t").map { it.hashCode() } }
+    private val registry: EncodingRegistry = Encodings.newDefaultEncodingRegistry()
+    private val enc: Encoding = registry.getEncoding(EncodingType.CL100K_BASE)
+    val tokenizer: (String) -> List<Int> = { text: String ->
+        val intArrayList = enc.encode(text)
+        val list = mutableListOf<Int>()
+        for (i in 0 until intArrayList.size()) {
+            list.add(intArrayList.get(i))
+        }
+        list
+    }
     val decoder: (List<Int>) -> String = { list ->
-        list.map { it.toLong() }.map { Integer.toHexString(it.toInt()) }.joinToString("-")
+        val intArrayList = IntArrayList()
+        list.forEach { intArrayList.add(it) }
+        enc.decode(intArrayList)
     }
 
     val globalConfig: Map<String, Any?> =
@@ -362,8 +377,8 @@ class LightRAG(
                 )
             }
             "bypass" -> {
-                val response = chatModel.generate(UserMessage(query))
-                QueryResult(content = response?.content()?.text())
+                val response = chatModel.chat(query)
+                QueryResult(content = response)
             }
             else -> {
                 logger.error { "Unsupported query mode: ${param.mode}" }

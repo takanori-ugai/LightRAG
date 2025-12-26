@@ -1,6 +1,6 @@
 package lightrag.llm
 
-import dev.langchain4j.model.chat.ChatLanguageModel
+import dev.langchain4j.model.chat.ChatModel
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.model.ollama.OllamaChatModel
 import dev.langchain4j.model.ollama.OllamaEmbeddingModel
@@ -15,7 +15,7 @@ object LLMFactory {
         baseUrl: String? = null,
         apiKey: String? = null,
         timeout: Long = 60,
-    ): ChatLanguageModel {
+    ): ChatModel {
         return when (binding) {
             "openai" -> {
                 val builder =
@@ -23,7 +23,7 @@ object LLMFactory {
                         .modelName(modelName)
                         .apiKey(apiKey ?: "demo")
                         .logRequests(true)
-//                        .logResponses(true)
+                        .logResponses(true)
                         .timeout(Duration.ofSeconds(timeout))
                 if (baseUrl != null) {
                     builder.baseUrl(baseUrl)

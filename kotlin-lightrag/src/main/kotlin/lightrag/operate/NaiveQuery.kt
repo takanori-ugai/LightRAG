@@ -1,11 +1,11 @@
 package lightrag.operate
 
-import dev.langchain4j.data.message.AiMessage
 import dev.langchain4j.data.message.SystemMessage
 import dev.langchain4j.data.message.UserMessage
-import dev.langchain4j.model.chat.ChatLanguageModel
-import dev.langchain4j.model.chat.StreamingChatLanguageModel
-import dev.langchain4j.model.output.Response
+import dev.langchain4j.model.chat.ChatModel
+import dev.langchain4j.model.chat.StreamingChatModel
+import dev.langchain4j.model.chat.response.ChatResponse
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -43,7 +43,7 @@ data class NaiveQueryParams(
     val globalConfig: Map<String, Any?>,
     val hashingKv: BaseKVStorage? = null,
     val systemPrompt: String? = null,
-    val chatModel: ChatLanguageModel? = null,
+    val chatModel: ChatModel? = null,
     val tokenizer: ((String) -> List<Int>),
     val decoder: ((List<Int>) -> String),
 )
@@ -231,7 +231,7 @@ import dev.langchain4j.data.message.AiMessage
 import dev.langchain4j.data.message.ChatMessage
 import dev.langchain4j.data.message.SystemMessage
 import dev.langchain4j.data.message.UserMessage
-import dev.langchain4j.model.chat.ChatLanguageModel
+import dev.langchain4j.model.chat.ChatModel
 import dev.langchain4j.model.output.Response
 import io.mockk.every
 import io.mockk.mockk
@@ -246,7 +246,7 @@ class NaiveQueryTest {
 
     private fun defaultParams(
         query: String = "What is AI?",
-        chatModel: ChatLanguageModel? = mockk(),
+        chatModel: ChatModel? = mockk(),
         chunks: List<Map<String, Any?>> = listOf(mapOf("content" to "AI is Artificial Intelligence", "reference_id" to "ref1")),
         tokenizer: (String) -> List<String> = { it.split(" ") },
         decoder: ((String) -> String)? = null,
@@ -338,8 +338,8 @@ class NaiveQueryTest {
 
     @Test
     fun `calls LLM and returns its response`() = runBlocking {
-        val mockModel = mockk<ChatLanguageModel>()
-        every { mockModel.generate(any<List<ChatMessage>>()) } returns Response.from(AiMessage("LLM answer"))
+        val mockModel = mockk<ChatModel>()
+        every { mockModel.chat(any<List<ChatMessage>>()) } returns Response.from(AiMessage("LLM answer"))
         val params = defaultParams(chatModel = mockModel)
         val result = naiveQuery(params)
         assertNotNull(result)
@@ -348,9 +348,9 @@ class NaiveQueryTest {
 
     @Test
     fun `returns streaming response when stream is true and model supports it`() = runBlocking {
-        val streamingModel = mockk<StreamingChatLanguageModel>()
+        val streamingModel = mockk<StreamingChatModel>()
         val flow = mockk<Flow<String>>()
-        every { streamingModel.generate(any(), any()) } answers {
+        every { streamingModel.chat(any(), any()) } answers {
             val handler = secondArg<dev.langchain4j.model.StreamingResponseHandler<AiMessage>>()
             handler.onNext("token1")
             handler.onComplete(Response.from(AiMessage("streamed")))
@@ -403,9 +403,9 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
         return QueryResult(content = Prompts.FAIL_RESPONSE)
     }
 
-    val model = params.chatModel ?: params.globalConfig["llm_model_func"] as? ChatLanguageModel
+    val model = params.chatModel ?: params.globalConfig["llm_model_func"] as? ChatModel
     if (model == null) {
-        logger.error { "No ChatLanguageModel provided for naiveQuery" }
+        logger.error { "No ChatModel provided for naiveQuery" }
         return QueryResult(content = "Error: No LLM model configured.")
     }
 
@@ -558,7 +558,7 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
     // Call LLM
     val response: Any? =
         if (params.queryParam.stream) {
-            val streamingModel = model as? StreamingChatLanguageModel
+            val streamingModel = model as? StreamingChatModel
             if (streamingModel == null) {
                 logger.error { "Streaming is requested but the model does not support it." }
                 return QueryResult(content = "Error: Streaming not supported by model.")
@@ -568,17 +568,17 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
             flow {
                 val fullResponse = StringBuilder()
                 val blockingQueue = LinkedBlockingQueue<String>()
-                val finalResponse = CompletableFuture<Response<AiMessage>>()
+                val finalResponse = CompletableFuture<ChatResponse>()
 
-                streamingModel.generate(
+                streamingModel.chat(
                     listOf(SystemMessage(sysPrompt), UserMessage(userQuery)),
-                    object : dev.langchain4j.model.StreamingResponseHandler<AiMessage> {
-                        override fun onNext(token: String) {
-                            blockingQueue.put(token)
-                            fullResponse.append(token)
+                    object : StreamingChatResponseHandler {
+                        override fun onPartialResponse(partialResponse: String) {
+                            blockingQueue.put(partialResponse)
+                            fullResponse.append(partialResponse)
                         }
 
-                        override fun onComplete(response: Response<AiMessage>) {
+                        override fun onCompleteResponse(response: ChatResponse) {
                             blockingQueue.put("___END___")
                             finalResponse.complete(response)
                         }
@@ -628,9 +628,10 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
             }
         } else {
             try {
-                model.generate(listOf(SystemMessage(sysPrompt), UserMessage(userQuery))).content().text()
                 logger.trace { "SysPrompt: $sysPrompt" }
                 logger.trace { "UserPrompt: $userQuery" }
+                val chatResponse = model.chat(listOf(SystemMessage(sysPrompt), UserMessage(userQuery)))
+                chatResponse.aiMessage()?.text() ?: ""
             } catch (e: Exception) {
                 logger.error(e) { "Error generating response in naiveQuery" }
                 "Error generating response."
@@ -696,7 +697,7 @@ import dev.langchain4j.data.message.AiMessage
 import dev.langchain4j.data.message.ChatMessage
 import dev.langchain4j.data.message.SystemMessage
 import dev.langchain4j.data.message.UserMessage
-import dev.langchain4j.model.chat.ChatLanguageModel
+import dev.langchain4j.model.chat.ChatModel
 import dev.langchain4j.model.output.Response
 import io.mockk.every
 import io.mockk.mockk
@@ -711,7 +712,7 @@ class NaiveQueryTest {
 
     private fun defaultParams(
         query: String = "What is AI?",
-        chatModel: ChatLanguageModel? = mockk(),
+        chatModel: ChatModel? = mockk(),
         chunks: List<Map<String, Any?>> = listOf(mapOf("content" to "AI is Artificial Intelligence", "reference_id" to "ref1")),
         tokenizer: (String) -> List<String> = { it.split(" ") },
         decoder: ((String) -> String)? = null,
@@ -803,8 +804,8 @@ class NaiveQueryTest {
 
     @Test
     fun `calls LLM and returns its response`() = runBlocking {
-        val mockModel = mockk<ChatLanguageModel>()
-        every { mockModel.generate(any<List<ChatMessage>>()) } returns Response.from(AiMessage("LLM answer"))
+        val mockModel = mockk<ChatModel>()
+        every { mockModel.chat(any<List<ChatMessage>>()) } returns Response.from(AiMessage("LLM answer"))
         val params = defaultParams(chatModel = mockModel)
         val result = naiveQuery(params)
         assertNotNull(result)
@@ -813,9 +814,9 @@ class NaiveQueryTest {
 
     @Test
     fun `returns streaming response when stream is true and model supports it`() = runBlocking {
-        val streamingModel = mockk<StreamingChatLanguageModel>()
+        val streamingModel = mockk<StreamingChatModel>()
         val flow = mockk<Flow<String>>()
-        every { streamingModel.generate(any(), any()) } answers {
+        every { streamingModel.chat(any(), any()) } answers {
             val handler = secondArg<dev.langchain4j.model.StreamingResponseHandler<AiMessage>>()
             handler.onNext("token1")
             handler.onComplete(Response.from(AiMessage("streamed")))
