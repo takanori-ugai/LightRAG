@@ -14,7 +14,6 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.longOrNull
 import lightrag.core.types.BaseVectorStorage
-import lightrag.core.types.EmbeddingFunc
 import java.io.File
 
 private val logger = KotlinLogging.logger {}
@@ -23,7 +22,7 @@ class InMemoryVectorStorage(
     override val namespace: String,
     override val workspace: String,
     override val globalConfig: Map<String, Any?> = emptyMap(),
-    override val embeddingFunc: EmbeddingFunc = Any(),
+    override val embeddingFunc: EmbeddingModel,
 ) : BaseVectorStorage {
     override val cosineBetterThanThreshold: Double = 0.8
     override val metaFields: Set<String> = emptySet()
@@ -161,7 +160,7 @@ class InMemoryVectorStorage(
         // We expect metadata to contain "content" field which needs to be embedded if not already vectors?
         // In Python LightRAG, upsert logic in vector storage often handles embedding if content is provided.
 
-        val embeddingModel = embeddingFunc as? EmbeddingModel
+        val embeddingModel = embeddingFunc
         debug {
             "[$namespace/$workspace] Upsert ${data.size} items. Has embedding model: ${embeddingModel != null}"
         }
@@ -182,11 +181,7 @@ class InMemoryVectorStorage(
                 // If vector is provided directly
                 vectors[id] = meta.vector
             } else {
-                if (embeddingModel == null) {
-                    logger.warn { "No embedding model provided for upsert in '$namespace'" }
-                } else if (content == null) {
-                    logger.warn { "No content provided for upsert id $id in '$namespace'" }
-                }
+                logger.warn { "No content provided for upsert id $id in '$namespace'" }
             }
         }
 
