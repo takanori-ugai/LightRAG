@@ -6,7 +6,6 @@ import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.store.embedding.CosineSimilarity
 import io.github.oshai.kotlinlogging.KotlinLogging
 import lightrag.core.types.BaseVectorStorage
-import lightrag.core.types.EmbeddingFunc
 
 private val logger = KotlinLogging.logger {}
 
@@ -14,7 +13,7 @@ class InMemoryVectorStorage(
     override val namespace: String,
     override val workspace: String,
     override val globalConfig: Map<String, Any> = emptyMap(),
-    override val embeddingFunc: EmbeddingFunc = Any(),
+    override val embeddingFunc: EmbeddingModel,
 ) : BaseVectorStorage {
     override val cosineBetterThanThreshold: Double = 0.8
     override val metaFields: Set<String> = emptySet()

@@ -1,10 +1,10 @@
 package lightrag.kg.neo4j
 
+import dev.langchain4j.model.embedding.EmbeddingModel
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import lightrag.core.types.BaseGraphStorage
-import lightrag.core.types.EmbeddingFunc
 import lightrag.core.types.KnowledgeGraph
 import org.neo4j.driver.AuthTokens
 import org.neo4j.driver.Driver
@@ -23,7 +23,7 @@ private val logger = KotlinLogging.logger {}
 class Neo4jGraphStorage(
     override val namespace: String,
     override val globalConfig: Map<String, Any>,
-    override val embeddingFunc: EmbeddingFunc?,
+    override val embeddingFunc: EmbeddingModel,
 ) : BaseGraphStorage {
     override val workspace: String
 
@@ -65,8 +65,8 @@ class Neo4jGraphStorage(
         }
 
         database =
-            System.getenv("NEO4J_DATABASE") ?:
-            ((globalConfig["neo4j"] as? Map<*, *>)?.get("database") as? String)
+            System.getenv("NEO4J_DATABASE")
+                ?: ((globalConfig["neo4j"] as? Map<*, *>)?.get("database") as? String)
     }
 
     private fun sessionConfig(): SessionConfig {

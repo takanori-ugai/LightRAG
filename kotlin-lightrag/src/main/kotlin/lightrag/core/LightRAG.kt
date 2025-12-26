@@ -96,18 +96,21 @@ class LightRAG(
             namespace = "doc_status",
             workspace = "default",
             globalConfig = mapOf("working_dir" to workingDir),
+            embeddingFunc = embedding,
         )
     val fullDocs: BaseKVStorage =
         JsonKVStorage(
             namespace = "full_docs",
             workspace = "default",
             globalConfig = mapOf("working_dir" to workingDir),
+            embeddingFunc = embedding,
         )
     val textChunks: BaseKVStorage =
         JsonKVStorage(
             namespace = "text_chunks",
             workspace = "default",
             globalConfig = mapOf("working_dir" to workingDir),
+            embeddingFunc = embedding,
         )
 
     // Additional storages to match Python implementation
@@ -116,12 +119,14 @@ class LightRAG(
             namespace = "full_entities",
             workspace = "default",
             globalConfig = mapOf("working_dir" to workingDir),
+            embeddingFunc = embedding,
         )
     val fullRelations: BaseKVStorage =
         JsonKVStorage(
             namespace = "full_relations",
             workspace = "default",
             globalConfig = mapOf("working_dir" to workingDir),
+            embeddingFunc = embedding,
         )
 
     // Vector Storages
@@ -165,6 +170,7 @@ class LightRAG(
                 InMemoryGraphStorage(
                     namespace = "chunk_entity_relation_graph",
                     workspace = "default",
+                    embeddingFunc = embedding,
                 )
         }
 
