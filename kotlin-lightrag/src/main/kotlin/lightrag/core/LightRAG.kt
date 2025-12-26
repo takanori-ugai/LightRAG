@@ -19,6 +19,7 @@ import lightrag.kg.json.JsonDocStatusStorage
 import lightrag.kg.json.JsonKVStorage
 import lightrag.kg.memory.InMemoryGraphStorage
 import lightrag.kg.memory.InMemoryVectorStorage
+import lightrag.kg.neo4j.Neo4jVectorStorage
 import lightrag.llm.LLMFactory
 import lightrag.operate.NaiveQueryParams
 import lightrag.operate.chunkingByTokenSize
@@ -75,8 +76,9 @@ class LightRAG(
     llmModelName: String = "llama3",
     embeddingBinding: String = "ollama",
     embeddingModelName: String = "all-minilm",
-    graphStorageName: String = "InMemoryGraphStorage",
-    addonConfig: AddonConfig = AddonConfig(),
+    val graphStorageName: String = "InMemoryGraphStorage",
+    val vectorStorageName: String = "InMemoryVectorStorage",
+    val addonConfig: AddonConfig = AddonConfig(),
 ) {
     companion object {
         private const val DEFAULT_CHUNK_TOKEN_SIZE = 1200
@@ -155,30 +157,30 @@ class LightRAG(
             embeddingFunc = embedding,
         )
 
-    val chunksVdb: BaseVectorStorage =
-        InMemoryVectorStorage(
-            namespace = "chunks_vdb",
-            workspace = "default",
-            embeddingFunc = embedding,
-            globalConfig = globalConfig,
-            cosineThreshold = addonConfig.cosineBetterThreshold,
-        )
-    val entitiesVdb: BaseVectorStorage =
-        InMemoryVectorStorage(
-            namespace = "entities_vdb",
-            workspace = "default",
-            embeddingFunc = embedding,
-            globalConfig = globalConfig,
-            cosineThreshold = addonConfig.cosineBetterThreshold,
-        )
-    val relationshipsVdb: BaseVectorStorage =
-        InMemoryVectorStorage(
-            namespace = "relationships_vdb",
-            workspace = "default",
-            embeddingFunc = embedding,
-            globalConfig = globalConfig,
-            cosineThreshold = addonConfig.cosineBetterThreshold,
-        )
+    private fun createVectorStorage(namespace: String): BaseVectorStorage {
+        return when (vectorStorageName) {
+            "Neo4jVectorStorage" ->
+                Neo4jVectorStorage(
+                    namespace = namespace,
+                    workspace = "default",
+                    globalConfig = globalConfig,
+                    embeddingFunc = embedding,
+                    cosineThreshold = addonConfig.cosineBetterThreshold,
+                )
+            else ->
+                InMemoryVectorStorage(
+                    namespace = namespace,
+                    workspace = "default",
+                    embeddingFunc = embedding,
+                    globalConfig = globalConfig,
+                    cosineThreshold = addonConfig.cosineBetterThreshold,
+                )
+        }
+    }
+
+    val chunksVdb: BaseVectorStorage = createVectorStorage("chunks_vdb")
+    val entitiesVdb: BaseVectorStorage = createVectorStorage("entities_vdb")
+    val relationshipsVdb: BaseVectorStorage = createVectorStorage("relationships_vdb")
 
     val chunkEntityRelationGraph: BaseGraphStorage =
         when (graphStorageName) {
