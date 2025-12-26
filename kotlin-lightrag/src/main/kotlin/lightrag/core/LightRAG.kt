@@ -74,6 +74,12 @@ class LightRAG(
     graphStorageName: String = "InMemoryGraphStorage",
     addonConfig: AddonConfig = AddonConfig(),
 ) {
+    companion object {
+        private const val DEFAULT_CHUNK_TOKEN_SIZE = 1200
+        private const val DEFAULT_CHUNK_OVERLAP_TOKEN_SIZE = 100
+        private const val SUMMARY_PREVIEW_LENGTH = 100
+    }
+
     val chatModel: ChatLanguageModel =
         chatModel ?: LLMFactory.createChatModel(llmBinding, llmModelName)
 
@@ -89,8 +95,8 @@ class LightRAG(
         mapOf(
             "llm_model_func" to chatModel,
             "embedding_func" to embedding,
-            "chunk_token_size" to 1200,
-            "chunk_overlap_token_size" to 100,
+            "chunk_token_size" to DEFAULT_CHUNK_TOKEN_SIZE,
+            "chunk_overlap_token_size" to DEFAULT_CHUNK_OVERLAP_TOKEN_SIZE,
             "entity_types" to listOf("Person", "Organization", "Location", "Event", "Concept"),
             "language" to "English",
             "working_dir" to workingDir,
@@ -222,7 +228,7 @@ class LightRAG(
             newDocs[docId] =
                 mapOf(
                     "status" to DocStatus.PENDING.value,
-                    "content_summary" to (content.take(100) + "..."),
+                    "content_summary" to (content.take(SUMMARY_PREVIEW_LENGTH) + "..."),
                     "content_length" to content.length.toString(),
                     "created_at" to Instant.now().toString(),
                     "updated_at" to Instant.now().toString(),
@@ -251,8 +257,9 @@ class LightRAG(
         val pendingDocs = docStatusStorage.getDocsByStatus(DocStatus.PENDING)
         if (pendingDocs.isEmpty()) return
 
-        val chunkTokenSize = globalConfig["chunk_token_size"] as? Int ?: 1200
-        val chunkOverlapTokenSize = globalConfig["chunk_overlap_token_size"] as? Int ?: 100
+        val chunkTokenSize = globalConfig["chunk_token_size"] as? Int ?: DEFAULT_CHUNK_TOKEN_SIZE
+        val chunkOverlapTokenSize =
+            globalConfig["chunk_overlap_token_size"] as? Int ?: DEFAULT_CHUNK_OVERLAP_TOKEN_SIZE
 
         pendingDocs.forEach { (docId, status) ->
             try {
@@ -261,7 +268,7 @@ class LightRAG(
                 val docData = fullDocs.getById(docId)
                 val content =
                     docData?.get("content") as? String
-                        ?: throw IllegalStateException("Doc content missing for $docId")
+                        ?: error("Doc content missing for $docId")
 
                 val chunks =
                     chunkingByTokenSize(
@@ -303,7 +310,6 @@ class LightRAG(
                     knowledgeGraphInst = chunkEntityRelationGraph,
                     entitiesVdb = entitiesVdb,
                     relationshipsVdb = relationshipsVdb,
-                    globalConfig = globalConfig,
                 )
 
                 docStatusStorage.upsert(mapOf(docId to mapOf("status" to DocStatus.PROCESSED.value)))

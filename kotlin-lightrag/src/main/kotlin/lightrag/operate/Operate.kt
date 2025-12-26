@@ -11,6 +11,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import lightrag.core.CacheData
@@ -56,8 +57,10 @@ data class ContextResult(
 
 @Serializable
 data class KeywordsExtractionResult(
-    val high_level_keywords: List<String>,
-    val low_level_keywords: List<String>,
+    @SerialName("high_level_keywords")
+    val highLevelKeywords: List<String>,
+    @SerialName("low_level_keywords")
+    val lowLevelKeywords: List<String>,
 )
 
 data class GetNodeDataResult(
@@ -277,7 +280,6 @@ suspend fun mergeNodesAndEdges(
     knowledgeGraphInst: BaseGraphStorage,
     entitiesVdb: BaseVectorStorage,
     relationshipsVdb: BaseVectorStorage,
-    globalConfig: Map<String, Any?>,
 ) {
     // 1. Process Nodes
     for ((name, entityList) in nodes) {
@@ -543,6 +545,8 @@ suspend fun kgQuery(
             return null
         }
 
+        logger.trace { "SysPrompt :$sysPrompt" }
+        logger.trace { "UserQuery :$query" }
         val responseIterator =
             flow {
                 val fullResponse = StringBuilder()
@@ -608,6 +612,8 @@ suspend fun kgQuery(
     } else {
         val responseText =
             try {
+                logger.trace { "SysPrompt :$sysPrompt" }
+                logger.trace { "UserQuery :$query" }
                 model.generate(listOf(SystemMessage(sysPrompt), UserMessage(query))).content().text()
             } catch (e: Exception) {
                 logger.error(e) { "Error generating response in kgQuery" }
@@ -698,7 +704,7 @@ private suspend fun extractKeywordsOnly(
                 isLenient = true
             }
         val keywordsResult = json.decodeFromString<KeywordsExtractionResult>(result)
-        keywordsResult.high_level_keywords to keywordsResult.low_level_keywords
+        keywordsResult.highLevelKeywords to keywordsResult.lowLevelKeywords
     } catch (e: Exception) {
         logger.error(e) { "Failed to parse keywords from LLM response" }
         emptyList<String>() to emptyList()

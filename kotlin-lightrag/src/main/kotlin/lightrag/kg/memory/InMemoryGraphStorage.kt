@@ -13,7 +13,9 @@ class InMemoryGraphStorage(
     private val nodes = mutableMapOf<String, Map<String, String>>()
     private val edges = mutableMapOf<String, MutableMap<String, Map<String, String>>>()
 
-    override suspend fun indexDoneCallback() {}
+    override suspend fun indexDoneCallback() {
+        // Nothing to finalize for in-memory graph storage
+    }
 
     override suspend fun drop(): Map<String, String> {
         nodes.clear()

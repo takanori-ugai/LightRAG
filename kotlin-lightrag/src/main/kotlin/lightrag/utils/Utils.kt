@@ -17,9 +17,9 @@ fun <T> List<T>.chunked(
     size: Int,
     overlap: Int,
 ): List<List<T>> {
-    if (size <= 0) throw IllegalArgumentException("Size must be greater than 0")
-    if (overlap < 0) throw IllegalArgumentException("Overlap must be non-negative")
-    if (overlap >= size) throw IllegalArgumentException("Overlap must be less than size")
+    require(size > 0) { "Size must be greater than 0" }
+    require(overlap >= 0) { "Overlap must be non-negative" }
+    require(overlap < size) { "Overlap must be less than size" }
 
     val result = mutableListOf<List<T>>()
     var index = 0

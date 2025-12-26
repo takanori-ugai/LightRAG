@@ -9,6 +9,7 @@ import dev.langchain4j.model.output.Response
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import lightrag.core.CacheData
 import lightrag.core.QueryParam
@@ -26,7 +27,8 @@ private val logger = KotlinLogging.logger {}
 
 @Serializable
 data class ChunkContext(
-    val reference_id: String?,
+    @SerialName("reference_id")
+    val referenceId: String?,
     val content: String?,
 )
 
@@ -198,7 +200,7 @@ fun convertToJsonFormat(
     )
 }
 
-// TODO: These cache functions should ideally be in a separate Cache.kt or Utils.kt
+// Cache helpers could live in a dedicated Cache.kt or Utils.kt module
 // For now, embedding them here for a self-contained replacement.
 
 private suspend fun handleCache(
@@ -355,7 +357,7 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
     val chunksContext =
         processedChunksWithRefIds.map {
             ChunkContext(
-                reference_id = it["reference_id"] as? String,
+                referenceId = it["reference_id"] as? String,
                 content = it["content"] as? String,
             )
         }
@@ -420,6 +422,8 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
                 logger.error { "Streaming is requested but the model does not support it." }
                 return QueryResult(content = "Error: Streaming not supported by model.")
             }
+            logger.trace { "SysPrompt: $sysPrompt" }
+            logger.trace { "UserPrompt: $userQuery" }
             flow {
                 val fullResponse = StringBuilder()
                 val blockingQueue = LinkedBlockingQueue<String>()
@@ -484,6 +488,8 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
         } else {
             try {
                 model.generate(listOf(SystemMessage(sysPrompt), UserMessage(userQuery))).content().text()
+                logger.trace { "SysPrompt: $sysPrompt" }
+                logger.trace { "UserPrompt: $userQuery" }
             } catch (e: Exception) {
                 logger.error(e) { "Error generating response in naiveQuery" }
                 "Error generating response."
