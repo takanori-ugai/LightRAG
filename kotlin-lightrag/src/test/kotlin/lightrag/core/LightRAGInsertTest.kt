@@ -43,7 +43,7 @@ class LightRAGInsertTest {
                 every { mockChatModel.generate(capture(messagesSlot)) } answers {
                     val messages = messagesSlot.captured
                     val lastMessage = messages.last()
-                    val text = if (lastMessage is UserMessage) lastMessage.text() ?: "" else ""
+                    val text = if (lastMessage is UserMessage) lastMessage.singleText() ?: "" else ""
 
                     if (text.contains("Entity_types", ignoreCase = true)) {
                         // Use <|#|> delimiter matching Constants/Prompts

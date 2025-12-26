@@ -1,5 +1,6 @@
 package lightrag.kg.json
 
+import dev.langchain4j.model.embedding.EmbeddingModel
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -8,8 +9,8 @@ import kotlinx.serialization.json.Json
 import lightrag.core.types.DocProcessingStatus
 import lightrag.core.types.DocStatus
 import lightrag.core.types.DocStatusStorage
-import lightrag.core.types.EmbeddingFunc
 import java.io.File
+import java.io.IOException
 import java.lang.Math.min
 
 private val logger = KotlinLogging.logger {}
@@ -18,7 +19,7 @@ class JsonDocStatusStorage(
     override val namespace: String,
     override val workspace: String,
     override val globalConfig: Map<String, Any> = emptyMap(),
-    override val embeddingFunc: EmbeddingFunc? = null,
+    override val embeddingFunc: EmbeddingModel,
 ) : DocStatusStorage {
     private val docs = mutableMapOf<String, DocProcessingStatus>()
     private val mutex = Mutex()
@@ -45,8 +46,10 @@ class JsonDocStatusStorage(
                     }
                     logger.info { "Loaded ${loaded.size} docs status from ${file.absolutePath}" }
                 }
-            } catch (e: Exception) {
+            } catch (e: IOException) {
                 logger.error(e) { "Error loading DocStatus storage from ${file.absolutePath}" }
+            } catch (e: kotlinx.serialization.SerializationException) {
+                logger.error(e) { "Error deserializing DocStatus storage from ${file.absolutePath}" }
             }
         }
     }
@@ -57,8 +60,10 @@ class JsonDocStatusStorage(
                 val content = json.encodeToString(docs)
                 file.writeText(content)
                 logger.debug { "Saved ${docs.size} docs status to ${file.absolutePath}" }
-            } catch (e: Exception) {
+            } catch (e: IOException) {
                 logger.error(e) { "Error saving DocStatus storage to ${file.absolutePath}" }
+            } catch (e: kotlinx.serialization.SerializationException) {
+                logger.error(e) { "Error serializing DocStatus storage to ${file.absolutePath}" }
             }
         }
     }

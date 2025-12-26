@@ -44,7 +44,7 @@ class LightRAGIntegrationTest {
                 every { mockChatModel.generate(capture(messagesSlot)) } answers {
                     val messages = messagesSlot.captured
                     val lastMessage = messages.last()
-                    val lastText = if (lastMessage is UserMessage) lastMessage.text() ?: "" else ""
+                    val lastText = if (lastMessage is UserMessage) lastMessage.singleText() ?: "" else ""
 
                     // Check if it's Entity Extraction prompt (Insert phase)
                     if (lastText.contains("Entity_types", ignoreCase = true)) {
@@ -124,7 +124,7 @@ class LightRAGIntegrationTest {
                 every { mockChatModel.generate(capture(messagesSlot)) } answers {
                     val messages = messagesSlot.captured
                     val lastMessage = messages.last()
-                    val lastText = if (lastMessage is UserMessage) lastMessage.text() ?: "" else ""
+                    val lastText = if (lastMessage is UserMessage) lastMessage.singleText() ?: "" else ""
 
                     if (lastText.contains("Entity_types", ignoreCase = true)) {
                         val responseText =

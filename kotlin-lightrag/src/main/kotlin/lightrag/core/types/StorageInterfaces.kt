@@ -1,5 +1,6 @@
 package lightrag.core.types
 
+import dev.langchain4j.model.embedding.EmbeddingModel
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -18,11 +19,8 @@ interface StorageNameSpace {
     suspend fun drop(): Map<String, String>
 }
 
-// Placeholder for EmbeddingFunc
-typealias EmbeddingFunc = Any
-
 interface BaseVectorStorage : StorageNameSpace {
-    val embeddingFunc: EmbeddingFunc
+    val embeddingFunc: EmbeddingModel
     val cosineBetterThanThreshold: Double
     val metaFields: Set<String>
 
@@ -48,7 +46,7 @@ interface BaseVectorStorage : StorageNameSpace {
 }
 
 interface BaseKVStorage : StorageNameSpace {
-    val embeddingFunc: EmbeddingFunc?
+    val embeddingFunc: EmbeddingModel
 
     suspend fun getById(id: String): Map<String, Any>?
 
@@ -64,7 +62,7 @@ interface BaseKVStorage : StorageNameSpace {
 }
 
 interface BaseGraphStorage : StorageNameSpace {
-    val embeddingFunc: EmbeddingFunc?
+    val embeddingFunc: EmbeddingModel
 
     suspend fun hasNode(nodeId: String): Boolean
 
@@ -93,6 +91,40 @@ interface BaseGraphStorage : StorageNameSpace {
         val result = mutableMapOf<String, Map<String, String>>()
         for (nodeId in nodeIds) {
             getNode(nodeId)?.let { result[nodeId] = it }
+        }
+        return result
+    }
+
+    suspend fun nodeDegreesBatch(nodeIds: List<String>): Map<String, Int> {
+        val result = mutableMapOf<String, Int>()
+        for (nodeId in nodeIds) {
+            result[nodeId] = nodeDegree(nodeId)
+        }
+        return result
+    }
+
+    suspend fun edgeDegreesBatch(edgePairs: List<Pair<String, String>>): Map<Pair<String, String>, Int> {
+        val result = mutableMapOf<Pair<String, String>, Int>()
+        for ((srcId, tgtId) in edgePairs) {
+            result[srcId to tgtId] = edgeDegree(srcId, tgtId)
+        }
+        return result
+    }
+
+    suspend fun getEdgesBatch(pairs: List<Map<String, String>>): Map<Pair<String, String>, Map<String, String>> {
+        val result = mutableMapOf<Pair<String, String>, Map<String, String>>()
+        for (pair in pairs) {
+            val srcId = pair["src"] ?: continue
+            val tgtId = pair["tgt"] ?: continue
+            getEdge(srcId, tgtId)?.let { result[srcId to tgtId] = it }
+        }
+        return result
+    }
+
+    suspend fun getNodesEdgesBatch(nodeIds: List<String>): Map<String, List<Pair<String, String>>> {
+        val result = mutableMapOf<String, List<Pair<String, String>>>()
+        for (nodeId in nodeIds) {
+            getNodeEdges(nodeId)?.let { result[nodeId] = it }
         }
         return result
     }
