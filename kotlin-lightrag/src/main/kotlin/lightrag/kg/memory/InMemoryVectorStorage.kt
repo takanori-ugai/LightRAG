@@ -23,8 +23,9 @@ class InMemoryVectorStorage(
     override val workspace: String,
     override val globalConfig: Map<String, Any?> = emptyMap(),
     override val embeddingFunc: EmbeddingModel,
+    private val cosineThreshold: Double? = null,
 ) : BaseVectorStorage {
-    override val cosineBetterThanThreshold: Double = 0.2
+    override val cosineBetterThanThreshold: Double = cosineThreshold ?: (globalConfig["cosine_better_than_threshold"] as? Double ?: 0.2)
     override val metaFields: Set<String> = emptySet()
 
     // Using ConcurrentHashMap for thread safety might be better, but MutableMap is fine for simple impl

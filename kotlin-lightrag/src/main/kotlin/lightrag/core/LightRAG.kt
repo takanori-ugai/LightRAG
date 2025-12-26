@@ -161,6 +161,7 @@ class LightRAG(
             workspace = "default",
             embeddingFunc = embedding,
             globalConfig = globalConfig,
+            cosineThreshold = addonConfig.cosineBetterThreshold,
         )
     val entitiesVdb: BaseVectorStorage =
         InMemoryVectorStorage(
@@ -168,6 +169,7 @@ class LightRAG(
             workspace = "default",
             embeddingFunc = embedding,
             globalConfig = globalConfig,
+            cosineThreshold = addonConfig.cosineBetterThreshold,
         )
     val relationshipsVdb: BaseVectorStorage =
         InMemoryVectorStorage(
@@ -175,6 +177,7 @@ class LightRAG(
             workspace = "default",
             embeddingFunc = embedding,
             globalConfig = globalConfig,
+            cosineThreshold = addonConfig.cosineBetterThreshold,
         )
 
     val chunkEntityRelationGraph: BaseGraphStorage =
