@@ -9,6 +9,7 @@ import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.cors.routing.CORS
+import io.ktor.server.http.content.staticResources
 import io.ktor.server.plugins.swagger.swaggerUI
 import io.ktor.server.response.respondRedirect
 import io.ktor.server.routing.get
@@ -39,6 +40,8 @@ fun Application.module() {
     routing {
         get("/") { call.respondRedirect("/swagger") }
         swaggerUI(path = "swagger", swaggerFile = "openapi/documentation.yaml")
+        staticResources("/ui", "static")
+        get("/app") { call.respondRedirect("/ui/index.html") }
     }
 
     val apiKey =
