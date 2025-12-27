@@ -1,8 +1,20 @@
 package lightrag.kg.memory
 
 import dev.langchain4j.model.embedding.EmbeddingModel
+import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.longOrNull
 import lightrag.core.types.BaseGraphStorage
 import lightrag.core.types.KnowledgeGraph
+import java.io.File
+
+private val logger = KotlinLogging.logger {}
 
 class InMemoryGraphStorage(
     override val namespace: String,
@@ -12,14 +24,74 @@ class InMemoryGraphStorage(
 ) : BaseGraphStorage {
     private val nodes = mutableMapOf<String, Map<String, String>>()
     private val edges = mutableMapOf<String, MutableMap<String, Map<String, String>>>()
+    private val workingDir = File(globalConfig["working_dir"] as? String ?: "./rag_storage")
+    private val file = File(workingDir, "graph_${namespace}.json")
+    private val json =
+        Json {
+            ignoreUnknownKeys = true
+            prettyPrint = true
+        }
+
+    override suspend fun initialize() {
+        if (!workingDir.exists()) {
+            workingDir.mkdirs()
+        }
+        if (!file.exists()) return
+        runCatching {
+            val content = file.readText()
+            if (content.isBlank()) return@runCatching
+            val parsed = json.parseToJsonElement(content)
+            if (parsed is JsonObject) {
+                val loadedNodes =
+                    (parsed["nodes"] as? JsonObject)?.entries?.associate { (k, v) ->
+                        k to ((v.toAny() as? Map<String, String>) ?: emptyMap())
+                    } ?: emptyMap()
+                val loadedEdges =
+                    (parsed["edges"] as? JsonObject)?.entries?.associate { (src, tgtObj) ->
+                        val tgtMap =
+                            (tgtObj as? JsonObject)?.entries?.associate { (tgt, data) ->
+                                tgt to ((data.toAny() as? Map<String, String>) ?: emptyMap())
+                            }?.toMutableMap() ?: mutableMapOf()
+                        src to tgtMap
+                    } ?: emptyMap()
+                nodes.putAll(loadedNodes)
+                edges.putAll(loadedEdges)
+                logger.info { "Loaded graph '$namespace' with ${nodes.size} nodes and ${edges.size} edge buckets from ${file.absolutePath}" }
+            }
+        }.onFailure { logger.error(it) { "Error loading graph storage from ${file.absolutePath}" } }
+    }
 
     override suspend fun indexDoneCallback() {
-        // Nothing to finalize for in-memory graph storage
+        runCatching {
+            if (!workingDir.exists()) {
+                workingDir.mkdirs()
+            }
+            val nodesObj = JsonObject(nodes.mapValues { (_, v) -> v.toJsonElement() as JsonObject })
+            val edgesObj =
+                JsonObject(
+                    edges.mapValues { (_, targets) ->
+                        JsonObject(targets.mapValues { (_, data) -> data.toJsonElement() as JsonObject })
+                    },
+                )
+            val payload =
+                JsonObject(
+                    mapOf(
+                        "nodes" to nodesObj,
+                        "edges" to edgesObj,
+                    ),
+                )
+            val content = json.encodeToString(JsonElement.serializer(), payload)
+            file.writeText(content)
+            logger.debug { "Persisted graph '$namespace' with ${nodes.size} nodes to ${file.absolutePath}" }
+        }.onFailure { logger.error(it) { "Error saving graph storage to ${file.absolutePath}" } }
     }
 
     override suspend fun drop(): Map<String, String> {
         nodes.clear()
         edges.clear()
+        if (file.exists()) {
+            runCatching { file.delete() }.onFailure { logger.warn(it) { "Failed to delete graph file ${file.absolutePath}" } }
+        }
         return mapOf("status" to "success", "message" to "data dropped")
     }
 
@@ -133,5 +205,32 @@ class InMemoryGraphStorage(
         limit: Int,
     ): List<String> {
         return nodes.keys.filter { it.contains(query, ignoreCase = true) }.take(limit)
+    }
+
+    private fun Any?.toJsonElement(): JsonElement {
+        return when (this) {
+            null -> JsonNull
+            is Boolean -> JsonPrimitive(this)
+            is Number -> JsonPrimitive(this)
+            is String -> JsonPrimitive(this)
+            is List<*> -> kotlinx.serialization.json.JsonArray(this.map { it.toJsonElement() })
+            is Map<*, *> -> JsonObject(this.entries.associate { it.key.toString() to it.value.toJsonElement() })
+            else -> JsonPrimitive(this.toString())
+        }
+    }
+
+    private fun JsonElement.toAny(): Any? {
+        return when (this) {
+            is JsonNull -> null
+            is JsonPrimitive -> {
+                if (isString) {
+                    content
+                } else {
+                    booleanOrNull ?: longOrNull ?: doubleOrNull ?: content
+                }
+            }
+            is kotlinx.serialization.json.JsonArray -> this.map { it.toAny() }
+            is JsonObject -> this.mapValues { it.value.toAny() }
+        }
     }
 }

@@ -45,6 +45,17 @@ fun main() =
                     ),
             )
 
+        // Initialize storages and reload any persisted state
+        rag.docStatusStorage.initialize()
+        rag.fullDocs.initialize()
+        rag.textChunks.initialize()
+        rag.fullEntities.initialize()
+        rag.fullRelations.initialize()
+        rag.chunkEntityRelationGraph.initialize()
+        rag.chunksVdb.initialize()
+        rag.entitiesVdb.initialize()
+        rag.relationshipsVdb.initialize()
+
         val bookFile = File("./book.txt")
         val content =
             if (bookFile.exists()) {
@@ -84,11 +95,13 @@ fun main() =
         }
 
         // Persist JSON-backed storages (KV, DocStatus, Vectors)
+        rag.hashingKv?.indexDoneCallback()
         rag.docStatusStorage.indexDoneCallback()
         rag.fullDocs.indexDoneCallback()
         rag.textChunks.indexDoneCallback()
         rag.fullEntities.indexDoneCallback()
         rag.fullRelations.indexDoneCallback()
+        rag.chunkEntityRelationGraph.indexDoneCallback()
         rag.chunksVdb.indexDoneCallback()
         rag.entitiesVdb.indexDoneCallback()
         rag.relationshipsVdb.indexDoneCallback()

@@ -327,7 +327,23 @@ class LightRAG(
                 val docData = fullDocs.getById(docId)
                 val content =
                     docData?.get("content") as? String
-                        ?: error("Doc content missing for $docId")
+                        ?: run {
+                            val msg = "Doc content missing for $docId"
+                            logger.warn { msg }
+                            docStatusStorage.upsert(
+                                mapOf(
+                                    docId to
+                                        mapOf(
+                                            "status" to DocStatus.FAILED.value,
+                                            "error_msg" to msg,
+                                        ),
+                                ),
+                            )
+                            // Clean up the orphaned status so we don't retry endlessly.
+                            docStatusStorage.delete(listOf(docId))
+                            fullDocs.delete(listOf(docId))
+                            return@forEach
+                        }
 
                 val chunks =
                     chunkingByTokenSize(
@@ -370,6 +386,8 @@ class LightRAG(
                     knowledgeGraphInst = chunkEntityRelationGraph,
                     entitiesVdb = entitiesVdb,
                     relationshipsVdb = relationshipsVdb,
+                    fullEntities = fullEntities,
+                    fullRelations = fullRelations,
                 )
 
                 docStatusStorage.upsert(mapOf(docId to mapOf("status" to DocStatus.PROCESSED.value)))
@@ -386,6 +404,38 @@ class LightRAG(
                 )
             }
         }
+    }
+
+    suspend fun rebuildDerivedStorageIfEmpty() {
+        val processedDocs = docStatusStorage.getDocsByStatus(DocStatus.PROCESSED)
+        val graphEmpty = chunkEntityRelationGraph.getAllNodes().isEmpty()
+        val chunksEmpty = textChunks.isEmpty()
+
+        if (processedDocs.isEmpty() || (!graphEmpty && !chunksEmpty)) {
+            return
+        }
+
+        logger.warn { "Derived stores empty but processed docs exist. Rebuilding graph/vector/kvs from persisted full_docs." }
+
+        // Clear derived stores
+        chunkEntityRelationGraph.drop()
+        chunksVdb.drop()
+        entitiesVdb.drop()
+        relationshipsVdb.drop()
+        fullEntities.drop()
+        fullRelations.drop()
+        textChunks.drop()
+
+        // Mark processed docs back to pending and re-run pipeline
+        val resetStatuses =
+            processedDocs.keys.associateWith {
+                mapOf(
+                    "status" to DocStatus.PENDING.value,
+                    "updated_at" to Instant.now().toString(),
+                )
+            }
+        docStatusStorage.upsert(resetStatuses)
+        pipelineProcessEnqueueDocuments()
     }
 
     suspend fun query(

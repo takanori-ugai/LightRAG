@@ -253,6 +253,8 @@ suspend fun mergeNodesAndEdges(
     knowledgeGraphInst: BaseGraphStorage,
     entitiesVdb: BaseVectorStorage,
     relationshipsVdb: BaseVectorStorage,
+    fullEntities: BaseKVStorage? = null,
+    fullRelations: BaseKVStorage? = null,
 ) {
     // 1. Process Nodes
     for ((name, entityList) in nodes) {
@@ -272,6 +274,7 @@ suspend fun mergeNodesAndEdges(
             )
 
         knowledgeGraphInst.upsertNode(name, nodeData)
+        fullEntities?.upsert(mapOf(name to nodeData))
 
         // Update VDB
         val entityContent = "$name\n$longestDesc"
@@ -308,6 +311,7 @@ suspend fun mergeNodesAndEdges(
             )
 
         knowledgeGraphInst.upsertEdge(src, tgt, edgeData)
+        fullRelations?.upsert(mapOf(key to edgeData))
 
         // Update VDB
         val relContent = "$allKeywords\t$src\n$tgt\n$longestDesc"
@@ -365,7 +369,22 @@ suspend fun getContextStrForQuery(
             query,
             chunksVdb,
         )
-    val allChunks = (entityChunks + relationChunks).distinctBy { it["id"] }
+    var allChunks = (entityChunks + relationChunks).distinctBy { it["id"] }
+
+    // Fallback: if graph search returns nothing, try direct chunk vector search
+    if (allChunks.isEmpty() && chunksVdb != null) {
+        logger.info { "No graph matches found; falling back to chunk vector search." }
+        val chunkHits =
+            chunksVdb.query(query, queryParam.chunkTopK).map { hit ->
+                mapOf(
+                    "id" to (hit["id"] ?: ""),
+                    "content" to (hit["content"] ?: ""),
+                    "file_path" to (hit["file_path"] ?: "unknown_source"),
+                    "score" to (hit["score"] ?: hit["distance"] ?: 0.0),
+                )
+            }
+        allChunks = chunkHits
+    }
 
     val contextBuilder = StringBuilder()
     contextBuilder.append(Prompts.KG_QUERY_CONTEXT)

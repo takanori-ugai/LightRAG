@@ -107,7 +107,10 @@ class InMemoryVectorStorage(
     override suspend fun drop(): Map<String, String> {
         vectors.clear()
         metadata.clear()
-        return mapOf("status" to "success", "message" to "data dropped (file retained at ${file.absolutePath})")
+        if (file.exists()) {
+            runCatching { file.delete() }.onFailure { logger.warn(it) { "Failed to delete vector store file ${file.absolutePath}" } }
+        }
+        return mapOf("status" to "success", "message" to "data dropped and file removed at ${file.absolutePath}")
     }
 
     override suspend fun query(
@@ -132,16 +135,30 @@ class InMemoryVectorStorage(
 
         // Calculate cosine similarity for all vectors
         val results =
-            vectors.map { (id, vec) ->
+            vectors.mapNotNull { (id, vec) ->
+                val meta = metadata[id]
+                if (meta == null) {
+                    logger.warn { "Skipping vector '$id' in '$namespace' due to missing metadata." }
+                    return@mapNotNull null
+                }
+                if (vec.isEmpty()) {
+                    logger.warn { "Skipping vector '$id' in '$namespace' because it is empty." }
+                    return@mapNotNull null
+                }
+                if (vec.size != queryVec.size) {
+                    logger.warn {
+                        "Skipping vector '$id' in '$namespace' due to dimension mismatch: stored=${vec.size}, query=${queryVec.size}"
+                    }
+                    return@mapNotNull null
+                }
                 val similarity =
                     CosineSimilarity.between(
                         Embedding(queryVec.toFloatArray()),
                         Embedding(vec.toFloatArray()),
                     )
-                Triple(id, similarity, metadata[id])
+                Triple(id, similarity, meta)
             }
                 .filter {
-                    logger.error { it }
                     it.third != null && it.second >= cosineBetterThanThreshold
                 }
                 .sortedByDescending { it.second }

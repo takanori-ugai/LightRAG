@@ -115,6 +115,14 @@
       transform: translateY(-1px);
       box-shadow: 0 12px 28px rgba(93, 216, 255, 0.35);
     }
+    .btn-danger {
+      background: linear-gradient(135deg, #ff6b6b, #ff9c6b);
+      color: #140b0b;
+      box-shadow: 0 10px 25px rgba(255, 107, 107, 0.25);
+    }
+    .btn-danger:hover {
+      box-shadow: 0 12px 28px rgba(255, 107, 107, 0.35);
+    }
     button:disabled {
       opacity: 0.6;
       cursor: not-allowed;
@@ -231,13 +239,22 @@
         <pre id="query-response">Waiting for a query...</pre>
       </div>
     </section>
+
+    <section class="card">
+      <h2>Admin</h2>
+      <p class="muted">Danger zone: drop all persisted data across KV, vectors, and graph stores.</p>
+      <button id="btn-drop" class="btn-danger">Drop All Data</button>
+      <div id="drop-status" class="status"></div>
+    </section>
   </main>
 
   <script>
     const insertBtn = document.getElementById("btn-insert");
     const queryBtn = document.getElementById("btn-query");
+    const dropBtn = document.getElementById("btn-drop");
     const insertStatus = document.getElementById("insert-status");
     const queryStatus = document.getElementById("query-status");
+    const dropStatus = document.getElementById("drop-status");
     const queryResponse = document.getElementById("query-response");
 
     function setStatus(el, message, kind) {
@@ -337,6 +354,20 @@
         queryResponse.textContent = "Error";
       } finally {
         queryBtn.disabled = false;
+      }
+    });
+
+    dropBtn.addEventListener("click", async () => {
+      if (!confirm("This will delete all persisted data. Continue?")) return;
+      dropBtn.disabled = true;
+      setStatus(dropStatus, "Dropping data...", null);
+      try {
+        const data = await postJSON("/admin/drop", {});
+        setStatus(dropStatus, formatResponse(data), "ok");
+      } catch (e) {
+        setStatus(dropStatus, e.message, "err");
+      } finally {
+        dropBtn.disabled = false;
       }
     });
   </script>
