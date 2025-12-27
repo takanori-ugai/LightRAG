@@ -210,13 +210,20 @@ class LightRAG(
     val vectorStorage: BaseVectorStorage = entitiesVdb
     val graphStorage: BaseGraphStorage = chunkEntityRelationGraph
 
-    suspend fun insert(input: String): String {
-        return insert(listOf(input))
+    suspend fun insert(
+        input: String,
+        fileSource: String? = null,
+    ): String {
+        val fileSources = fileSource?.let { listOf(it) }
+        return insert(listOf(input), fileSources)
     }
 
-    suspend fun insert(input: List<String>): String {
+    suspend fun insert(
+        input: List<String>,
+        fileSources: List<String>? = null,
+    ): String {
         val trackId = generateTrackId("insert")
-        pipelineEnqueueDocuments(input, trackId)
+        pipelineEnqueueDocuments(input, trackId, fileSources)
         pipelineProcessEnqueueDocuments()
         return trackId
     }
@@ -226,7 +233,12 @@ class LightRAG(
         trackId: String,
         filePaths: List<String>? = null,
     ): String {
-        val effectiveFilePaths = filePaths ?: List(input.size) { "unknown_source" }
+        val effectiveFilePaths =
+            input.mapIndexed { index, _ ->
+                filePaths?.getOrNull(index)
+                    ?: filePaths?.lastOrNull()
+                    ?: "unknown_source"
+            }
 
         val uniqueContent = mutableMapOf<String, Pair<String, String>>()
 
@@ -242,6 +254,33 @@ class LightRAG(
         val missingDocIds = docStatusStorage.filterKeys(allNewDocIds)
 
         val uniqueNewDocIds = missingDocIds
+
+        // If the content already exists but a new file path is provided, update the stored path
+        val existingDocIds = allNewDocIds - uniqueNewDocIds
+        if (filePaths != null && existingDocIds.isNotEmpty()) {
+            val updates = mutableMapOf<String, Map<String, Any>>()
+            existingDocIds.forEach { docId ->
+                val (_, path) = uniqueContent[docId] ?: return@forEach
+                updates[docId] =
+                    mapOf(
+                        "status" to DocStatus.PENDING.value,
+                        "track_id" to trackId,
+                        "file_path" to path,
+                        "updated_at" to Instant.now().toString(),
+                    )
+            }
+            if (updates.isNotEmpty()) {
+                docStatusStorage.upsert(updates)
+                fullDocs.upsert(
+                    updates.mapValues { (docId, _) ->
+                        val (_, path) = uniqueContent[docId]!!
+                        mapOf(
+                            "file_path" to path,
+                        )
+                    },
+                )
+            }
+        }
 
         uniqueNewDocIds.forEach { docId ->
             val (content, path) = uniqueContent[docId]!!
@@ -308,6 +347,7 @@ class LightRAG(
                             "full_doc_id" to docId,
                             "chunk_order_index" to chunk.chunkOrderIndex.toString(),
                             "tokens" to chunk.tokens.toString(),
+                            "file_path" to (status.filePath.ifBlank { "unknown_source" }),
                         )
                 }
 
@@ -317,7 +357,7 @@ class LightRAG(
                         mapOf(
                             "content" to v["content"]!!,
                             "full_doc_id" to v["full_doc_id"]!!,
-                            "file_path" to status.filePath,
+                            "file_path" to status.filePath.ifBlank { "unknown_source" },
                         )
                     }
                 chunksVdb.upsert(chunksVdbData)

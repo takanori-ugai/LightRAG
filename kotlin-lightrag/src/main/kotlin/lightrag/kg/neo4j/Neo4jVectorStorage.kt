@@ -33,7 +33,7 @@ class Neo4jVectorStorage(
     override val metaFields: Set<String> = emptySet()
 
     private var driver: Driver? = null
-    private val label: String = sanitizeLabel("${namespace}_${workspace}")
+    private val label: String = sanitizeLabel("${namespace}_$workspace")
 
     private val vectors = mutableMapOf<String, List<Float>>()
     private val metadata = mutableMapOf<String, Metadata>()
@@ -290,6 +290,7 @@ class Neo4jVectorStorage(
 
     private fun mapToMetadata(meta: Map<String, Any>): Metadata {
         val content = meta["content"] as? String
+
         @Suppress("UNCHECKED_CAST")
         val vector = (meta["vector"] as? List<*>)?.mapNotNull { (it as? Number)?.toFloat() }
         val entityName = meta["entity_name"] as? String
