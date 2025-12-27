@@ -14,7 +14,6 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.longOrNull
 import lightrag.core.types.BaseVectorStorage
-import lightrag.core.types.EmbeddingFunc
 import java.io.File
 
 private val logger = KotlinLogging.logger {}
@@ -23,9 +22,10 @@ class InMemoryVectorStorage(
     override val namespace: String,
     override val workspace: String,
     override val globalConfig: Map<String, Any?> = emptyMap(),
-    override val embeddingFunc: EmbeddingFunc = Any(),
+    override val embeddingFunc: EmbeddingModel,
+    private val cosineThreshold: Double? = null,
 ) : BaseVectorStorage {
-    override val cosineBetterThanThreshold: Double = 0.8
+    override val cosineBetterThanThreshold: Double = cosineThreshold ?: (globalConfig["cosine_better_than_threshold"] as? Double ?: 0.2)
     override val metaFields: Set<String> = emptySet()
 
     // Using ConcurrentHashMap for thread safety might be better, but MutableMap is fine for simple impl
@@ -140,7 +140,10 @@ class InMemoryVectorStorage(
                     )
                 Triple(id, similarity, metadata[id])
             }
-                .filter { it.third != null }
+                .filter {
+                    logger.error { it }
+                    it.third != null && it.second >= cosineBetterThanThreshold
+                }
                 .sortedByDescending { it.second }
                 .take(topK)
 
@@ -161,7 +164,7 @@ class InMemoryVectorStorage(
         // We expect metadata to contain "content" field which needs to be embedded if not already vectors?
         // In Python LightRAG, upsert logic in vector storage often handles embedding if content is provided.
 
-        val embeddingModel = embeddingFunc as? EmbeddingModel
+        val embeddingModel = embeddingFunc
         debug {
             "[$namespace/$workspace] Upsert ${data.size} items. Has embedding model: ${embeddingModel != null}"
         }
@@ -182,11 +185,7 @@ class InMemoryVectorStorage(
                 // If vector is provided directly
                 vectors[id] = meta.vector
             } else {
-                if (embeddingModel == null) {
-                    logger.warn { "No embedding model provided for upsert in '$namespace'" }
-                } else if (content == null) {
-                    logger.warn { "No content provided for upsert id $id in '$namespace'" }
-                }
+                logger.warn { "No content provided for upsert id $id in '$namespace'" }
             }
         }
 

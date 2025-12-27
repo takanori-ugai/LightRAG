@@ -5,12 +5,12 @@ import com.mongodb.client.model.ReplaceOptions
 import com.mongodb.kotlin.client.coroutine.MongoClient
 import com.mongodb.kotlin.client.coroutine.MongoCollection
 import com.mongodb.kotlin.client.coroutine.MongoDatabase
+import dev.langchain4j.model.embedding.EmbeddingModel
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import lightrag.core.types.BaseGraphStorage
-import lightrag.core.types.EmbeddingFunc
 import lightrag.core.types.KnowledgeGraph
 import org.bson.Document
 
@@ -19,7 +19,7 @@ private val logger = KotlinLogging.logger {}
 class MongoGraphStorage(
     override val namespace: String,
     override val globalConfig: Map<String, Any?>,
-    override val embeddingFunc: EmbeddingFunc?,
+    override val embeddingFunc: EmbeddingModel,
 ) : BaseGraphStorage {
     override val workspace: String = globalConfig["working_dir"] as? String ?: "./rag_storage"
 

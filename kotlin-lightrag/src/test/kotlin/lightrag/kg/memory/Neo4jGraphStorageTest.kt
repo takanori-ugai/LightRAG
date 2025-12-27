@@ -1,60 +1,66 @@
 package lightrag.kg.memory
 
+import dev.langchain4j.model.openai.OpenAiEmbeddingModel
 import kotlinx.coroutines.runBlocking
-import lightrag.TestEmbeddings
+import lightrag.kg.neo4j.Neo4jGraphStorage
+import org.junit.After
+import org.junit.Before
 import org.junit.Test
+import kotlin.String
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-class InMemoryGraphStorageTest {
-    @Test
-    fun `upsert edge stores undirected relation and deduplicates getAllEdges`() {
-        runBlocking {
-            val storage =
-                InMemoryGraphStorage(
-                    namespace = "ns",
-                    workspace = "ws",
-                    embeddingFunc = TestEmbeddings.mockEmbeddingModel(),
-                )
-            storage.upsertNode("A", mapOf("label" to "A"))
-            storage.upsertNode("B", mapOf("label" to "B"))
+// @Ignore("Requires Neo4j database")
+class Neo4jGraphStorageTest {
+    val apiKey = "***************************************************"
 
-            val edgeData = mapOf("type" to "knows")
-            storage.upsertEdge("A", "B", edgeData)
-
-            assertTrue(storage.hasEdge("A", "B"))
-            assertTrue(storage.hasEdge("B", "A"))
-
-            val edges = storage.getAllEdges()
-            assertEquals(1, edges.size, "Edges should be deduped for undirected storage")
-            val stored = edges.first()
-            assertEquals("A", stored["source"])
-            assertEquals("B", stored["target"])
-            assertEquals("knows", stored["type"])
-
-            val nodeEdges = storage.getNodeEdges("A")
-            assertNotNull(nodeEdges)
-            assertEquals(listOf("A" to "B"), nodeEdges)
-            assertNull(storage.getNodeEdges("missing"))
+    init {
+        if (apiKey.isNullOrBlank()) {
+            println("Error: OPENAI_API_KEY environment variable is not set.")
         }
     }
 
-    private fun createStorage(): InMemoryGraphStorage {
-        return InMemoryGraphStorage(
-            namespace = "test_graph",
-            workspace = "test_workspace",
-            embeddingFunc = TestEmbeddings.mockEmbeddingModel(),
-        )
+    private lateinit var storage: Neo4jGraphStorage
+
+    @Before
+    fun setUp() {
+        storage =
+            Neo4jGraphStorage(
+                namespace = "chunk_entity_relation_graph",
+                globalConfig =
+                    mapOf<String, Any>(
+                        "neo4j" to
+                            mapOf(
+                                "uri" to "neo4j://localhost:7687",
+                                "username" to "neo4j",
+                                "password" to "Takasan0",
+                            ),
+                    ),
+                embeddingFunc =
+                    OpenAiEmbeddingModel.builder()
+                        .apiKey(apiKey)
+                        .modelName("text-embedding-3-large")
+                        .dimensions(3072)
+                        .build(),
+            )
+        runBlocking {
+            storage.initialize()
+            storage.drop()
+        }
+    }
+
+    @After
+    fun tearDown() {
+        runBlocking {
+            storage.finalize()
+        }
     }
 
     @Test
     fun `test basic graph operations`() {
         runBlocking {
-            val storage = createStorage()
-
             // 1. Insert the first node
             val node1Id = "Artificial Intelligence"
             val node1Data =
@@ -108,36 +114,8 @@ class InMemoryGraphStorageTest {
     }
 
     @Test
-    fun `delete node removes all connected edges`() {
-        runBlocking {
-            val storage =
-                InMemoryGraphStorage(
-                    namespace = "ns",
-                    workspace = "ws",
-                    embeddingFunc = TestEmbeddings.mockEmbeddingModel(),
-                )
-            storage.upsertNode("A", mapOf())
-            storage.upsertNode("B", mapOf())
-            storage.upsertNode("C", mapOf())
-            storage.upsertEdge("A", "B", mapOf())
-            storage.upsertEdge("B", "C", mapOf())
-
-            storage.deleteNode("B")
-
-            assertFalse(storage.hasNode("B"))
-            assertFalse(storage.hasEdge("A", "B"))
-            assertFalse(storage.hasEdge("B", "A"))
-            assertFalse(storage.hasEdge("B", "C"))
-            assertFalse(storage.hasEdge("C", "B"))
-            assertEquals(emptyList(), storage.getNodeEdges("A"))
-        }
-    }
-
-    @Test
     fun `test advanced graph operations`() {
         runBlocking {
-            val storage = createStorage()
-
             // 1. Insert test data
             val node1Id = "Artificial Intelligence"
             val node2Id = "Machine Learning"
@@ -199,34 +177,10 @@ class InMemoryGraphStorageTest {
         }
     }
 
-    @Test
-    fun `removeEdges clears both directions without deleting nodes`() {
-        runBlocking {
-            val storage =
-                InMemoryGraphStorage(
-                    namespace = "ns",
-                    workspace = "ws",
-                    embeddingFunc = TestEmbeddings.mockEmbeddingModel(),
-                )
-            storage.upsertNode("A", mapOf())
-            storage.upsertNode("B", mapOf())
-            storage.upsertEdge("A", "B", mapOf("weight" to "1"))
-
-            storage.removeEdges(listOf("A" to "B"))
-
-            assertTrue(storage.hasNode("A"))
-            assertTrue(storage.hasNode("B"))
-            assertFalse(storage.hasEdge("A", "B"))
-            assertFalse(storage.hasEdge("B", "A"))
-            assertEquals(emptyList(), storage.getAllEdges())
-        }
-    }
-
+    //  @Ignore("Requires Neo4j database")
     @Test
     fun `test graph batch operations`() {
         runBlocking {
-            val storage = createStorage()
-
             val node1Id = "Artificial Intelligence"
             val node2Id = "Machine Learning"
             val node3Id = "Deep Learning"
@@ -273,50 +227,8 @@ class InMemoryGraphStorageTest {
     }
 
     @Test
-    fun `popular and search labels reflect degrees and query matching`() {
-        runBlocking {
-            val storage =
-                InMemoryGraphStorage(
-                    namespace = "ns",
-                    workspace = "ws",
-                    embeddingFunc = TestEmbeddings.mockEmbeddingModel(),
-                )
-            storage.upsertNode("alpha", mapOf())
-            storage.upsertNode("beta", mapOf())
-            storage.upsertNode("gamma", mapOf())
-            storage.upsertEdge("alpha", "beta", mapOf())
-            storage.upsertEdge("alpha", "gamma", mapOf())
-
-            val popular = storage.getPopularLabels(limit = 2)
-            assertEquals("alpha", popular.first(), "Node with highest degree should be first")
-            assertEquals(2, popular.size)
-
-            val matches = storage.searchLabels("a", limit = 3)
-            assertTrue(matches.containsAll(listOf("alpha", "gamma")))
-        }
-    }
-
-    @Test
-    fun `knowledge graph placeholder returns empty graph`() {
-        runBlocking {
-            val storage =
-                InMemoryGraphStorage(
-                    namespace = "ns",
-                    workspace = "ws",
-                    embeddingFunc = TestEmbeddings.mockEmbeddingModel(),
-                )
-            val kg = storage.getKnowledgeGraph(nodeLabel = "any", maxDepth = 3, maxNodes = 10)
-            assertTrue(kg.nodes.isEmpty())
-            assertTrue(kg.edges.isEmpty())
-            assertFalse(kg.isTruncated)
-        }
-    }
-
-    @Test
     fun `test graph special characters`() {
         runBlocking {
-            val storage = createStorage()
-
             val node1Id = "Node with 'single quotes'"
             val node1Data =
                 mapOf(

@@ -6,7 +6,9 @@ import dev.langchain4j.data.message.ChatMessage
 import dev.langchain4j.data.message.SystemMessage
 import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.data.segment.TextSegment
-import dev.langchain4j.model.chat.ChatLanguageModel
+import dev.langchain4j.model.chat.ChatModel
+import dev.langchain4j.model.chat.request.ChatRequest
+import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.model.output.Response
 import io.mockk.every
@@ -26,7 +28,7 @@ class LightRAGIntegrationTest {
 
             try {
                 // Setup
-                val mockChatModel = mockk<ChatLanguageModel>()
+                val mockChatModel = mockk<ChatModel>()
                 val mockEmbeddingModel = mockk<EmbeddingModel>()
 
                 // 1. Mock Embedding: Return constant vector so cosine similarity is always 1.0
@@ -41,25 +43,38 @@ class LightRAGIntegrationTest {
 
                 // 2. Mock Chat Model
                 val messagesSlot = slot<List<ChatMessage>>()
-                every { mockChatModel.generate(capture(messagesSlot)) } answers {
-                    val messages = messagesSlot.captured
+                val responseProvider: (List<ChatMessage>) -> ChatResponse = { messages ->
                     val lastMessage = messages.last()
-                    val lastText = if (lastMessage is UserMessage) lastMessage.text() ?: "" else ""
+                    val lastText = if (lastMessage is UserMessage) lastMessage.singleText() ?: "" else ""
+                    val extractionJson =
+                        """
+                        {
+                          "entities": [
+                            {"name": "France", "type": "Location", "description": "A country in Europe"},
+                            {"name": "Paris", "type": "Location", "description": "The capital of France"}
+                          ],
+                          "relations": [
+                            {"source": "France", "target": "Paris", "keywords": "capital", "description": "Paris is the capital of France"}
+                          ]
+                        }
+                        """.trimIndent()
 
                     // Check if it's Entity Extraction prompt (Insert phase)
                     if (lastText.contains("Entity_types", ignoreCase = true)) {
-                        val responseText =
-                            """
-                            entity<|#|>France<|#|>Location<|#|>A country in Europe
-                            entity<|#|>Paris<|#|>Location<|#|>The capital of France
-                            relation<|#|>France<|#|>Paris<|#|>capital<|#|>Paris is the capital of France
-                            """.trimIndent()
-                        Response.from(AiMessage(responseText))
+                        ChatResponse.builder().aiMessage(AiMessage.from(extractionJson)).build()
                     } else {
                         // Query Phase
-                        Response.from(AiMessage("Mock answer"))
+                        ChatResponse.builder().aiMessage(AiMessage.from(extractionJson)).build()
                     }
                 }
+                every { mockChatModel.chat(capture(messagesSlot)) } answers {
+                    responseProvider(messagesSlot.captured)
+                }
+                every { mockChatModel.chat(any<ChatRequest>()) } answers {
+                    val request = invocation.args[0] as ChatRequest
+                    responseProvider(request.messages())
+                }
+                every { mockChatModel.supportedCapabilities() } returns emptySet()
 
                 val rag =
                     LightRAG(
@@ -107,7 +122,7 @@ class LightRAGIntegrationTest {
             tempDir.mkdirs()
 
             try {
-                val mockChatModel = mockk<ChatLanguageModel>()
+                val mockChatModel = mockk<ChatModel>()
                 val mockEmbeddingModel = mockk<EmbeddingModel>()
 
                 // Mock Embedding
@@ -121,24 +136,37 @@ class LightRAGIntegrationTest {
                 }
 
                 val messagesSlot = slot<List<ChatMessage>>()
-                every { mockChatModel.generate(capture(messagesSlot)) } answers {
-                    val messages = messagesSlot.captured
+                val responseProvider: (List<ChatMessage>) -> ChatResponse = { messages ->
                     val lastMessage = messages.last()
-                    val lastText = if (lastMessage is UserMessage) lastMessage.text() ?: "" else ""
+                    val lastText = if (lastMessage is UserMessage) lastMessage.singleText() ?: "" else ""
+                    val extractionJson =
+                        """
+                        {
+                          "entities": [
+                            {"name": "France", "type": "Location", "description": "A country in Europe"},
+                            {"name": "Paris", "type": "Location", "description": "The capital of France"}
+                          ],
+                          "relations": [
+                            {"source": "France", "target": "Paris", "keywords": "capital", "description": "Paris is the capital of France"}
+                          ]
+                        }
+                        """.trimIndent()
 
                     if (lastText.contains("Entity_types", ignoreCase = true)) {
-                        val responseText =
-                            """
-                            entity<|#|>France<|#|>Location<|#|>A country in Europe
-                            entity<|#|>Paris<|#|>Location<|#|>The capital of France
-                            relation<|#|>France<|#|>Paris<|#|>capital<|#|>Paris is the capital of France
-                            """.trimIndent()
-                        Response.from(AiMessage(responseText))
+                        ChatResponse.builder().aiMessage(AiMessage.from(extractionJson)).build()
                     } else {
                         // KG Query
-                        Response.from(AiMessage("Mock answer"))
+                        ChatResponse.builder().aiMessage(AiMessage.from(extractionJson)).build()
                     }
                 }
+                every { mockChatModel.chat(capture(messagesSlot)) } answers {
+                    responseProvider(messagesSlot.captured)
+                }
+                every { mockChatModel.chat(any<ChatRequest>()) } answers {
+                    val request = invocation.args[0] as ChatRequest
+                    responseProvider(request.messages())
+                }
+                every { mockChatModel.supportedCapabilities() } returns emptySet()
 
                 val rag =
                     LightRAG(

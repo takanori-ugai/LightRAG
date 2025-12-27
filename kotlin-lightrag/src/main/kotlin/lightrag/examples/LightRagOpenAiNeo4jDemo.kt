@@ -102,6 +102,7 @@ fun main() =
         println("Initializing Neo4j Graph Storage...")
         try {
             rag.chunkEntityRelationGraph.initialize()
+            rag.chunkEntityRelationGraph.drop()
         } catch (e: Exception) {
             println("Error initializing Neo4j storage: ${e.message}")
             println("Please ensure Neo4j is running at $neo4jUri")

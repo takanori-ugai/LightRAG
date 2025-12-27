@@ -47,13 +47,13 @@ fun Application.configureDocumentRoutes(rag: LightRAG) {
 
             post("/text") {
                 val request = call.receive<InsertTextRequest>()
-                val trackId = rag.insert(request.text)
+                val trackId = rag.insert(request.text, request.fileSource)
                 call.respond(InsertResponse("success", "Text received", trackId))
             }
 
             post("/texts") {
                 val request = call.receive<InsertTextsRequest>()
-                val trackId = rag.insert(request.texts)
+                val trackId = rag.insert(request.texts, request.fileSources)
                 call.respond(InsertResponse("success", "Texts received", trackId))
             }
 

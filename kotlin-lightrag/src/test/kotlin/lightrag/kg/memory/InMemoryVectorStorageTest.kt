@@ -7,6 +7,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.runBlocking
+import lightrag.TestEmbeddings
 import org.junit.Test
 import java.io.File
 import kotlin.test.assertEquals
@@ -20,11 +21,21 @@ class InMemoryVectorStorageTest {
         runBlocking {
             val tempDir = File("build/tmp/vector_storage_query_${System.currentTimeMillis()}").apply { mkdirs() }
             try {
+                val embeddingModel =
+                    TestEmbeddings.mockEmbeddingModel(
+                        vectors =
+                            mapOf(
+                                "first" to listOf(1.0f, 0.0f),
+                                "second" to listOf(0.0f, 1.0f),
+                            ),
+                        default = listOf(0.0f, 0.0f),
+                    )
                 val storage =
                     InMemoryVectorStorage(
                         namespace = "ns",
                         workspace = "ws",
                         globalConfig = mapOf("working_dir" to tempDir.absolutePath),
+                        embeddingFunc = embeddingModel,
                     )
 
                 val data =
@@ -74,11 +85,17 @@ class InMemoryVectorStorageTest {
         runBlocking {
             val tempDir = File("build/tmp/vector_storage_persist_${System.currentTimeMillis()}").apply { mkdirs() }
             try {
+                val embeddingModel =
+                    TestEmbeddings.mockEmbeddingModel(
+                        vectors = mapOf("persist me" to listOf(0.3f, 0.4f)),
+                        default = listOf(0.0f, 0.0f),
+                    )
                 val initial =
                     InMemoryVectorStorage(
                         namespace = "persist-ns",
                         workspace = "ws",
                         globalConfig = mapOf("working_dir" to tempDir.absolutePath),
+                        embeddingFunc = embeddingModel,
                     )
 
                 initial.upsert(
@@ -93,6 +110,7 @@ class InMemoryVectorStorageTest {
                         namespace = "persist-ns",
                         workspace = "ws",
                         globalConfig = mapOf("working_dir" to tempDir.absolutePath),
+                        embeddingFunc = embeddingModel,
                     )
 
                 reloaded.initialize()
@@ -115,10 +133,12 @@ class InMemoryVectorStorageTest {
     @Test
     fun `delete functions remove matching entities and relations`() {
         runBlocking {
+            val embeddingModel = TestEmbeddings.mockEmbeddingModel()
             val storage =
                 InMemoryVectorStorage(
                     namespace = "delete-ns",
                     workspace = "ws",
+                    embeddingFunc = embeddingModel,
                 )
 
             val data =

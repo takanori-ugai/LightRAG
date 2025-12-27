@@ -64,6 +64,7 @@ data class OllamaMessage(
     val content: String,
 )
 
+@Suppress("UnusedParameter")
 fun Application.configureOllamaRoutes(rag: LightRAG) {
     routing {
         route("/api") { // Ollama API is prefixed with /api in python code as well when included in main app

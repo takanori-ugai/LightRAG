@@ -1,6 +1,7 @@
 package lightrag.kg.json
 
 import kotlinx.coroutines.runBlocking
+import lightrag.TestEmbeddings
 import lightrag.core.types.DocStatus
 import org.junit.Test
 import java.io.File
@@ -9,6 +10,8 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class JsonDocStatusStorageTest {
+    private val embeddingModel = TestEmbeddings.mockEmbeddingModel()
+
     @Test
     fun `initialize loads persisted statuses`() {
         runBlocking {
@@ -19,6 +22,7 @@ class JsonDocStatusStorageTest {
                         namespace = "init-ns",
                         workspace = "ws",
                         globalConfig = mapOf("working_dir" to tempDir.absolutePath),
+                        embeddingFunc = embeddingModel,
                     )
 
                 storage.upsert(
@@ -43,6 +47,7 @@ class JsonDocStatusStorageTest {
                         namespace = "init-ns",
                         workspace = "ws",
                         globalConfig = mapOf("working_dir" to tempDir.absolutePath),
+                        embeddingFunc = embeddingModel,
                     )
                 reloaded.initialize()
 
@@ -68,6 +73,7 @@ class JsonDocStatusStorageTest {
                         namespace = "merge-ns",
                         workspace = "ws",
                         globalConfig = mapOf("working_dir" to tempDir.absolutePath),
+                        embeddingFunc = embeddingModel,
                     )
 
                 storage.upsert(
@@ -119,6 +125,7 @@ class JsonDocStatusStorageTest {
                         namespace = "query-ns",
                         workspace = "ws",
                         globalConfig = mapOf("working_dir" to tempDir.absolutePath),
+                        embeddingFunc = embeddingModel,
                     )
 
                 storage.upsert(
@@ -198,6 +205,7 @@ class JsonDocStatusStorageTest {
                         namespace = "drop-ns",
                         workspace = "ws",
                         globalConfig = mapOf("working_dir" to tempDir.absolutePath),
+                        embeddingFunc = embeddingModel,
                     )
 
                 storage.upsert(

@@ -60,6 +60,7 @@ data class EntityMergeRequest(
     val entityToChangeInto: String,
 )
 
+@Suppress("UnusedParameter")
 fun Application.configureGraphRoutes(rag: LightRAG) {
     routing {
         route("/graph") {

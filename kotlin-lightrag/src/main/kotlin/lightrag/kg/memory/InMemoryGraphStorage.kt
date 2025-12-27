@@ -1,19 +1,21 @@
 package lightrag.kg.memory
 
+import dev.langchain4j.model.embedding.EmbeddingModel
 import lightrag.core.types.BaseGraphStorage
-import lightrag.core.types.EmbeddingFunc
 import lightrag.core.types.KnowledgeGraph
 
 class InMemoryGraphStorage(
     override val namespace: String,
     override val workspace: String,
     override val globalConfig: Map<String, Any> = emptyMap(),
-    override val embeddingFunc: EmbeddingFunc? = null,
+    override val embeddingFunc: EmbeddingModel,
 ) : BaseGraphStorage {
     private val nodes = mutableMapOf<String, Map<String, String>>()
     private val edges = mutableMapOf<String, MutableMap<String, Map<String, String>>>()
 
-    override suspend fun indexDoneCallback() {}
+    override suspend fun indexDoneCallback() {
+        // Nothing to finalize for in-memory graph storage
+    }
 
     override suspend fun drop(): Map<String, String> {
         nodes.clear()

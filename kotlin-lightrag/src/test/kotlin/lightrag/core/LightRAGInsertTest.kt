@@ -5,7 +5,9 @@ import dev.langchain4j.data.message.AiMessage
 import dev.langchain4j.data.message.ChatMessage
 import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.data.segment.TextSegment
-import dev.langchain4j.model.chat.ChatLanguageModel
+import dev.langchain4j.model.chat.ChatModel
+import dev.langchain4j.model.chat.request.ChatRequest
+import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.model.output.Response
 import io.mockk.every
@@ -25,7 +27,7 @@ class LightRAGInsertTest {
         runBlocking {
             try {
                 // Setup
-                val mockChatModel = mockk<ChatLanguageModel>()
+                val mockChatModel = mockk<ChatModel>()
                 val mockEmbeddingModel = mockk<EmbeddingModel>()
 
                 // Mock Embedding behavior
@@ -40,24 +42,36 @@ class LightRAGInsertTest {
 
                 // Mock Chat Model behavior
                 val messagesSlot = slot<List<ChatMessage>>()
-                every { mockChatModel.generate(capture(messagesSlot)) } answers {
-                    val messages = messagesSlot.captured
+                val responseProvider: (List<ChatMessage>) -> ChatResponse = { messages ->
                     val lastMessage = messages.last()
-                    val text = if (lastMessage is UserMessage) lastMessage.text() ?: "" else ""
+                    val text = if (lastMessage is UserMessage) lastMessage.singleText() ?: "" else ""
+                    val extractionJson =
+                        """
+                        {
+                          "entities": [
+                            {"name": "Apple", "type": "Organization", "description": "A tech company"},
+                            {"name": "iPhone", "type": "Product", "description": "A mobile phone"}
+                          ],
+                          "relations": [
+                            {"source": "Apple", "target": "iPhone", "keywords": "manufactures", "description": "Apple manufactures iPhone"}
+                          ]
+                        }
+                        """.trimIndent()
 
                     if (text.contains("Entity_types", ignoreCase = true)) {
-                        // Use <|#|> delimiter matching Constants/Prompts
-                        val responseText =
-                            """
-                            entity<|#|>Apple<|#|>Organization<|#|>A tech company
-                            entity<|#|>iPhone<|#|>Product<|#|>A mobile phone
-                            relation<|#|>Apple<|#|>iPhone<|#|>manufactures<|#|>Apple manufactures iPhone
-                            """.trimIndent()
-                        Response.from(AiMessage(responseText))
+                        ChatResponse.builder().aiMessage(AiMessage.from(extractionJson)).build()
                     } else {
-                        Response.from(AiMessage("Mock response"))
+                        ChatResponse.builder().aiMessage(AiMessage.from(extractionJson)).build()
                     }
                 }
+                every { mockChatModel.chat(capture(messagesSlot)) } answers {
+                    responseProvider(messagesSlot.captured)
+                }
+                every { mockChatModel.chat(any<ChatRequest>()) } answers {
+                    val request = invocation.args[0] as ChatRequest
+                    responseProvider(request.messages())
+                }
+                every { mockChatModel.supportedCapabilities() } returns emptySet()
 
                 // Use a temporary directory for storage
                 val tempDir = File("build/tmp/test_rag_storage_mockk_${System.currentTimeMillis()}")
@@ -112,7 +126,7 @@ class LightRAGInsertTest {
         runBlocking {
             try {
                 // Setup
-                val mockChatModel = mockk<ChatLanguageModel>(relaxed = true)
+                val mockChatModel = mockk<ChatModel>(relaxed = true)
                 val mockEmbeddingModel = mockk<EmbeddingModel>(relaxed = true)
 
                 every { mockEmbeddingModel.embed(any<String>()) } returns
@@ -121,8 +135,21 @@ class LightRAGInsertTest {
                     val input = firstArg<List<TextSegment>>()
                     Response.from(input.map { Embedding(FloatArray(384) { 0.1f }) })
                 }
-                every { mockChatModel.generate(any<List<ChatMessage>>()) } returns
-                    Response.from(AiMessage("Mock response"))
+                val extractionJson =
+                    """
+                    {
+                      "entities": [
+                        {"name": "Doc", "type": "Concept", "description": "Test entity"}
+                      ],
+                      "relations": []
+                    }
+                    """.trimIndent()
+
+                every { mockChatModel.chat(any<List<ChatMessage>>()) } returns
+                    ChatResponse.builder().aiMessage(AiMessage.from(extractionJson)).build()
+                every { mockChatModel.chat(any<ChatRequest>()) } returns
+                    ChatResponse.builder().aiMessage(AiMessage.from(extractionJson)).build()
+                every { mockChatModel.supportedCapabilities() } returns emptySet()
 
                 val tempDir = File("build/tmp/test_rag_storage_dup_mockk_${System.currentTimeMillis()}")
                 tempDir.mkdirs()

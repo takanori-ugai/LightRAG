@@ -1,0 +1,514 @@
+openapi: 3.0.1
+info:
+  title: LightRAG Kotlin API
+  version: "1.0.0"
+servers:
+  - url: http://localhost:8080
+paths:
+  /documents/text:
+    post:
+      summary: Insert a single text document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InsertTextRequest'
+      responses:
+        '200':
+          description: Accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsertResponse'
+  /documents/texts:
+    post:
+      summary: Insert multiple text documents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InsertTextsRequest'
+      responses:
+        '200':
+          description: Accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InsertResponse'
+  /documents/status_counts:
+    get:
+      summary: Get document processing status counts
+      responses:
+        '200':
+          description: Counts by status
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: integer
+  /documents/delete_document:
+    delete:
+      summary: Delete documents by id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteDocRequest'
+      responses:
+        '200':
+          description: Deletion result
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DeleteDocResult'
+  /query:
+    post:
+      summary: Query LightRAG
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryRequest'
+      responses:
+        '200':
+          description: Generated answer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+  /query/stream:
+    post:
+      summary: Streamed query (not implemented)
+      responses:
+        '501':
+          description: Not implemented
+          content:
+            text/plain:
+              schema:
+                type: string
+  /graph/label/list:
+    get:
+      summary: List graph labels
+      responses:
+        '200':
+          description: Available labels
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GraphLabelsResponse'
+  /graph/graphs:
+    get:
+      summary: Get a graph by label
+      parameters:
+        - name: label
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Graph content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/KnowledgeGraphResponse'
+        '400':
+          description: Missing label
+          content:
+            text/plain:
+              schema:
+                type: string
+  /graph/entity/edit:
+    post:
+      summary: Update an entity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EntityUpdateRequest'
+      responses:
+        '200':
+          description: Update result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessage'
+  /graph/entity/create:
+    post:
+      summary: Create an entity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EntityCreateRequest'
+      responses:
+        '200':
+          description: Create result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessage'
+  /graph/relation/create:
+    post:
+      summary: Create a relation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RelationCreateRequest'
+      responses:
+        '200':
+          description: Create result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessage'
+  /graph/entities/merge:
+    post:
+      summary: Merge entities
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EntityMergeRequest'
+      responses:
+        '200':
+          description: Merge result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusMessage'
+  /api/version:
+    get:
+      summary: Ollama-compatible version endpoint
+      responses:
+        '200':
+          description: Version info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OllamaVersionResponse'
+  /api/tags:
+    get:
+      summary: List available Ollama models (mock)
+      responses:
+        '200':
+          description: Tag list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OllamaTagResponse'
+  /api/generate:
+    post:
+      summary: Generate via Ollama (not implemented)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OllamaGenerateRequest'
+      responses:
+        '501':
+          description: Not implemented
+          content:
+            text/plain:
+              schema:
+                type: string
+  /api/chat:
+    post:
+      summary: Chat via Ollama (not implemented)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OllamaChatRequest'
+      responses:
+        '501':
+          description: Not implemented
+          content:
+            text/plain:
+              schema:
+                type: string
+components:
+  schemas:
+    InsertTextRequest:
+      type: object
+      properties:
+        text:
+          type: string
+        file_source:
+          type: string
+      required:
+        - text
+    InsertTextsRequest:
+      type: object
+      properties:
+        texts:
+          type: array
+          items:
+            type: string
+        file_sources:
+          type: array
+          items:
+            type: string
+      required:
+        - texts
+    InsertResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        message:
+          type: string
+        track_id:
+          type: string
+      required:
+        - status
+        - message
+        - track_id
+    DeleteDocRequest:
+      type: object
+      properties:
+        doc_ids:
+          type: array
+          items:
+            type: string
+      required:
+        - doc_ids
+    DeleteDocResult:
+      type: object
+      properties:
+        status:
+          type: string
+        doc_id:
+          type: string
+      required:
+        - status
+        - doc_id
+    QueryRequest:
+      type: object
+      properties:
+        query:
+          type: string
+        mode:
+          type: string
+          enum: [mix, naive, local, global, hybrid, bypass]
+          default: mix
+        only_need_context:
+          type: boolean
+        response_type:
+          type: string
+        top_k:
+          type: integer
+        max_token_for_text_unit:
+          type: integer
+      required:
+        - query
+    QueryResponse:
+      type: object
+      properties:
+        response:
+          type: string
+      required:
+        - response
+    GraphLabelsResponse:
+      type: object
+      properties:
+        labels:
+          type: array
+          items:
+            type: string
+      required:
+        - labels
+    KnowledgeGraphResponse:
+      type: object
+      properties:
+        nodes:
+          type: array
+          items:
+            type: string
+        edges:
+          type: array
+          items:
+            type: string
+      required:
+        - nodes
+        - edges
+    EntityUpdateRequest:
+      type: object
+      properties:
+        entity_name:
+          type: string
+        updated_data:
+          type: object
+          additionalProperties:
+            type: string
+        allow_rename:
+          type: boolean
+        allow_merge:
+          type: boolean
+      required:
+        - entity_name
+        - updated_data
+    EntityCreateRequest:
+      type: object
+      properties:
+        entity_name:
+          type: string
+        entity_data:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+        - entity_name
+        - entity_data
+    RelationCreateRequest:
+      type: object
+      properties:
+        source_entity:
+          type: string
+        target_entity:
+          type: string
+        relation_data:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+        - source_entity
+        - target_entity
+        - relation_data
+    EntityMergeRequest:
+      type: object
+      properties:
+        entities_to_change:
+          type: array
+          items:
+            type: string
+        entity_to_change_into:
+          type: string
+      required:
+        - entities_to_change
+        - entity_to_change_into
+    StatusMessage:
+      type: object
+      properties:
+        status:
+          type: string
+        message:
+          type: string
+      required:
+        - status
+        - message
+    OllamaVersionResponse:
+      type: object
+      properties:
+        version:
+          type: string
+      required:
+        - version
+    OllamaTagResponse:
+      type: object
+      properties:
+        models:
+          type: array
+          items:
+            $ref: '#/components/schemas/OllamaModel'
+      required:
+        - models
+    OllamaModel:
+      type: object
+      properties:
+        name:
+          type: string
+        model:
+          type: string
+        modified_at:
+          type: string
+        size:
+          type: integer
+          format: int64
+        digest:
+          type: string
+        details:
+          $ref: '#/components/schemas/OllamaModelDetails'
+      required:
+        - name
+        - model
+        - modified_at
+        - size
+        - digest
+        - details
+    OllamaModelDetails:
+      type: object
+      properties:
+        parent_model:
+          type: string
+        format:
+          type: string
+        family:
+          type: string
+        families:
+          type: array
+          items:
+            type: string
+        parameter_size:
+          type: string
+        quantization_level:
+          type: string
+      required:
+        - parent_model
+        - format
+        - family
+        - families
+        - parameter_size
+        - quantization_level
+    OllamaGenerateRequest:
+      type: object
+      properties:
+        model:
+          type: string
+        prompt:
+          type: string
+        stream:
+          type: boolean
+          default: false
+      required:
+        - model
+        - prompt
+    OllamaChatRequest:
+      type: object
+      properties:
+        model:
+          type: string
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/OllamaMessage'
+        stream:
+          type: boolean
+          default: false
+      required:
+        - model
+        - messages
+    OllamaMessage:
+      type: object
+      properties:
+        role:
+          type: string
+        content:
+          type: string
+      required:
+        - role
+        - content

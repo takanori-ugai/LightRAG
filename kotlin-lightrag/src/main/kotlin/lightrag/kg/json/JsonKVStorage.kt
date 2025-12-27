@@ -1,5 +1,6 @@
 package lightrag.kg.json
 
+import dev.langchain4j.model.embedding.EmbeddingModel
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -13,7 +14,6 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.longOrNull
 import lightrag.core.types.BaseKVStorage
-import lightrag.core.types.EmbeddingFunc
 import java.io.File
 
 private val logger = KotlinLogging.logger {}
@@ -22,7 +22,7 @@ class JsonKVStorage(
     override val namespace: String,
     override val workspace: String,
     override val globalConfig: Map<String, Any?> = emptyMap(),
-    override val embeddingFunc: EmbeddingFunc? = null,
+    override val embeddingFunc: EmbeddingModel,
 ) : BaseKVStorage {
     private val data = mutableMapOf<String, KVEntry>()
     private val mutex = Mutex()

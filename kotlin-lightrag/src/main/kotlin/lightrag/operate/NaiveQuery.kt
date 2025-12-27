@@ -1,14 +1,15 @@
 package lightrag.operate
 
-import dev.langchain4j.data.message.AiMessage
 import dev.langchain4j.data.message.SystemMessage
 import dev.langchain4j.data.message.UserMessage
-import dev.langchain4j.model.chat.ChatLanguageModel
-import dev.langchain4j.model.chat.StreamingChatLanguageModel
-import dev.langchain4j.model.output.Response
+import dev.langchain4j.model.chat.ChatModel
+import dev.langchain4j.model.chat.StreamingChatModel
+import dev.langchain4j.model.chat.response.ChatResponse
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import lightrag.core.CacheData
 import lightrag.core.QueryParam
@@ -26,7 +27,8 @@ private val logger = KotlinLogging.logger {}
 
 @Serializable
 data class ChunkContext(
-    val reference_id: String?,
+    @SerialName("reference_id")
+    val referenceId: String?,
     val content: String?,
 )
 
@@ -41,7 +43,7 @@ data class NaiveQueryParams(
     val globalConfig: Map<String, Any?>,
     val hashingKv: BaseKVStorage? = null,
     val systemPrompt: String? = null,
-    val chatModel: ChatLanguageModel? = null,
+    val chatModel: ChatModel? = null,
     val tokenizer: ((String) -> List<Int>),
     val decoder: ((List<Int>) -> String),
 )
@@ -198,7 +200,7 @@ fun convertToJsonFormat(
     )
 }
 
-// TODO: These cache functions should ideally be in a separate Cache.kt or Utils.kt
+// Cache helpers could live in a dedicated Cache.kt or Utils.kt module
 // For now, embedding them here for a self-contained replacement.
 
 private suspend fun handleCache(
@@ -220,6 +222,147 @@ private suspend fun handleCache(
     }
     return null
 }
+
+/*
+
+package lightrag.operate
+
+import dev.langchain4j.data.message.AiMessage
+import dev.langchain4j.data.message.ChatMessage
+import dev.langchain4j.data.message.SystemMessage
+import dev.langchain4j.data.message.UserMessage
+import dev.langchain4j.model.chat.ChatModel
+import dev.langchain4j.model.output.Response
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.runBlocking
+import org.junit.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+
+class NaiveQueryTest {
+
+    private fun defaultParams(
+        query: String = "What is AI?",
+        chatModel: ChatModel? = mockk(),
+        chunks: List<Map<String, Any?>> = listOf(mapOf("content" to "AI is Artificial Intelligence", "reference_id" to "ref1")),
+        tokenizer: (String) -> List<String> = { it.split(" ") },
+        decoder: ((String) -> String)? = null,
+        globalConfig: Map<String, Any?> = emptyMap(),
+        onlyNeedContext: Boolean = false,
+        onlyNeedPrompt: Boolean = false,
+        stream: Boolean = false,
+    ): NaiveQueryParams {
+        return NaiveQueryParams(
+            query = query,
+            chatModel = chatModel,
+            globalConfig = globalConfig,
+            tokenizer = tokenizer,
+            decoder = decoder,
+            chunksVdb = object : ChunksVdb {
+                override fun getVectorContext(query: String, param: QueryParam): List<Map<String, Any?>> = chunks
+            },
+            queryParam = QueryParam(
+                onlyNeedContext = onlyNeedContext,
+                onlyNeedPrompt = onlyNeedPrompt,
+                stream = stream
+            ),
+            hashingKv = null,
+            systemPrompt = null
+        )
+    }
+
+    @Test
+    fun `returns fail response when query is blank`() = runBlocking {
+        val params = defaultParams(query = "")
+        val result = naiveQuery(params)
+        assertNotNull(result)
+        assertEquals(Prompts.FAIL_RESPONSE, result.content)
+    }
+
+    @Test
+    fun `returns error when chat model is missing`() = runBlocking {
+        val params = defaultParams(chatModel = null)
+        val result = naiveQuery(params)
+        assertNotNull(result)
+        assertTrue(result.content.contains("Error: No LLM model configured"))
+    }
+
+    @Test
+    fun `returns null when no chunks found`() = runBlocking {
+        val params = defaultParams(chunks = emptyList())
+        val result = naiveQuery(params)
+        assertEquals(null, result)
+    }
+
+    @Test
+    fun `returns context only when onlyNeedContext is true`() = runBlocking {
+        val params = defaultParams(onlyNeedContext = true)
+        val result = naiveQuery(params)
+        assertNotNull(result)
+        assertTrue(result.content.contains("ref1") || result.content.contains("AI is Artificial Intelligence"))
+        assertNotNull(result.rawData)
+    }
+
+    @Test
+    fun `returns prompt only when onlyNeedPrompt is true`() = runBlocking {
+        val params = defaultParams(onlyNeedPrompt = true)
+        val result = naiveQuery(params)
+        assertNotNull(result)
+        assertTrue(result.content.contains("---User Query---"))
+        assertNotNull(result.rawData)
+    }
+
+    @Test
+    fun `returns cached result if present`() = runBlocking {
+        val cache = mutableMapOf<String, Pair<String, Any?>>()
+        val params = defaultParams(globalConfig = mapOf("enable_llm_cache" to true), hashingKv = cache)
+        // Simulate cache hit
+        cache["someHash"] = "Cached response" to null
+        // Patch computeArgsHash and handleCache to always hit cache
+        val originalComputeArgsHash = ::computeArgsHash
+        val originalHandleCache = ::handleCache
+        try {
+            ::computeArgsHash.set { _, _, _, _, _, _, _, _, _, _ -> "someHash" }
+            ::handleCache.set { _, hash, _, _, _ -> cache[hash] }
+            val result = naiveQuery(params)
+            assertNotNull(result)
+            assertEquals("Cached response", result.content)
+        } finally {
+            ::computeArgsHash.set(originalComputeArgsHash)
+            ::handleCache.set(originalHandleCache)
+        }
+    }
+
+    @Test
+    fun `calls LLM and returns its response`() = runBlocking {
+        val mockModel = mockk<ChatModel>()
+        every { mockModel.chat(any<List<ChatMessage>>()) } returns Response.from(AiMessage("LLM answer"))
+        val params = defaultParams(chatModel = mockModel)
+        val result = naiveQuery(params)
+        assertNotNull(result)
+        assertTrue(result.content.contains("LLM answer"))
+    }
+
+    @Test
+    fun `returns streaming response when stream is true and model supports it`() = runBlocking {
+        val streamingModel = mockk<StreamingChatModel>()
+        val flow = mockk<Flow<String>>()
+        every { streamingModel.chat(any(), any()) } answers {
+            val handler = secondArg<dev.langchain4j.model.StreamingResponseHandler<AiMessage>>()
+            handler.onNext("token1")
+            handler.onComplete(Response.from(AiMessage("streamed")))
+        }
+        val params = defaultParams(chatModel = streamingModel, stream = true)
+        val result = naiveQuery(params)
+        assertNotNull(result)
+        assertTrue(result.isStreaming)
+    }
+}
+
+*/
 
 private suspend fun saveToCache(
     hashingKv: BaseKVStorage?,
@@ -260,9 +403,9 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
         return QueryResult(content = Prompts.FAIL_RESPONSE)
     }
 
-    val model = params.chatModel ?: params.globalConfig["llm_model_func"] as? ChatLanguageModel
+    val model = params.chatModel ?: params.globalConfig["llm_model_func"] as? ChatModel
     if (model == null) {
-        logger.error { "No ChatLanguageModel provided for naiveQuery" }
+        logger.error { "No ChatModel provided for naiveQuery" }
         return QueryResult(content = "Error: No LLM model configured.")
     }
 
@@ -355,7 +498,7 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
     val chunksContext =
         processedChunksWithRefIds.map {
             ChunkContext(
-                reference_id = it["reference_id"] as? String,
+                referenceId = it["reference_id"] as? String,
                 content = it["content"] as? String,
             )
         }
@@ -415,25 +558,27 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
     // Call LLM
     val response: Any? =
         if (params.queryParam.stream) {
-            val streamingModel = model as? StreamingChatLanguageModel
+            val streamingModel = model as? StreamingChatModel
             if (streamingModel == null) {
                 logger.error { "Streaming is requested but the model does not support it." }
                 return QueryResult(content = "Error: Streaming not supported by model.")
             }
+            logger.trace { "SysPrompt: $sysPrompt" }
+            logger.trace { "UserPrompt: $userQuery" }
             flow {
                 val fullResponse = StringBuilder()
                 val blockingQueue = LinkedBlockingQueue<String>()
-                val finalResponse = CompletableFuture<Response<AiMessage>>()
+                val finalResponse = CompletableFuture<ChatResponse>()
 
-                streamingModel.generate(
+                streamingModel.chat(
                     listOf(SystemMessage(sysPrompt), UserMessage(userQuery)),
-                    object : dev.langchain4j.model.StreamingResponseHandler<AiMessage> {
-                        override fun onNext(token: String) {
-                            blockingQueue.put(token)
-                            fullResponse.append(token)
+                    object : StreamingChatResponseHandler {
+                        override fun onPartialResponse(partialResponse: String) {
+                            blockingQueue.put(partialResponse)
+                            fullResponse.append(partialResponse)
                         }
 
-                        override fun onComplete(response: Response<AiMessage>) {
+                        override fun onCompleteResponse(response: ChatResponse) {
                             blockingQueue.put("___END___")
                             finalResponse.complete(response)
                         }
@@ -483,7 +628,10 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
             }
         } else {
             try {
-                model.generate(listOf(SystemMessage(sysPrompt), UserMessage(userQuery))).content().text()
+                logger.trace { "SysPrompt: $sysPrompt" }
+                logger.trace { "UserPrompt: $userQuery" }
+                val chatResponse = model.chat(listOf(SystemMessage(sysPrompt), UserMessage(userQuery)))
+                chatResponse.aiMessage()?.text() ?: ""
             } catch (e: Exception) {
                 logger.error(e) { "Error generating response in naiveQuery" }
                 "Error generating response."
@@ -540,3 +688,144 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
     }
     return null
 }
+
+/*
+
+package lightrag.operate
+
+import dev.langchain4j.data.message.AiMessage
+import dev.langchain4j.data.message.ChatMessage
+import dev.langchain4j.data.message.SystemMessage
+import dev.langchain4j.data.message.UserMessage
+import dev.langchain4j.model.chat.ChatModel
+import dev.langchain4j.model.output.Response
+import io.mockk.every
+import io.mockk.mockk
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.runBlocking
+import org.junit.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+
+class NaiveQueryTest {
+
+    private fun defaultParams(
+        query: String = "What is AI?",
+        chatModel: ChatModel? = mockk(),
+        chunks: List<Map<String, Any?>> = listOf(mapOf("content" to "AI is Artificial Intelligence", "reference_id" to "ref1")),
+        tokenizer: (String) -> List<String> = { it.split(" ") },
+        decoder: ((String) -> String)? = null,
+        globalConfig: Map<String, Any?> = emptyMap(),
+        onlyNeedContext: Boolean = false,
+        onlyNeedPrompt: Boolean = false,
+        stream: Boolean = false,
+    ): NaiveQueryParams {
+        return NaiveQueryParams(
+            query = query,
+            chatModel = chatModel,
+            globalConfig = globalConfig,
+            tokenizer = tokenizer,
+            decoder = decoder,
+            chunksVdb = object : ChunksVdb {
+                override fun getVectorContext(query: String, param: QueryParam): List<Map<String, Any?>> = chunks
+            },
+            queryParam = QueryParam(
+                onlyNeedContext = onlyNeedContext,
+                onlyNeedPrompt = onlyNeedPrompt,
+                stream = stream
+            ),
+            hashingKv = null,
+            systemPrompt = null
+        )
+    }
+
+    @Test
+    fun `returns fail response when query is blank`() = runBlocking {
+        val params = defaultParams(query = "")
+        val result = naiveQuery(params)
+        assertNotNull(result)
+        assertEquals(Prompts.FAIL_RESPONSE, result.content)
+    }
+
+    @Test
+    fun `returns error when chat model is missing`() = runBlocking {
+        val params = defaultParams(chatModel = null)
+        val result = naiveQuery(params)
+        assertNotNull(result)
+        assertTrue(result.content.contains("Error: No LLM model configured"))
+    }
+
+    @Test
+    fun `returns null when no chunks found`() = runBlocking {
+        val params = defaultParams(chunks = emptyList())
+        val result = naiveQuery(params)
+        assertEquals(null, result)
+    }
+
+    @Test
+    fun `returns context only when onlyNeedContext is true`() = runBlocking {
+        val params = defaultParams(onlyNeedContext = true)
+        val result = naiveQuery(params)
+        assertNotNull(result)
+        assertTrue(result.content.contains("ref1") || result.content.contains("AI is Artificial Intelligence"))
+        assertNotNull(result.rawData)
+    }
+
+    @Test
+    fun `returns prompt only when onlyNeedPrompt is true`() = runBlocking {
+        val params = defaultParams(onlyNeedPrompt = true)
+        val result = naiveQuery(params)
+        assertNotNull(result)
+        assertTrue(result.content.contains("---User Query---"))
+        assertNotNull(result.rawData)
+    }
+
+    @Test
+    fun `returns cached result if present`() = runBlocking {
+        val cache = mutableMapOf<String, Pair<String, Any?>>()
+        val params = defaultParams(globalConfig = mapOf("enable_llm_cache" to true), hashingKv = cache)
+        // Simulate cache hit
+        cache["someHash"] = "Cached response" to null
+        // Patch computeArgsHash and handleCache to always hit cache
+        val originalComputeArgsHash = ::computeArgsHash
+        val originalHandleCache = ::handleCache
+        try {
+            ::computeArgsHash.set { _, _, _, _, _, _, _, _, _, _ -> "someHash" }
+            ::handleCache.set { _, hash, _, _, _ -> cache[hash] }
+            val result = naiveQuery(params)
+            assertNotNull(result)
+            assertEquals("Cached response", result.content)
+        } finally {
+            ::computeArgsHash.set(originalComputeArgsHash)
+            ::handleCache.set(originalHandleCache)
+        }
+    }
+
+    @Test
+    fun `calls LLM and returns its response`() = runBlocking {
+        val mockModel = mockk<ChatModel>()
+        every { mockModel.chat(any<List<ChatMessage>>()) } returns Response.from(AiMessage("LLM answer"))
+        val params = defaultParams(chatModel = mockModel)
+        val result = naiveQuery(params)
+        assertNotNull(result)
+        assertTrue(result.content.contains("LLM answer"))
+    }
+
+    @Test
+    fun `returns streaming response when stream is true and model supports it`() = runBlocking {
+        val streamingModel = mockk<StreamingChatModel>()
+        val flow = mockk<Flow<String>>()
+        every { streamingModel.chat(any(), any()) } answers {
+            val handler = secondArg<dev.langchain4j.model.StreamingResponseHandler<AiMessage>>()
+            handler.onNext("token1")
+            handler.onComplete(Response.from(AiMessage("streamed")))
+        }
+        val params = defaultParams(chatModel = streamingModel, stream = true)
+        val result = naiveQuery(params)
+        assertNotNull(result)
+        assertTrue(result.isStreaming)
+    }
+}
+
+*/

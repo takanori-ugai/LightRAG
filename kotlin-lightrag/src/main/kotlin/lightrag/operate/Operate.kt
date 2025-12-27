@@ -1,18 +1,19 @@
 package lightrag.operate
 
-import dev.langchain4j.data.message.AiMessage
 import dev.langchain4j.data.message.SystemMessage
 import dev.langchain4j.data.message.UserMessage
-import dev.langchain4j.model.chat.ChatLanguageModel
-import dev.langchain4j.model.chat.StreamingChatLanguageModel
-import dev.langchain4j.model.output.Response
+import dev.langchain4j.model.chat.ChatModel
+import dev.langchain4j.model.chat.StreamingChatModel
+import dev.langchain4j.model.chat.response.ChatResponse
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
+import dev.langchain4j.service.AiServices
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import lightrag.core.CacheData
 import lightrag.core.Constants
 import lightrag.core.QueryParam
@@ -21,6 +22,8 @@ import lightrag.core.QueryResult
 import lightrag.core.types.BaseGraphStorage
 import lightrag.core.types.BaseKVStorage
 import lightrag.core.types.BaseVectorStorage
+import lightrag.llm.EntityExtractor
+import lightrag.llm.KeywordExtractor
 import lightrag.utils.JsonUtils
 import lightrag.utils.Prompts
 import lightrag.utils.computeMd5
@@ -56,8 +59,31 @@ data class ContextResult(
 
 @Serializable
 data class KeywordsExtractionResult(
-    val high_level_keywords: List<String>,
-    val low_level_keywords: List<String>,
+    @SerialName("highLevelKeywords")
+    val highLevelKeywords: List<String> = emptyList(),
+    @SerialName("lowLevelKeywords")
+    val lowLevelKeywords: List<String> = emptyList(),
+)
+
+@Serializable
+data class ExtractedEntity(
+    val name: String = "",
+    val type: String = "",
+    val description: String = "",
+)
+
+@Serializable
+data class ExtractedRelation(
+    val source: String = "",
+    val target: String = "",
+    val keywords: String = "",
+    val description: String = "",
+)
+
+@Serializable
+data class ExtractionResult(
+    val entities: List<ExtractedEntity> = emptyList(),
+    val relations: List<ExtractedRelation> = emptyList(),
 )
 
 data class GetNodeDataResult(
@@ -103,7 +129,6 @@ fun chunkingByTokenSize(
                     }
                     // In Python code it raises exception, here we can log and maybe truncate or skip?
                     // Python raises ChunkTokenLimitExceededError.
-                    // For now, let's just proceed or throw RuntimeException
                     throw RuntimeException("Chunk token limit exceeded: ${chunkTokens.size} > $chunkTokenSize")
                 }
                 newChunks.add(chunkTokens.size to chunk)
@@ -114,10 +139,10 @@ fun chunkingByTokenSize(
                 if (chunkTokens.size > chunkTokenSize) {
                     var start = 0
                     while (start < chunkTokens.size) {
-                        val end = minOf(start + chunkTokenSize, chunkTokens.size)
-                        val chunkContent = decoder(chunkTokens.subList(start, end))
+                        val end = minOf(start + chunkTokenSize, tokens.size)
+                        val chunkContent = decoder(tokens.subList(start, end))
                         newChunks.add(
-                            minOf(chunkTokenSize, chunkTokens.size - start) to chunkContent,
+                            minOf(chunkTokenSize, tokens.size - start) to chunkContent,
                         )
                         start += (chunkTokenSize - chunkOverlapTokenSize)
                     }
@@ -133,18 +158,13 @@ fun chunkingByTokenSize(
     } else {
         var start = 0
         var index = 0
-        val words = content.split(" ")
         while (start < tokens.size) {
             val end = minOf(start + chunkTokenSize, tokens.size)
-            val safeStart = minOf(start, words.size)
-            val safeEnd = minOf(end, words.size)
-            if (safeStart >= safeEnd) {
-                break
-            }
-            val chunkContent = words.subList(safeStart, safeEnd).joinToString(" ")
+            val chunkTokens = tokens.subList(start, end)
+            val chunkContent = decoder(chunkTokens)
             results.add(
                 ChunkingResult(
-                    minOf(chunkTokenSize, tokens.size - start),
+                    chunkTokens.size,
                     chunkContent.trim(),
                     index,
                 ),
@@ -160,9 +180,9 @@ suspend fun extractEntities(
     chunks: Map<String, Map<String, Any>>,
     globalConfig: Map<String, Any?>,
 ): Pair<Map<String, List<EntityExtractionResult>>, Map<String, List<RelationExtractionResult>>> {
-    val model = globalConfig["llm_model_func"] as? ChatLanguageModel
+    val model = globalConfig["llm_model_func"] as? ChatModel
     if (model == null) {
-        logger.error { "No ChatLanguageModel provided for entity extraction" }
+        logger.error { "No ChatModel provided for entity extraction" }
         return emptyMap<String, List<EntityExtractionResult>>() to emptyMap()
     }
 
@@ -170,50 +190,18 @@ suspend fun extractEntities(
     val edges = mutableMapOf<String, MutableList<RelationExtractionResult>>()
 
     val entityTypes =
-        (globalConfig["entity_types"] as? List<*>)?.map { it.toString() }
-            ?: listOf("Person", "Organization", "Location")
+        (globalConfig["entity_types"] as? List<*>)?.joinToString(", ") ?: ""
     val language = globalConfig["language"] as? String ?: "English"
 
-    val examples = Prompts.ENTITY_EXTRACTION_EXAMPLES.joinToString("\n")
-    val contextBase =
-        mapOf(
-            "tuple_delimiter" to Prompts.DEFAULT_TUPLE_DELIMITER,
-            "completion_delimiter" to Prompts.DEFAULT_COMPLETION_DELIMITER,
-            "entity_types" to entityTypes.joinToString(","),
-            "language" to language,
-            "examples" to examples,
-        )
-
-    val systemPrompt =
-        Prompts.ENTITY_EXTRACTION_SYSTEM_PROMPT
-            .replace("{tuple_delimiter}", contextBase["tuple_delimiter"]!!)
-            .replace("{completion_delimiter}", contextBase["completion_delimiter"]!!)
-            .replace("{entity_types}", contextBase["entity_types"]!!)
-            .replace("{language}", contextBase["language"]!!)
-            .replace("{examples}", contextBase["examples"]!!)
+    val entityExtractor = AiServices.create(EntityExtractor::class.java, model)
 
     chunks.forEach { (chunkKey, chunkData) ->
         val content = chunkData["content"] as? String ?: return@forEach
 
-        val userPrompt =
-            Prompts.ENTITY_EXTRACTION_USER_PROMPT
-                .replace("{language}", language)
-                .replace("{entity_types}", entityTypes.joinToString(","))
-                .replace("{input_text}", content)
-                .replace("{completion_delimiter}", Prompts.DEFAULT_COMPLETION_DELIMITER)
-                .replace("{tuple_delimiter}", Prompts.DEFAULT_TUPLE_DELIMITER)
-
         try {
-            val messages =
-                listOf(
-                    SystemMessage(systemPrompt),
-                    UserMessage(userPrompt),
-                )
-            val response: AiMessage = model.generate(messages).content()
-            val responseText = response.text()
-
+            val extractionResult = entityExtractor.extract(content, entityTypes, language)
             val (chunkNodes, chunkEdges) =
-                processExtractionResult(responseText, chunkKey, Prompts.DEFAULT_TUPLE_DELIMITER)
+                processExtractionResult(extractionResult, chunkKey)
 
             chunkNodes.forEach { (name, list) ->
                 nodes.computeIfAbsent(name) { mutableListOf() }.addAll(list)
@@ -230,44 +218,32 @@ suspend fun extractEntities(
 }
 
 fun processExtractionResult(
-    result: String,
+    result: ExtractionResult,
     chunkKey: String,
-    tupleDelimiter: String,
 ): Pair<Map<String, List<EntityExtractionResult>>, Map<String, List<RelationExtractionResult>>> {
     val nodes = mutableMapOf<String, MutableList<EntityExtractionResult>>()
     val edges = mutableMapOf<String, MutableList<RelationExtractionResult>>()
 
-    // Basic parsing logic (simplified)
-    val lines = result.split("\n")
-    for (line in lines) {
-        if (line.trim().isEmpty()) continue
-        if (line.contains(Prompts.DEFAULT_COMPLETION_DELIMITER)) continue
-
-        // Handle delimiter issues or format variations if needed
-        val parts = line.split(tupleDelimiter)
-
-        if (parts.size >= 4 && parts[0].trim() == "entity") {
-            // entity<|>name<|>type<|>description
-            val name = parts[1].trim()
-            val type = parts[2].trim()
-            val desc = parts[3].trim()
-            nodes.computeIfAbsent(name) { mutableListOf() }.add(
-                EntityExtractionResult(name, type, desc, chunkKey),
-            )
-        } else if (parts.size >= 5 && parts[0].trim() == "relation") {
-            // relation<|>src<|>tgt<|>keywords<|>desc
-            val src = parts[1].trim()
-            val tgt = parts[2].trim()
-            val keywords = parts[3].trim()
-            val desc = parts[4].trim()
-            val weight = 1.0 // Default
-            val key = listOf(src, tgt).sorted().joinToString("#")
-
-            edges.computeIfAbsent(key) { mutableListOf() }.add(
-                RelationExtractionResult(src, tgt, desc, keywords, weight, chunkKey),
-            )
-        }
+    result.entities.forEach { entity ->
+        nodes.computeIfAbsent(entity.name) { mutableListOf() }.add(
+            EntityExtractionResult(entity.name, entity.type, entity.description, chunkKey),
+        )
     }
+
+    result.relations.forEach { relation ->
+        val key = listOf(relation.source, relation.target).sorted().joinToString("#")
+        edges.computeIfAbsent(key) { mutableListOf() }.add(
+            RelationExtractionResult(
+                relation.source,
+                relation.target,
+                relation.description,
+                relation.keywords,
+                1.0,
+                chunkKey,
+            ),
+        )
+    }
+
     return nodes to edges
 }
 
@@ -277,7 +253,6 @@ suspend fun mergeNodesAndEdges(
     knowledgeGraphInst: BaseGraphStorage,
     entitiesVdb: BaseVectorStorage,
     relationshipsVdb: BaseVectorStorage,
-    globalConfig: Map<String, Any?>,
 ) {
     // 1. Process Nodes
     for ((name, entityList) in nodes) {
@@ -448,15 +423,15 @@ suspend fun kgQuery(
     hashingKv: BaseKVStorage? = null,
     systemPrompt: String? = null,
     chunksVdb: BaseVectorStorage? = null,
-    chatModel: ChatLanguageModel? = null,
+    chatModel: ChatModel? = null,
 ): QueryResult? {
     if (query.isBlank()) {
         return QueryResult(content = Prompts.FAIL_RESPONSE)
     }
 
-    val model = chatModel ?: globalConfig["llm_model_func"] as? ChatLanguageModel
+    val model = chatModel ?: globalConfig["llm_model_func"] as? ChatModel
     if (model == null) {
-        logger.error { "No ChatLanguageModel provided for kgQuery" }
+        logger.error { "No ChatModel provided for kgQuery" }
         return null
     }
 
@@ -537,27 +512,29 @@ suspend fun kgQuery(
     }
 
     if (queryParam.stream) {
-        val streamingModel = model as? StreamingChatLanguageModel
+        val streamingModel = model as? StreamingChatModel
         if (streamingModel == null) {
             logger.error { "Streaming is requested but the model does not support it." }
             return null
         }
 
+        logger.trace { "SysPrompt :$sysPrompt" }
+        logger.trace { "UserQuery :$query" }
         val responseIterator =
             flow {
                 val fullResponse = StringBuilder()
                 val blockingQueue = java.util.concurrent.LinkedBlockingQueue<String>()
-                val finalResponse = java.util.concurrent.CompletableFuture<Response<AiMessage>>()
+                val finalResponse = java.util.concurrent.CompletableFuture<ChatResponse>()
 
-                streamingModel.generate(
+                streamingModel.chat(
                     listOf(SystemMessage(sysPrompt), UserMessage(query)),
-                    object : dev.langchain4j.model.StreamingResponseHandler<AiMessage> {
-                        override fun onNext(token: String) {
-                            blockingQueue.put(token)
-                            fullResponse.append(token)
+                    object : StreamingChatResponseHandler {
+                        override fun onPartialResponse(partialResponse: String) {
+                            blockingQueue.put(partialResponse)
+                            fullResponse.append(partialResponse)
                         }
 
-                        override fun onComplete(response: Response<AiMessage>) {
+                        override fun onCompleteResponse(response: ChatResponse) {
                             blockingQueue.put("___END___")
                             finalResponse.complete(response)
                         }
@@ -608,7 +585,10 @@ suspend fun kgQuery(
     } else {
         val responseText =
             try {
-                model.generate(listOf(SystemMessage(sysPrompt), UserMessage(query))).content().text()
+                logger.trace { "SysPrompt :$sysPrompt" }
+                logger.trace { "UserQuery :$query" }
+                val chatResponse = model.chat(listOf(SystemMessage(sysPrompt), UserMessage(query)))
+                chatResponse.aiMessage()?.text() ?: ""
             } catch (e: Exception) {
                 logger.error(e) { "Error generating response in kgQuery" }
                 "Error generating response."
@@ -641,7 +621,6 @@ suspend fun kgQuery(
                 ),
             )
         }
-
         var responseContent = responseText
         if (responseContent.length > sysPrompt.length) {
             responseContent =
@@ -677,28 +656,20 @@ private suspend fun extractKeywordsOnly(
     globalConfig: Map<String, Any?>,
     hashingKv: BaseKVStorage?,
 ): Pair<List<String>, List<String>> {
-    val examples = Prompts.KEYWORDS_EXTRACTION_EXAMPLES.joinToString("\n")
-    val language = globalConfig["language"] as? String ?: "English"
-    val kwPrompt =
-        Prompts.KEYWORDS_EXTRACTION
-            .replace("{query}", text)
-            .replace("{examples}", examples)
-            .replace("{language}", language)
-
-    val model = globalConfig["llm_model_func"] as? ChatLanguageModel
+    val model = globalConfig["llm_model_func"] as? ChatModel
     if (model == null) {
-        logger.error { "No ChatLanguageModel provided for keyword extraction" }
+        logger.error { "No ChatModel provided for keyword extraction" }
         return emptyList<String>() to emptyList()
     }
-    val result = model.generate(listOf(UserMessage(kwPrompt))).content().text()
+
+    val language = globalConfig["language"] as? String ?: "English"
+    val examples = globalConfig["keyword_examples"] as? String ?: ""
+
+    val keywordExtractor = AiServices.create(KeywordExtractor::class.java, model)
+
     return try {
-        val json =
-            Json {
-                ignoreUnknownKeys = true
-                isLenient = true
-            }
-        val keywordsResult = json.decodeFromString<KeywordsExtractionResult>(result)
-        keywordsResult.high_level_keywords to keywordsResult.low_level_keywords
+        val keywordsResult = keywordExtractor.extract(text, language, examples)
+        keywordsResult.highLevelKeywords to keywordsResult.lowLevelKeywords
     } catch (e: Exception) {
         logger.error(e) { "Failed to parse keywords from LLM response" }
         emptyList<String>() to emptyList()

@@ -1,5 +1,6 @@
 package lightrag.kg.json
 
+import dev.langchain4j.model.embedding.EmbeddingModel
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -8,7 +9,6 @@ import kotlinx.serialization.json.Json
 import lightrag.core.types.DocProcessingStatus
 import lightrag.core.types.DocStatus
 import lightrag.core.types.DocStatusStorage
-import lightrag.core.types.EmbeddingFunc
 import java.io.File
 import java.lang.Math.min
 
@@ -18,7 +18,7 @@ class JsonDocStatusStorage(
     override val namespace: String,
     override val workspace: String,
     override val globalConfig: Map<String, Any?> = emptyMap(),
-    override val embeddingFunc: EmbeddingFunc? = null,
+    override val embeddingFunc: EmbeddingModel,
 ) : DocStatusStorage {
     private val docs = mutableMapOf<String, DocProcessingStatus>()
     private val mutex = Mutex()
