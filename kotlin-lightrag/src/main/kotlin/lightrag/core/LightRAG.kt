@@ -72,6 +72,7 @@ class LightRAG(
     chatModel: ChatModel? = null,
     embeddingModel: EmbeddingModel? = null,
     val hashingKv: BaseKVStorage? = null,
+    docStatusStorageOverride: DocStatusStorage? = null,
     llmBinding: String = "ollama",
     llmModelName: String = "llama3",
     embeddingBinding: String = "ollama",
@@ -121,12 +122,13 @@ class LightRAG(
         ) + addonConfig.toMap()
 
     val docStatusStorage: DocStatusStorage =
-        JsonDocStatusStorage(
-            namespace = "doc_status",
-            workspace = "default",
-            globalConfig = mapOf("working_dir" to workingDir),
-            embeddingFunc = embedding,
-        )
+        docStatusStorageOverride
+            ?: JsonDocStatusStorage(
+                namespace = "doc_status",
+                workspace = "default",
+                globalConfig = mapOf("working_dir" to workingDir),
+                embeddingFunc = embedding,
+            )
     val fullDocs: BaseKVStorage =
         JsonKVStorage(
             namespace = "full_docs",
