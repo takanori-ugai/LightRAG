@@ -1,2 +1,9 @@
 build:
   maxIssues: 200
+
+style:
+  MaxLineLength:
+    active: true
+    maxLineLength: 140
+  MagicNumber:
+    active: false

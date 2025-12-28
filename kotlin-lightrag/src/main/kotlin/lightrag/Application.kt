@@ -17,8 +17,8 @@ import io.ktor.server.response.respondRedirect
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
-import kotlinx.serialization.Serializable
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.Serializable
 import lightrag.api.routers.configureDocumentRoutes
 import lightrag.api.routers.configureGraphRoutes
 import lightrag.api.routers.configureOllamaRoutes
@@ -87,7 +87,7 @@ fun Application.module() {
         get("/app") { call.respondRedirect("/ui/index.html") }
         post("/admin/drop") {
             val result = rag.dropStorages()
-            call.respond(result)
+            call.respond<DropResponse>(result)
         }
     }
 

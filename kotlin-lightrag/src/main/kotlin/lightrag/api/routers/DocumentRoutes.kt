@@ -57,7 +57,10 @@ fun Application.configureDocumentRoutes(rag: LightRAG) {
                         call.respond(InsertResponse("success", "Text received", trackId))
                     }
                     .onFailure {
-                        call.respond(HttpStatusCode.InternalServerError, mapOf("status" to "error", "message" to (it.message ?: "insert failed")))
+                        call.respond(
+                            HttpStatusCode.InternalServerError,
+                            mapOf("status" to "error", "message" to (it.message ?: "insert failed")),
+                        )
                     }
             }
 
@@ -72,7 +75,10 @@ fun Application.configureDocumentRoutes(rag: LightRAG) {
                         call.respond(InsertResponse("success", "Texts received", trackId))
                     }
                     .onFailure {
-                        call.respond(HttpStatusCode.InternalServerError, mapOf("status" to "error", "message" to (it.message ?: "insert failed")))
+                        call.respond(
+                            HttpStatusCode.InternalServerError,
+                            mapOf("status" to "error", "message" to (it.message ?: "insert failed")),
+                        )
                     }
             }
 
