@@ -252,8 +252,6 @@ class Neo4jVectorStorage(
             rawMeta.entries.map { (k, v) ->
                 val value =
                     when (v) {
-                        null -> ""
-                        is Number, is Boolean -> v.toString()
                         is List<*> -> v.filterNotNull().joinToString(",")
                         else -> v.toString()
                     }
@@ -277,11 +275,7 @@ class Neo4jVectorStorage(
         return try {
             val response = embeddingFunc.embed(text)
             val content = response.content()
-            if (content is Embedding) {
-                content.vector().toList()
-            } else {
-                emptyList()
-            }
+            content.vector().toList()
         } catch (e: Exception) {
             logger.error(e) { "Error embedding text for Neo4jVectorStorage" }
             emptyList()

@@ -8,7 +8,6 @@ import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -241,6 +240,43 @@ private suspend fun saveToCache(
     )
 }
 
+private suspend fun saveQueryCache(
+    params: NaiveQueryParams,
+    argsHash: String,
+    content: String,
+    userQuery: String,
+    maxTotalTokens: Int,
+) {
+    if (params.hashingKv != null && (params.globalConfig["enable_llm_cache"] as? Boolean == true)) {
+        val queryParamDict =
+            QueryParamCache(
+                mode = params.queryParam.mode,
+                responseType = params.queryParam.responseType,
+                topK = params.queryParam.topK,
+                chunkTopK = params.queryParam.chunkTopK,
+                maxEntityTokens = params.queryParam.maxEntityTokens,
+                maxRelationTokens = params.queryParam.maxRelationTokens,
+                maxTotalTokens = maxTotalTokens,
+                hlKeywords = params.queryParam.hlKeywords.joinToString(", "),
+                llKeywords = params.queryParam.llKeywords.joinToString(", "),
+                userPrompt = params.queryParam.userPrompt ?: "",
+                enableRerank = params.queryParam.enableRerank,
+            )
+        saveToCache(
+            params.hashingKv,
+            CacheData(
+                argsHash = argsHash,
+                content = content,
+                prompt = userQuery,
+                mode = params.queryParam.mode,
+                cacheType = "query",
+                queryParam = queryParamDict,
+                historyMessages = params.queryParam.conversationHistory,
+            ),
+        )
+    }
+}
+
 // This function needs to be imported or replicated from utils.
 // For now, a placeholder. The actual implementation in utils.kt will need to handle the varargs
 fun computeArgsHash(vararg args: Any?): String {
@@ -412,15 +448,15 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
     }
 
     // Call LLM
-    val response: Any? =
-        if (params.queryParam.stream) {
-            val streamingModel = model as? StreamingChatModel
-            if (streamingModel == null) {
-                logger.error { "Streaming is requested but the model does not support it." }
-                return QueryResult(content = "Error: Streaming not supported by model.")
-            }
-            logger.trace { "SysPrompt: $sysPrompt" }
-            logger.trace { "UserPrompt: $userQuery" }
+    if (params.queryParam.stream) {
+        val streamingModel = model as? StreamingChatModel
+        if (streamingModel == null) {
+            logger.error { "Streaming is requested but the model does not support it." }
+            return QueryResult(content = "Error: Streaming not supported by model.")
+        }
+        logger.trace { "SysPrompt: $sysPrompt" }
+        logger.trace { "UserPrompt: $userQuery" }
+        val responseFlow =
             flow {
                 val fullResponse = StringBuilder()
                 val channel = Channel<String>(Channel.UNLIMITED)
@@ -447,36 +483,11 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
                     emit(token)
                 }
 
-                if (params.hashingKv != null && (params.globalConfig["enable_llm_cache"] as? Boolean == true)) {
-                    val queryParamDict =
-                        QueryParamCache(
-                            mode = params.queryParam.mode,
-                            responseType = params.queryParam.responseType,
-                            topK = params.queryParam.topK,
-                            chunkTopK = params.queryParam.chunkTopK,
-                            maxEntityTokens = params.queryParam.maxEntityTokens,
-                            maxRelationTokens = params.queryParam.maxRelationTokens,
-                            maxTotalTokens = params.queryParam.maxTotalTokens,
-                            hlKeywords = params.queryParam.hlKeywords.joinToString(", "),
-                            llKeywords = params.queryParam.llKeywords.joinToString(", "),
-                            userPrompt = params.queryParam.userPrompt ?: "",
-                            enableRerank = params.queryParam.enableRerank,
-                        )
-                    saveToCache(
-                        params.hashingKv,
-                        CacheData(
-                            argsHash = argsHash,
-                            content = fullResponse.toString(),
-                            prompt = userQuery,
-                            mode = params.queryParam.mode,
-                            cacheType = "query",
-                            queryParam = queryParamDict,
-                            historyMessages = params.queryParam.conversationHistory,
-                        ),
-                    )
-                }
+                saveQueryCache(params, argsHash, fullResponse.toString(), userQuery, maxTotalTokens)
             }
-        } else {
+        return QueryResult(responseIterator = responseFlow, rawData = rawData, isStreaming = true)
+    } else {
+        var responseContent =
             try {
                 logger.trace { "SysPrompt: $sysPrompt" }
                 logger.trace { "UserPrompt: $userQuery" }
@@ -486,56 +497,21 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
                 logger.error(e) { "Error generating response in naiveQuery" }
                 "Error generating response."
             }
-        }
 
-    if (response is String) {
-        var responseContent = response
-        // Python version removes sysPrompt from response, but only if response length is greater.
-        // Also removes "user", "model", etc.
-        // This is a simplified comparison as sysPrompt might not be a prefix always.
         if (responseContent.length > sysPrompt.length) {
             responseContent =
                 responseContent
                     .replace(sysPrompt, "")
                     .replace("user", "")
                     .replace("model", "")
-                    .replace(userQuery, "") // This might be too aggressive, check Python's logic
+                    .replace(userQuery, "")
                     .replace("<system>", "")
                     .replace("</system>", "")
                     .trim()
         }
-        if (params.hashingKv != null && (params.globalConfig["enable_llm_cache"] as? Boolean == true)) {
-            val queryParamDict =
-                QueryParamCache(
-                    mode = params.queryParam.mode,
-                    responseType = params.queryParam.responseType,
-                    topK = params.queryParam.topK,
-                    chunkTopK = params.queryParam.chunkTopK,
-                    maxEntityTokens = params.queryParam.maxEntityTokens,
-                    maxRelationTokens = params.queryParam.maxRelationTokens,
-                    maxTotalTokens = params.queryParam.maxTotalTokens,
-                    hlKeywords = params.queryParam.hlKeywords.joinToString(", "),
-                    llKeywords = params.queryParam.llKeywords.joinToString(", "),
-                    userPrompt = params.queryParam.userPrompt ?: "",
-                    enableRerank = params.queryParam.enableRerank,
-                )
-            saveToCache(
-                params.hashingKv,
-                CacheData(
-                    argsHash = argsHash,
-                    content = responseContent,
-                    prompt = userQuery,
-                    mode = params.queryParam.mode,
-                    cacheType = "query",
-                    queryParam = queryParamDict,
-                    historyMessages = params.queryParam.conversationHistory,
-                ),
-            )
-        }
+
+        saveQueryCache(params, argsHash, responseContent, userQuery, maxTotalTokens)
+
         return QueryResult(content = responseContent, rawData = rawData)
-    } else if (response is Flow<*>) {
-        @Suppress("UNCHECKED_CAST")
-        return QueryResult(responseIterator = response as Flow<String>, rawData = rawData, isStreaming = true)
     }
-    return null
 }
