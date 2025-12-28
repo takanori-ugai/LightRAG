@@ -199,11 +199,9 @@ class Neo4jDocStatusStorage(
 
     override suspend fun getStatusCounts(): Map<String, Int> = docs.values.groupingBy { it.status.value }.eachCount()
 
-    override suspend fun getDocsByStatus(status: DocStatus): Map<String, DocProcessingStatus> =
-        docs.filterValues { it.status == status }
+    override suspend fun getDocsByStatus(status: DocStatus): Map<String, DocProcessingStatus> = docs.filterValues { it.status == status }
 
-    override suspend fun getDocsByTrackId(trackId: String): Map<String, DocProcessingStatus> =
-        docs.filterValues { it.trackId == trackId }
+    override suspend fun getDocsByTrackId(trackId: String): Map<String, DocProcessingStatus> = docs.filterValues { it.trackId == trackId }
 
     override suspend fun getDocsPaginated(
         statusFilter: DocStatus?,

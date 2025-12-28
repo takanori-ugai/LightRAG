@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import lightrag.core.AddonConfig
 import lightrag.core.LightRAG
 import lightrag.core.LightRagOverrides
+import lightrag.kg.neo4j.Neo4jDocStatusStorage
 import lightrag.kg.neo4j.Neo4jKVStorage
 import lightrag.llm.LLMFactory
 
@@ -35,31 +36,70 @@ fun main() =
                 apiKey = apiKey,
             )
 
-        // Use Neo4jKVStorage for the hashing cache; other storages remain default JSON/in-memory.
+        val neo4jConfig =
+            mapOf(
+                "neo4j" to
+                    mapOf(
+                        "uri" to (System.getenv("NEO4J_URI") ?: "bolt://localhost:7687"),
+                        "username" to (System.getenv("NEO4J_USERNAME") ?: "neo4j"),
+                        "password" to (System.getenv("NEO4J_PASSWORD") ?: "neo4j"),
+                    ),
+            )
+
+        // Use Neo4j-backed storages for KV and doc status
         val hashingKv =
             Neo4jKVStorage(
                 namespace = "hash_cache",
                 workspace = "default",
-                globalConfig =
-                    mapOf(
-                        // Optional: override via env vars instead.
-                        "neo4j" to
-                            mapOf(
-                                "uri" to (System.getenv("NEO4J_URI") ?: "bolt://localhost:7687"),
-                                "username" to (System.getenv("NEO4J_USERNAME") ?: "neo4j"),
-                                "password" to (System.getenv("NEO4J_PASSWORD") ?: "neo4j"),
-                            ),
-                    ),
+                globalConfig = neo4jConfig,
                 embeddingFunc = embeddingModel,
-            )
-
-        hashingKv.initialize()
+            ).also { it.initialize() }
+        val docStatusStorage =
+            Neo4jDocStatusStorage(
+                namespace = "doc_status",
+                workspace = "default",
+                globalConfig = neo4jConfig,
+                embeddingFunc = embeddingModel,
+            ).also { it.initialize() }
+        val fullDocs =
+            Neo4jKVStorage(
+                namespace = "full_docs",
+                workspace = "default",
+                globalConfig = neo4jConfig,
+                embeddingFunc = embeddingModel,
+            ).also { it.initialize() }
+        val textChunks =
+            Neo4jKVStorage(
+                namespace = "text_chunks",
+                workspace = "default",
+                globalConfig = neo4jConfig,
+                embeddingFunc = embeddingModel,
+            ).also { it.initialize() }
+        val fullEntities =
+            Neo4jKVStorage(
+                namespace = "full_entities",
+                workspace = "default",
+                globalConfig = neo4jConfig,
+                embeddingFunc = embeddingModel,
+            ).also { it.initialize() }
+        val fullRelations =
+            Neo4jKVStorage(
+                namespace = "full_relations",
+                workspace = "default",
+                globalConfig = neo4jConfig,
+                embeddingFunc = embeddingModel,
+            ).also { it.initialize() }
 
         val rag =
             LightRAG(
                 chatModel = chatModel,
                 embeddingModel = embeddingModel,
                 hashingKv = hashingKv,
+                docStatusStorageOverride = docStatusStorage,
+                fullDocsStorageOverride = fullDocs,
+                textChunksStorageOverride = textChunks,
+                fullEntitiesStorageOverride = fullEntities,
+                fullRelationsStorageOverride = fullRelations,
                 addonConfig =
                     AddonConfig(
                         overrides =
@@ -70,12 +110,7 @@ fun main() =
                     ),
             )
 
-        // Initialize storages to load any persisted state
-        rag.docStatusStorage.initialize()
-        rag.fullDocs.initialize()
-        rag.textChunks.initialize()
-        rag.fullEntities.initialize()
-        rag.fullRelations.initialize()
+        // Initialize remaining storages to load any persisted state
         rag.chunkEntityRelationGraph.initialize()
         rag.chunksVdb.initialize()
         rag.entitiesVdb.initialize()
@@ -112,11 +147,11 @@ fun main() =
 
         println("Persisting storages...")
         hashingKv.indexDoneCallback()
-        rag.docStatusStorage.indexDoneCallback()
-        rag.fullDocs.indexDoneCallback()
-        rag.textChunks.indexDoneCallback()
-        rag.fullEntities.indexDoneCallback()
-        rag.fullRelations.indexDoneCallback()
+        docStatusStorage.indexDoneCallback()
+        fullDocs.indexDoneCallback()
+        textChunks.indexDoneCallback()
+        fullEntities.indexDoneCallback()
+        fullRelations.indexDoneCallback()
         rag.chunkEntityRelationGraph.indexDoneCallback()
         rag.chunksVdb.indexDoneCallback()
         rag.entitiesVdb.indexDoneCallback()

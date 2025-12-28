@@ -25,7 +25,7 @@ class InMemoryGraphStorage(
     private val nodes = mutableMapOf<String, Map<String, String>>()
     private val edges = mutableMapOf<String, MutableMap<String, Map<String, String>>>()
     private val workingDir = File(globalConfig["working_dir"] as? String ?: "./rag_storage")
-    private val file = File(workingDir, "graph_${namespace}.json")
+    private val file = File(workingDir, "graph_$namespace.json")
     private val json =
         Json {
             ignoreUnknownKeys = true
@@ -56,7 +56,9 @@ class InMemoryGraphStorage(
                     } ?: emptyMap()
                 nodes.putAll(loadedNodes)
                 edges.putAll(loadedEdges)
-                logger.info { "Loaded graph '$namespace' with ${nodes.size} nodes and ${edges.size} edge buckets from ${file.absolutePath}" }
+                logger.info {
+                    "Loaded graph '$namespace' with ${nodes.size} nodes and ${edges.size} edge buckets from ${file.absolutePath}"
+                }
             }
         }.onFailure { logger.error(it) { "Error loading graph storage from ${file.absolutePath}" } }
     }
@@ -90,7 +92,9 @@ class InMemoryGraphStorage(
         nodes.clear()
         edges.clear()
         if (file.exists()) {
-            runCatching { file.delete() }.onFailure { logger.warn(it) { "Failed to delete graph file ${file.absolutePath}" } }
+            runCatching { file.delete() }.onFailure {
+                logger.warn(it) { "Failed to delete graph file ${file.absolutePath}" }
+            }
         }
         return mapOf("status" to "success", "message" to "data dropped")
     }

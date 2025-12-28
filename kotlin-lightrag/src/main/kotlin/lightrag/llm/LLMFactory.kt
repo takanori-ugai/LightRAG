@@ -9,12 +9,30 @@ import dev.langchain4j.model.openai.OpenAiEmbeddingModel
 import java.time.Duration
 
 object LLMFactory {
+    /**
+     * Build a [ChatModel] for the given binding.
+     *
+     * Example using an OllamaModel served locally:
+     * ```
+     * val chatModel = LLMFactory.createChatModel(
+     *     binding = "ollama",
+     *     modelName = "llama3",
+     *     baseUrl = "http://localhost:11434",
+     *     temperature = 0.1,
+     *     logRequests = false,
+     *     logResponses = false,
+     * )
+     * ```
+     */
     fun createChatModel(
         binding: String,
         modelName: String,
         baseUrl: String? = null,
         apiKey: String? = null,
         timeout: Long = 60,
+        temperature: Double? = null,
+        logRequests: Boolean = true,
+        logResponses: Boolean = true,
     ): ChatModel {
         return when (binding) {
             "openai" -> {
@@ -22,8 +40,8 @@ object LLMFactory {
                     OpenAiChatModel.builder()
                         .modelName(modelName)
                         .apiKey(apiKey ?: "demo")
-                        .logRequests(true)
-                        .logResponses(true)
+                        .logRequests(logRequests)
+                        .logResponses(logResponses)
                         .timeout(Duration.ofSeconds(timeout))
                 if (baseUrl != null) {
                     builder.baseUrl(baseUrl)
@@ -36,6 +54,11 @@ object LLMFactory {
                         .modelName(modelName)
                         .baseUrl(baseUrl ?: "http://localhost:11434")
                         .timeout(Duration.ofSeconds(timeout))
+                        .logRequests(logRequests)
+                        .logResponses(logResponses)
+                if (temperature != null) {
+                    builder.temperature(temperature)
+                }
                 builder.build()
             }
             else -> throw IllegalArgumentException("Unsupported LLM binding: $binding")

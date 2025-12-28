@@ -73,6 +73,10 @@ class LightRAG(
     embeddingModel: EmbeddingModel? = null,
     val hashingKv: BaseKVStorage? = null,
     docStatusStorageOverride: DocStatusStorage? = null,
+    fullDocsStorageOverride: BaseKVStorage? = null,
+    textChunksStorageOverride: BaseKVStorage? = null,
+    fullEntitiesStorageOverride: BaseKVStorage? = null,
+    fullRelationsStorageOverride: BaseKVStorage? = null,
     llmBinding: String = "ollama",
     llmModelName: String = "llama3",
     embeddingBinding: String = "ollama",
@@ -130,34 +134,38 @@ class LightRAG(
                 embeddingFunc = embedding,
             )
     val fullDocs: BaseKVStorage =
-        JsonKVStorage(
-            namespace = "full_docs",
-            workspace = "default",
-            globalConfig = mapOf("working_dir" to workingDir),
-            embeddingFunc = embedding,
-        )
+        fullDocsStorageOverride
+            ?: JsonKVStorage(
+                namespace = "full_docs",
+                workspace = "default",
+                globalConfig = mapOf("working_dir" to workingDir),
+                embeddingFunc = embedding,
+            )
     val textChunks: BaseKVStorage =
-        JsonKVStorage(
-            namespace = "text_chunks",
-            workspace = "default",
-            globalConfig = mapOf("working_dir" to workingDir),
-            embeddingFunc = embedding,
-        )
+        textChunksStorageOverride
+            ?: JsonKVStorage(
+                namespace = "text_chunks",
+                workspace = "default",
+                globalConfig = mapOf("working_dir" to workingDir),
+                embeddingFunc = embedding,
+            )
 
     val fullEntities: BaseKVStorage =
-        JsonKVStorage(
-            namespace = "full_entities",
-            workspace = "default",
-            globalConfig = mapOf("working_dir" to workingDir),
-            embeddingFunc = embedding,
-        )
+        fullEntitiesStorageOverride
+            ?: JsonKVStorage(
+                namespace = "full_entities",
+                workspace = "default",
+                globalConfig = mapOf("working_dir" to workingDir),
+                embeddingFunc = embedding,
+            )
     val fullRelations: BaseKVStorage =
-        JsonKVStorage(
-            namespace = "full_relations",
-            workspace = "default",
-            globalConfig = mapOf("working_dir" to workingDir),
-            embeddingFunc = embedding,
-        )
+        fullRelationsStorageOverride
+            ?: JsonKVStorage(
+                namespace = "full_relations",
+                workspace = "default",
+                globalConfig = mapOf("working_dir" to workingDir),
+                embeddingFunc = embedding,
+            )
 
     private fun createVectorStorage(namespace: String): BaseVectorStorage {
         return when (vectorStorageName) {

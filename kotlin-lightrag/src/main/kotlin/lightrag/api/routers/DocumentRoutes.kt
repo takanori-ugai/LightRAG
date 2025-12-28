@@ -49,7 +49,10 @@ fun Application.configureDocumentRoutes(rag: LightRAG) {
             post("/text") {
                 val request = call.receive<InsertTextRequest>()
                 if (request.text.isBlank()) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("status" to "error", "message" to "text cannot be blank"))
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        mapOf("status" to "error", "message" to "text cannot be blank"),
+                    )
                     return@post
                 }
                 runCatching { rag.insert(request.text, request.fileSource) }
@@ -57,14 +60,20 @@ fun Application.configureDocumentRoutes(rag: LightRAG) {
                         call.respond(InsertResponse("success", "Text received", trackId))
                     }
                     .onFailure {
-                        call.respond(HttpStatusCode.InternalServerError, mapOf("status" to "error", "message" to (it.message ?: "insert failed")))
+                        call.respond(
+                            HttpStatusCode.InternalServerError,
+                            mapOf("status" to "error", "message" to (it.message ?: "insert failed")),
+                        )
                     }
             }
 
             post("/texts") {
                 val request = call.receive<InsertTextsRequest>()
                 if (request.texts.isEmpty() || request.texts.any { it.isBlank() }) {
-                    call.respond(HttpStatusCode.BadRequest, mapOf("status" to "error", "message" to "texts cannot be empty or blank"))
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        mapOf("status" to "error", "message" to "texts cannot be empty or blank"),
+                    )
                     return@post
                 }
                 runCatching { rag.insert(request.texts, request.fileSources) }
@@ -72,7 +81,10 @@ fun Application.configureDocumentRoutes(rag: LightRAG) {
                         call.respond(InsertResponse("success", "Texts received", trackId))
                     }
                     .onFailure {
-                        call.respond(HttpStatusCode.InternalServerError, mapOf("status" to "error", "message" to (it.message ?: "insert failed")))
+                        call.respond(
+                            HttpStatusCode.InternalServerError,
+                            mapOf("status" to "error", "message" to (it.message ?: "insert failed")),
+                        )
                     }
             }
 
