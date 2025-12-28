@@ -7,12 +7,13 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import kotlin.String
+import kotlin.test.Ignore
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-// @Ignore("Requires Neo4j database")
+@Ignore("Requires Neo4j database")
 class Neo4jGraphStorageTest {
     val apiKey = "***************************************************"
 

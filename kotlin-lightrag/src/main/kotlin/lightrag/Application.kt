@@ -87,7 +87,7 @@ fun Application.module() {
         get("/app") { call.respondRedirect("/ui/index.html") }
         post("/admin/drop") {
             val result = rag.dropStorages()
-            call.respond(result)
+            call.respond<DropResponse>(result)
         }
     }
 

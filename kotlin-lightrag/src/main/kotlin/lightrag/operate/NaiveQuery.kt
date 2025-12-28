@@ -7,7 +7,7 @@ import dev.langchain4j.model.chat.StreamingChatModel
 import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import io.github.oshai.kotlinlogging.KotlinLogging
-import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -20,8 +20,6 @@ import lightrag.core.types.BaseVectorStorage
 import lightrag.utils.JsonUtils
 import lightrag.utils.Prompts
 import lightrag.utils.computeMd5
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.LinkedBlockingQueue
 
 private val logger = KotlinLogging.logger {}
 
@@ -33,8 +31,6 @@ data class ChunkContext(
 )
 
 const val DEFAULT_MAX_TOTAL_TOKENS = 30000 // From python/constants.py
-const val DEFAULT_MAX_ENTITY_TOKENS = 6000 // From python/constants.py
-const val DEFAULT_MAX_RELATION_TOKENS = 8000 // From python/constants.py
 
 data class NaiveQueryParams(
     val query: String,
@@ -71,11 +67,11 @@ private suspend fun getVectorContext(
                 val chunkWithMetadata =
                     mapOf(
                         "content" to result["content"],
-                        "created_at" to result.get("created_at"),
-                        "file_path" to (result.get("file_path") ?: "unknown_source"),
+                        "created_at" to result["created_at"],
+                        "file_path" to (result["file_path"] ?: "unknown_source"),
                         // Mark the source type so consumers know this came from the vector store
                         "source_type" to "vector",
-                        "chunk_id" to (result.get("id") ?: result.get("chunk_id")),
+                        "chunk_id" to (result["id"] ?: result["chunk_id"]),
                     )
                 validChunks.add(chunkWithMetadata)
             }
@@ -103,7 +99,6 @@ fun generateReferenceListFromChunks(chunks: List<Map<String, Any?>>): Pair<List<
     for ((index, chunk) in chunks.withIndex()) {
         val referenceId = (index + 1).toString()
         val filePath = chunk["file_path"] as? String ?: "unknown_source"
-        val content = chunk["content"] as? String ?: ""
 
         if (!seenFilePaths.contains(filePath)) {
             referenceList.add(mapOf("reference_id" to referenceId, "file_path" to filePath))
@@ -117,13 +112,13 @@ fun generateReferenceListFromChunks(chunks: List<Map<String, Any?>>): Pair<List<
 
 // Simplified version of python's process_chunks_unified, focusing on truncation
 // This will just apply token limit, no reranking for now.
-suspend fun processChunksUnified(
-    query: String,
+fun processChunksUnified(
+    @Suppress("UNUSED_PARAMETER") query: String,
     // Not directly used in this simplified version for reranking, but kept for signature
     uniqueChunks: List<Map<String, Any?>>,
-    queryParam: QueryParam,
-    globalConfig: Map<String, Any?>,
-    sourceType: String,
+    @Suppress("UNUSED_PARAMETER") queryParam: QueryParam,
+    @Suppress("UNUSED_PARAMETER") globalConfig: Map<String, Any?>,
+    @Suppress("UNUSED_PARAMETER") sourceType: String,
     // e.g., "vector", "entity", "relation"
     chunkTokenLimit: Int,
     tokenizer: ((String) -> List<Int>),
@@ -181,7 +176,7 @@ fun convertToJsonFormat(
     chunks: List<Map<String, Any?>>,
     references: List<Map<String, String>>,
     queryMode: String,
-    relationIdToOriginal: Map<Pair<String, String>, Any?> = emptyMap(),
+    @Suppress("UNUSED_PARAMETER") relationIdToOriginal: Map<Pair<String, String>, Any?> = emptyMap(),
 ): Map<String, Any?> {
     val dataMap =
         mutableMapOf<String, Any?>(
@@ -206,9 +201,9 @@ fun convertToJsonFormat(
 private suspend fun handleCache(
     hashingKv: BaseKVStorage?,
     argsHash: String,
-    prompt: String,
-    mode: String,
-    cacheType: String,
+    @Suppress("UNUSED_PARAMETER") prompt: String,
+    @Suppress("UNUSED_PARAMETER") mode: String,
+    @Suppress("UNUSED_PARAMETER") cacheType: String,
 ): Pair<String, Long>? { // Returns content and timestamp
     if (hashingKv == null) return null
 
@@ -222,147 +217,6 @@ private suspend fun handleCache(
     }
     return null
 }
-
-/*
-
-package lightrag.operate
-
-import dev.langchain4j.data.message.AiMessage
-import dev.langchain4j.data.message.ChatMessage
-import dev.langchain4j.data.message.SystemMessage
-import dev.langchain4j.data.message.UserMessage
-import dev.langchain4j.model.chat.ChatModel
-import dev.langchain4j.model.output.Response
-import io.mockk.every
-import io.mockk.mockk
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.runBlocking
-import org.junit.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
-
-class NaiveQueryTest {
-
-    private fun defaultParams(
-        query: String = "What is AI?",
-        chatModel: ChatModel? = mockk(),
-        chunks: List<Map<String, Any?>> = listOf(mapOf("content" to "AI is Artificial Intelligence", "reference_id" to "ref1")),
-        tokenizer: (String) -> List<String> = { it.split(" ") },
-        decoder: ((String) -> String)? = null,
-        globalConfig: Map<String, Any?> = emptyMap(),
-        onlyNeedContext: Boolean = false,
-        onlyNeedPrompt: Boolean = false,
-        stream: Boolean = false,
-    ): NaiveQueryParams {
-        return NaiveQueryParams(
-            query = query,
-            chatModel = chatModel,
-            globalConfig = globalConfig,
-            tokenizer = tokenizer,
-            decoder = decoder,
-            chunksVdb = object : ChunksVdb {
-                override fun getVectorContext(query: String, param: QueryParam): List<Map<String, Any?>> = chunks
-            },
-            queryParam = QueryParam(
-                onlyNeedContext = onlyNeedContext,
-                onlyNeedPrompt = onlyNeedPrompt,
-                stream = stream
-            ),
-            hashingKv = null,
-            systemPrompt = null
-        )
-    }
-
-    @Test
-    fun `returns fail response when query is blank`() = runBlocking {
-        val params = defaultParams(query = "")
-        val result = naiveQuery(params)
-        assertNotNull(result)
-        assertEquals(Prompts.FAIL_RESPONSE, result.content)
-    }
-
-    @Test
-    fun `returns error when chat model is missing`() = runBlocking {
-        val params = defaultParams(chatModel = null)
-        val result = naiveQuery(params)
-        assertNotNull(result)
-        assertTrue(result.content.contains("Error: No LLM model configured"))
-    }
-
-    @Test
-    fun `returns null when no chunks found`() = runBlocking {
-        val params = defaultParams(chunks = emptyList())
-        val result = naiveQuery(params)
-        assertEquals(null, result)
-    }
-
-    @Test
-    fun `returns context only when onlyNeedContext is true`() = runBlocking {
-        val params = defaultParams(onlyNeedContext = true)
-        val result = naiveQuery(params)
-        assertNotNull(result)
-        assertTrue(result.content.contains("ref1") || result.content.contains("AI is Artificial Intelligence"))
-        assertNotNull(result.rawData)
-    }
-
-    @Test
-    fun `returns prompt only when onlyNeedPrompt is true`() = runBlocking {
-        val params = defaultParams(onlyNeedPrompt = true)
-        val result = naiveQuery(params)
-        assertNotNull(result)
-        assertTrue(result.content.contains("---User Query---"))
-        assertNotNull(result.rawData)
-    }
-
-    @Test
-    fun `returns cached result if present`() = runBlocking {
-        val cache = mutableMapOf<String, Pair<String, Any?>>()
-        val params = defaultParams(globalConfig = mapOf("enable_llm_cache" to true), hashingKv = cache)
-        // Simulate cache hit
-        cache["someHash"] = "Cached response" to null
-        // Patch computeArgsHash and handleCache to always hit cache
-        val originalComputeArgsHash = ::computeArgsHash
-        val originalHandleCache = ::handleCache
-        try {
-            ::computeArgsHash.set { _, _, _, _, _, _, _, _, _, _ -> "someHash" }
-            ::handleCache.set { _, hash, _, _, _ -> cache[hash] }
-            val result = naiveQuery(params)
-            assertNotNull(result)
-            assertEquals("Cached response", result.content)
-        } finally {
-            ::computeArgsHash.set(originalComputeArgsHash)
-            ::handleCache.set(originalHandleCache)
-        }
-    }
-
-    @Test
-    fun `calls LLM and returns its response`() = runBlocking {
-        val mockModel = mockk<ChatModel>()
-        every { mockModel.chat(any<List<ChatMessage>>()) } returns Response.from(AiMessage("LLM answer"))
-        val params = defaultParams(chatModel = mockModel)
-        val result = naiveQuery(params)
-        assertNotNull(result)
-        assertTrue(result.content.contains("LLM answer"))
-    }
-
-    @Test
-    fun `returns streaming response when stream is true and model supports it`() = runBlocking {
-        val streamingModel = mockk<StreamingChatModel>()
-        val flow = mockk<Flow<String>>()
-        every { streamingModel.chat(any(), any()) } answers {
-            val handler = secondArg<dev.langchain4j.model.StreamingResponseHandler<AiMessage>>()
-            handler.onNext("token1")
-            handler.onComplete(Response.from(AiMessage("streamed")))
-        }
-        val params = defaultParams(chatModel = streamingModel, stream = true)
-        val result = naiveQuery(params)
-        assertNotNull(result)
-        assertTrue(result.isStreaming)
-    }
-}
-
-*/
 
 private suspend fun saveToCache(
     hashingKv: BaseKVStorage?,
@@ -381,9 +235,46 @@ private suspend fun saveToCache(
                     "history_messages" to cacheData.historyMessages,
                     // Unix timestamp in seconds
                     "create_time" to System.currentTimeMillis() / 1000,
-                ).filterValues { it != null } as Map<String, Any>,
+                ).filterValues { it != null }.mapValues { it.value!! },
         ),
     )
+}
+
+private suspend fun saveQueryCache(
+    params: NaiveQueryParams,
+    argsHash: String,
+    content: String,
+    userQuery: String,
+    maxTotalTokens: Int,
+) {
+    if (params.hashingKv != null && (params.globalConfig["enable_llm_cache"] as? Boolean == true)) {
+        val queryParamDict =
+            QueryParamCache(
+                mode = params.queryParam.mode,
+                responseType = params.queryParam.responseType,
+                topK = params.queryParam.topK,
+                chunkTopK = params.queryParam.chunkTopK,
+                maxEntityTokens = params.queryParam.maxEntityTokens,
+                maxRelationTokens = params.queryParam.maxRelationTokens,
+                maxTotalTokens = maxTotalTokens,
+                hlKeywords = params.queryParam.hlKeywords.joinToString(", "),
+                llKeywords = params.queryParam.llKeywords.joinToString(", "),
+                userPrompt = params.queryParam.userPrompt ?: "",
+                enableRerank = params.queryParam.enableRerank,
+            )
+        saveToCache(
+            params.hashingKv,
+            CacheData(
+                argsHash = argsHash,
+                content = content,
+                prompt = userQuery,
+                mode = params.queryParam.mode,
+                cacheType = "query",
+                queryParam = queryParamDict,
+                historyMessages = params.queryParam.conversationHistory,
+            ),
+        )
+    }
 }
 
 // This function needs to be imported or replicated from utils.
@@ -392,6 +283,7 @@ fun computeArgsHash(vararg args: Any?): String {
     return computeMd5(args.joinToString("|"))
 }
 
+@Suppress("UNUSED")
 fun removeThinkTags(text: String): String {
     // This is a simplified placeholder. In Python, it would remove specific XML-like tags.
     // Assuming for now that the LLM is not generating these tags in Kotlin or they are removed differently.
@@ -556,77 +448,46 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
     }
 
     // Call LLM
-    val response: Any? =
-        if (params.queryParam.stream) {
-            val streamingModel = model as? StreamingChatModel
-            if (streamingModel == null) {
-                logger.error { "Streaming is requested but the model does not support it." }
-                return QueryResult(content = "Error: Streaming not supported by model.")
-            }
-            logger.trace { "SysPrompt: $sysPrompt" }
-            logger.trace { "UserPrompt: $userQuery" }
+    if (params.queryParam.stream) {
+        val streamingModel = model as? StreamingChatModel
+        if (streamingModel == null) {
+            logger.error { "Streaming is requested but the model does not support it." }
+            return QueryResult(content = "Error: Streaming not supported by model.")
+        }
+        logger.trace { "SysPrompt: $sysPrompt" }
+        logger.trace { "UserPrompt: $userQuery" }
+        val responseFlow =
             flow {
                 val fullResponse = StringBuilder()
-                val blockingQueue = LinkedBlockingQueue<String>()
-                val finalResponse = CompletableFuture<ChatResponse>()
+                val channel = Channel<String>(Channel.UNLIMITED)
 
                 streamingModel.chat(
                     listOf(SystemMessage(sysPrompt), UserMessage(userQuery)),
                     object : StreamingChatResponseHandler {
                         override fun onPartialResponse(partialResponse: String) {
-                            blockingQueue.put(partialResponse)
+                            channel.trySend(partialResponse)
                             fullResponse.append(partialResponse)
                         }
 
                         override fun onCompleteResponse(response: ChatResponse) {
-                            blockingQueue.put("___END___")
-                            finalResponse.complete(response)
+                            channel.close()
                         }
 
                         override fun onError(error: Throwable) {
-                            blockingQueue.put("___END___")
-                            finalResponse.completeExceptionally(error)
+                            channel.close(error)
                         }
                     },
                 )
 
-                while (true) {
-                    val token = blockingQueue.take()
-                    if (token == "___END___") break
+                for (token in channel) {
                     emit(token)
                 }
-                finalResponse.get() // wait for completion
 
-                if (params.hashingKv != null && (params.globalConfig["enable_llm_cache"] as? Boolean == true)) {
-                    val queryParamDict =
-                        QueryParamCache(
-                            mode = params.queryParam.mode,
-                            responseType = params.queryParam.responseType,
-                            topK = params.queryParam.topK,
-                            chunkTopK = params.queryParam.chunkTopK,
-                            maxEntityTokens = params.queryParam.maxEntityTokens,
-                            maxRelationTokens = params.queryParam.maxRelationTokens,
-                            maxTotalTokens = params.queryParam.maxTotalTokens,
-                            hlKeywords = params.queryParam.hlKeywords.joinToString(", "),
-                            llKeywords = params.queryParam.llKeywords.joinToString(", "),
-                            userPrompt = params.queryParam.userPrompt ?: "",
-                            enableRerank = params.queryParam.enableRerank,
-                        )
-                    saveToCache(
-                        params.hashingKv,
-                        CacheData(
-                            argsHash = argsHash,
-                            content = fullResponse.toString(),
-                            prompt = userQuery,
-                            mode = params.queryParam.mode,
-                            cacheType = "query",
-                            queryParam = queryParamDict,
-                            historyMessages = params.queryParam.conversationHistory,
-                        ),
-                    )
-                }
+                saveQueryCache(params, argsHash, fullResponse.toString(), userQuery, maxTotalTokens)
             }
-        } else {
+        return QueryResult(responseIterator = responseFlow, rawData = rawData, isStreaming = true)
+    } else {
+        var responseContent =
             try {
                 logger.trace { "SysPrompt: $sysPrompt" }
                 logger.trace { "UserPrompt: $userQuery" }
@@ -636,196 +497,21 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
                 logger.error(e) { "Error generating response in naiveQuery" }
                 "Error generating response."
             }
-        }
 
-    if (response is String) {
-        var responseContent = response
-        // Python version removes sysPrompt from response, but only if response length is greater.
-        // Also removes "user", "model", etc.
-        // This is a simplified comparison as sysPrompt might not be a prefix always.
         if (responseContent.length > sysPrompt.length) {
             responseContent =
                 responseContent
                     .replace(sysPrompt, "")
                     .replace("user", "")
                     .replace("model", "")
-                    .replace(userQuery, "") // This might be too aggressive, check Python's logic
+                    .replace(userQuery, "")
                     .replace("<system>", "")
                     .replace("</system>", "")
                     .trim()
         }
-        if (params.hashingKv != null && (params.globalConfig["enable_llm_cache"] as? Boolean == true)) {
-            val queryParamDict =
-                QueryParamCache(
-                    mode = params.queryParam.mode,
-                    responseType = params.queryParam.responseType,
-                    topK = params.queryParam.topK,
-                    chunkTopK = params.queryParam.chunkTopK,
-                    maxEntityTokens = params.queryParam.maxEntityTokens,
-                    maxRelationTokens = params.queryParam.maxRelationTokens,
-                    maxTotalTokens = params.queryParam.maxTotalTokens,
-                    hlKeywords = params.queryParam.hlKeywords.joinToString(", "),
-                    llKeywords = params.queryParam.llKeywords.joinToString(", "),
-                    userPrompt = params.queryParam.userPrompt ?: "",
-                    enableRerank = params.queryParam.enableRerank,
-                )
-            saveToCache(
-                params.hashingKv,
-                CacheData(
-                    argsHash = argsHash,
-                    content = responseContent,
-                    prompt = userQuery,
-                    mode = params.queryParam.mode,
-                    cacheType = "query",
-                    queryParam = queryParamDict,
-                    historyMessages = params.queryParam.conversationHistory,
-                ),
-            )
-        }
+
+        saveQueryCache(params, argsHash, responseContent, userQuery, maxTotalTokens)
+
         return QueryResult(content = responseContent, rawData = rawData)
-    } else if (response is Flow<*>) {
-        return QueryResult(responseIterator = response as Flow<String>, rawData = rawData, isStreaming = true)
-    }
-    return null
-}
-
-/*
-
-package lightrag.operate
-
-import dev.langchain4j.data.message.AiMessage
-import dev.langchain4j.data.message.ChatMessage
-import dev.langchain4j.data.message.SystemMessage
-import dev.langchain4j.data.message.UserMessage
-import dev.langchain4j.model.chat.ChatModel
-import dev.langchain4j.model.output.Response
-import io.mockk.every
-import io.mockk.mockk
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.runBlocking
-import org.junit.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
-
-class NaiveQueryTest {
-
-    private fun defaultParams(
-        query: String = "What is AI?",
-        chatModel: ChatModel? = mockk(),
-        chunks: List<Map<String, Any?>> = listOf(mapOf("content" to "AI is Artificial Intelligence", "reference_id" to "ref1")),
-        tokenizer: (String) -> List<String> = { it.split(" ") },
-        decoder: ((String) -> String)? = null,
-        globalConfig: Map<String, Any?> = emptyMap(),
-        onlyNeedContext: Boolean = false,
-        onlyNeedPrompt: Boolean = false,
-        stream: Boolean = false,
-    ): NaiveQueryParams {
-        return NaiveQueryParams(
-            query = query,
-            chatModel = chatModel,
-            globalConfig = globalConfig,
-            tokenizer = tokenizer,
-            decoder = decoder,
-            chunksVdb = object : ChunksVdb {
-                override fun getVectorContext(query: String, param: QueryParam): List<Map<String, Any?>> = chunks
-            },
-            queryParam = QueryParam(
-                onlyNeedContext = onlyNeedContext,
-                onlyNeedPrompt = onlyNeedPrompt,
-                stream = stream
-            ),
-            hashingKv = null,
-            systemPrompt = null
-        )
-    }
-
-    @Test
-    fun `returns fail response when query is blank`() = runBlocking {
-        val params = defaultParams(query = "")
-        val result = naiveQuery(params)
-        assertNotNull(result)
-        assertEquals(Prompts.FAIL_RESPONSE, result.content)
-    }
-
-    @Test
-    fun `returns error when chat model is missing`() = runBlocking {
-        val params = defaultParams(chatModel = null)
-        val result = naiveQuery(params)
-        assertNotNull(result)
-        assertTrue(result.content.contains("Error: No LLM model configured"))
-    }
-
-    @Test
-    fun `returns null when no chunks found`() = runBlocking {
-        val params = defaultParams(chunks = emptyList())
-        val result = naiveQuery(params)
-        assertEquals(null, result)
-    }
-
-    @Test
-    fun `returns context only when onlyNeedContext is true`() = runBlocking {
-        val params = defaultParams(onlyNeedContext = true)
-        val result = naiveQuery(params)
-        assertNotNull(result)
-        assertTrue(result.content.contains("ref1") || result.content.contains("AI is Artificial Intelligence"))
-        assertNotNull(result.rawData)
-    }
-
-    @Test
-    fun `returns prompt only when onlyNeedPrompt is true`() = runBlocking {
-        val params = defaultParams(onlyNeedPrompt = true)
-        val result = naiveQuery(params)
-        assertNotNull(result)
-        assertTrue(result.content.contains("---User Query---"))
-        assertNotNull(result.rawData)
-    }
-
-    @Test
-    fun `returns cached result if present`() = runBlocking {
-        val cache = mutableMapOf<String, Pair<String, Any?>>()
-        val params = defaultParams(globalConfig = mapOf("enable_llm_cache" to true), hashingKv = cache)
-        // Simulate cache hit
-        cache["someHash"] = "Cached response" to null
-        // Patch computeArgsHash and handleCache to always hit cache
-        val originalComputeArgsHash = ::computeArgsHash
-        val originalHandleCache = ::handleCache
-        try {
-            ::computeArgsHash.set { _, _, _, _, _, _, _, _, _, _ -> "someHash" }
-            ::handleCache.set { _, hash, _, _, _ -> cache[hash] }
-            val result = naiveQuery(params)
-            assertNotNull(result)
-            assertEquals("Cached response", result.content)
-        } finally {
-            ::computeArgsHash.set(originalComputeArgsHash)
-            ::handleCache.set(originalHandleCache)
-        }
-    }
-
-    @Test
-    fun `calls LLM and returns its response`() = runBlocking {
-        val mockModel = mockk<ChatModel>()
-        every { mockModel.chat(any<List<ChatMessage>>()) } returns Response.from(AiMessage("LLM answer"))
-        val params = defaultParams(chatModel = mockModel)
-        val result = naiveQuery(params)
-        assertNotNull(result)
-        assertTrue(result.content.contains("LLM answer"))
-    }
-
-    @Test
-    fun `returns streaming response when stream is true and model supports it`() = runBlocking {
-        val streamingModel = mockk<StreamingChatModel>()
-        val flow = mockk<Flow<String>>()
-        every { streamingModel.chat(any(), any()) } answers {
-            val handler = secondArg<dev.langchain4j.model.StreamingResponseHandler<AiMessage>>()
-            handler.onNext("token1")
-            handler.onComplete(Response.from(AiMessage("streamed")))
-        }
-        val params = defaultParams(chatModel = streamingModel, stream = true)
-        val result = naiveQuery(params)
-        assertNotNull(result)
-        assertTrue(result.isStreaming)
     }
 }
-
-*/
