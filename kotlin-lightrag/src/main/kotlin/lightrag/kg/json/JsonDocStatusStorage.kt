@@ -14,6 +14,13 @@ import java.lang.Math.min
 
 private val logger = KotlinLogging.logger {}
 
+/**
+ * A JSON-backed storage for document processing statuses.
+ * @property namespace The namespace of the storage.
+ * @property workspace The workspace of the storage.
+ * @property globalConfig The global configuration for the storage.
+ * @property embeddingFunc The embedding model to use.
+ */
 class JsonDocStatusStorage(
     override val namespace: String,
     override val workspace: String,
@@ -31,6 +38,9 @@ class JsonDocStatusStorage(
             prettyPrint = true
         }
 
+    /**
+     * Initializes the storage by loading data from the JSON file.
+     */
     override suspend fun initialize() {
         if (!workingDir.exists()) {
             workingDir.mkdirs()
@@ -51,6 +61,9 @@ class JsonDocStatusStorage(
         }
     }
 
+    /**
+     * Saves the current state of the storage to the JSON file.
+     */
     override suspend fun indexDoneCallback() {
         mutex.withLock {
             try {
@@ -63,6 +76,11 @@ class JsonDocStatusStorage(
         }
     }
 
+    /**
+     * Gets a document by its ID.
+     * @param id The ID of the document to get.
+     * @return A map representing the document.
+     */
     override suspend fun getById(id: String): Map<String, Any>? =
         mutex.withLock {
             docs[id]?.let {
@@ -80,15 +98,29 @@ class JsonDocStatusStorage(
             }
         }
 
+    /**
+     * Gets documents by their IDs.
+     * @param ids The IDs of the documents to get.
+     * @return A list of maps representing the documents.
+     */
     override suspend fun getByIds(ids: List<String>): List<Map<String, Any>> {
         return ids.mapNotNull { getById(it) }
     }
 
+    /**
+     * Filters keys from the storage.
+     * @param keys The keys to filter.
+     * @return A set of the filtered keys.
+     */
     override suspend fun filterKeys(keys: Set<String>): Set<String> =
         mutex.withLock {
             keys.filter { !docs.containsKey(it) }.toSet()
         }
 
+    /**
+     * Upserts data into the storage.
+     * @param data The data to upsert.
+     */
     override suspend fun upsert(data: Map<String, Map<String, Any>>) {
         mutex.withLock {
             data.forEach { (id, map) ->
@@ -114,12 +146,20 @@ class JsonDocStatusStorage(
         }
     }
 
+    /**
+     * Deletes items by their IDs.
+     * @param ids The IDs of the items to delete.
+     */
     override suspend fun delete(ids: List<String>) {
         mutex.withLock {
             ids.forEach { docs.remove(it) }
         }
     }
 
+    /**
+     * Drops the storage.
+     * @return A map with the status of the operation.
+     */
     override suspend fun drop(): Map<String, String> {
         mutex.withLock {
             docs.clear()
@@ -130,26 +170,53 @@ class JsonDocStatusStorage(
         return mapOf("status" to "success", "message" to "data dropped")
     }
 
+    /**
+     * Checks if the storage is empty.
+     * @return True if the storage is empty, false otherwise.
+     */
     override suspend fun isEmpty(): Boolean =
         mutex.withLock {
             docs.isEmpty()
         }
 
+    /**
+     * Gets the status counts.
+     * @return A map of status counts.
+     */
     override suspend fun getStatusCounts(): Map<String, Int> =
         mutex.withLock {
             docs.values.groupingBy { it.status.value }.eachCount()
         }
 
+    /**
+     * Gets documents by their status.
+     * @param status The status of the documents to get.
+     * @return A map of document IDs to document processing statuses.
+     */
     override suspend fun getDocsByStatus(status: DocStatus): Map<String, DocProcessingStatus> =
         mutex.withLock {
             docs.filterValues { it.status == status }
         }
 
+    /**
+     * Gets documents by their track ID.
+     * @param trackId The track ID of the documents to get.
+     * @return A map of document IDs to document processing statuses.
+     */
     override suspend fun getDocsByTrackId(trackId: String): Map<String, DocProcessingStatus> =
         mutex.withLock {
             docs.filterValues { it.trackId == trackId }
         }
 
+    /**
+     * Gets documents with pagination.
+     * @param statusFilter The status to filter by.
+     * @param page The page number.
+     * @param pageSize The size of the page.
+     * @param sortField The field to sort by.
+     * @param sortDirection The direction to sort by.
+     * @return A pair of the list of documents and the total number of documents.
+     */
     override suspend fun getDocsPaginated(
         statusFilter: DocStatus?,
         page: Int,
@@ -183,8 +250,17 @@ class JsonDocStatusStorage(
             Pair(filtered.subList(start, end), total)
         }
 
+    /**
+     * Gets all status counts.
+     * @return A map of all status counts.
+     */
     override suspend fun getAllStatusCounts(): Map<String, Int> = getStatusCounts()
 
+    /**
+     * Gets a document by its file path.
+     * @param filePath The file path of the document to get.
+     * @return A map representing the document.
+     */
     override suspend fun getDocByFilePath(filePath: String): Map<String, Any>? =
         mutex.withLock {
             val entry = docs.entries.find { it.value.filePath == filePath }

@@ -14,18 +14,34 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import lightrag.core.LightRAG
 
+/**
+ * Represents the request body for inserting a single text document.
+ * @property text The text content to be inserted.
+ * @property fileSource Optional source identifier for the text.
+ */
 @Serializable
 data class InsertTextRequest(
     val text: String,
     @SerialName("file_source") val fileSource: String? = null,
 )
 
+/**
+ * Represents the request body for inserting multiple text documents.
+ * @property texts A list of text contents to be inserted.
+ * @property fileSources Optional list of source identifiers for the texts.
+ */
 @Serializable
 data class InsertTextsRequest(
     val texts: List<String>,
     @SerialName("file_sources") val fileSources: List<String>? = null,
 )
 
+/**
+ * Represents the response after an insert operation.
+ * @property status The status of the operation (e.g., "success").
+ * @property message A descriptive message about the outcome.
+ * @property trackId A unique tracking ID for the operation.
+ */
 @Serializable
 data class InsertResponse(
     val status: String,
@@ -33,11 +49,23 @@ data class InsertResponse(
     @SerialName("track_id") val trackId: String,
 )
 
+/**
+ * Represents the request body for deleting documents.
+ * @property docIds A list of document IDs to be deleted.
+ */
 @Serializable
 data class DeleteDocRequest(
     @SerialName("doc_ids") val docIds: List<String>,
 )
 
+/**
+ * Configures the document-related routes for the Ktor application.
+ *
+ * This function sets up endpoints for uploading, inserting, and deleting text documents,
+ * as well as checking the processing status.
+ *
+ * @param rag The LightRAG instance to be used for document operations.
+ */
 fun Application.configureDocumentRoutes(rag: LightRAG) {
     routing {
         route("/documents") {

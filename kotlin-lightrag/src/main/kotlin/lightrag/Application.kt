@@ -28,11 +28,17 @@ import lightrag.llm.LLMFactory
 
 private val logger = KotlinLogging.logger {}
 
+/**
+ * The main entry point of the application.
+ */
 fun main() {
     embeddedServer(Netty, port = 8080, host = "0.0.0.0", module = Application::module)
         .start(wait = true)
 }
 
+/**
+ * The main module of the application.
+ */
 fun Application.module() {
     install(ContentNegotiation) {
         json()
@@ -125,6 +131,11 @@ private suspend fun LightRAG.persistStorages() {
     logger.info { "Persistent stores flushed under working dir: $workingDir" }
 }
 
+/**
+ * The response for the drop operation.
+ * @property status The status of the operation.
+ * @property details The details of the operation.
+ */
 @Serializable
 data class DropResponse(
     val status: String,

@@ -18,6 +18,14 @@ import java.io.File
 
 private val logger = KotlinLogging.logger {}
 
+/**
+ * An in-memory vector storage implementation.
+ * @property namespace The namespace of the storage.
+ * @property workspace The workspace of the storage.
+ * @property globalConfig The global configuration for the storage.
+ * @property embeddingFunc The embedding model to use.
+ * @property cosineThreshold The threshold for cosine similarity.
+ */
 class InMemoryVectorStorage(
     override val namespace: String,
     override val workspace: String,
@@ -25,7 +33,13 @@ class InMemoryVectorStorage(
     override val embeddingFunc: EmbeddingModel,
     private val cosineThreshold: Double? = null,
 ) : BaseVectorStorage {
+    /**
+     * The threshold for cosine similarity.
+     */
     override val cosineBetterThanThreshold: Double = cosineThreshold ?: (globalConfig["cosine_better_than_threshold"] as? Double ?: 0.2)
+    /**
+     * The set of meta fields.
+     */
     override val metaFields: Set<String> = emptySet()
 
     // Using ConcurrentHashMap for thread safety might be better, but MutableMap is fine for simple impl
@@ -45,6 +59,9 @@ class InMemoryVectorStorage(
         }
     }
 
+    /**
+     * Initializes the storage by loading data from the JSON file.
+     */
     override suspend fun initialize() {
         if (!workingDir.exists()) {
             workingDir.mkdirs()
@@ -79,6 +96,9 @@ class InMemoryVectorStorage(
         }
     }
 
+    /**
+     * Saves the current state of the storage to the JSON file.
+     */
     override suspend fun indexDoneCallback() {
         try {
             if (!workingDir.exists()) {
@@ -104,6 +124,10 @@ class InMemoryVectorStorage(
         }
     }
 
+    /**
+     * Drops the storage.
+     * @return A map with the status of the operation.
+     */
     override suspend fun drop(): Map<String, String> {
         vectors.clear()
         metadata.clear()
@@ -113,6 +137,13 @@ class InMemoryVectorStorage(
         return mapOf("status" to "success", "message" to "data dropped and file removed at ${file.absolutePath}")
     }
 
+    /**
+     * Queries the vector storage.
+     * @param query The query string.
+     * @param topK The number of top results to return.
+     * @param queryEmbedding The query embedding.
+     * @return A list of maps representing the results.
+     */
     override suspend fun query(
         query: String,
         topK: Int,
@@ -176,6 +207,10 @@ class InMemoryVectorStorage(
         }
     }
 
+    /**
+     * Upserts data into the vector storage.
+     * @param data The data to upsert.
+     */
     override suspend fun upsert(data: Map<String, Map<String, Any>>) {
         // data keys are IDs, values are metadata maps
         // We expect metadata to contain "content" field which needs to be embedded if not already vectors?
@@ -226,6 +261,10 @@ class InMemoryVectorStorage(
         }
     }
 
+    /**
+     * Deletes an entity from the vector storage.
+     * @param entityName The name of the entity to delete.
+     */
     override suspend fun deleteEntity(entityName: String) {
         // Remove entities where entity_name matches
         val idsToDelete =
@@ -235,6 +274,10 @@ class InMemoryVectorStorage(
         delete(idsToDelete.toList())
     }
 
+    /**
+     * Deletes an entity relation from the vector storage.
+     * @param entityName The name of the entity relation to delete.
+     */
     override suspend fun deleteEntityRelation(entityName: String) {
         // Remove relations where src_id or tgt_id matches
         val idsToDelete =
@@ -244,14 +287,28 @@ class InMemoryVectorStorage(
         delete(idsToDelete.toList())
     }
 
+    /**
+     * Gets an item by its ID.
+     * @param id The ID of the item to get.
+     * @return A map representing the item.
+     */
     override suspend fun getById(id: String): Map<String, Any>? {
         return metadata[id]?.raw
     }
 
+    /**
+     * Gets items by their IDs.
+     * @param ids The IDs of the items to get.
+     * @return A list of maps representing the items.
+     */
     override suspend fun getByIds(ids: List<String>): List<Map<String, Any>> {
         return ids.mapNotNull { metadata[it]?.raw }
     }
 
+    /**
+     * Deletes items by their IDs.
+     * @param ids The IDs of the items to delete.
+     */
     override suspend fun delete(ids: List<String>) {
         ids.forEach {
             vectors.remove(it)
@@ -259,6 +316,11 @@ class InMemoryVectorStorage(
         }
     }
 
+    /**
+     * Gets vectors by their IDs.
+     * @param ids The IDs of the vectors to get.
+     * @return A map of IDs to vectors.
+     */
     override suspend fun getVectorsByIds(ids: List<String>): Map<String, List<Float>> {
         return ids.mapNotNull { id ->
             vectors[id]?.let { id to it }

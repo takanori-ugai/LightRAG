@@ -19,6 +19,7 @@ import lightrag.kg.json.JsonDocStatusStorage
 import lightrag.kg.json.JsonKVStorage
 import lightrag.kg.memory.InMemoryGraphStorage
 import lightrag.kg.memory.InMemoryVectorStorage
+import lightrag.kg.neo4j.Neo4jEmbeddingStoreVectorStorage
 import lightrag.kg.neo4j.Neo4jVectorStorage
 import lightrag.llm.LLMFactory
 import lightrag.operate.NaiveQueryParams
@@ -33,6 +34,25 @@ import java.time.Instant
 
 private val logger = KotlinLogging.logger {}
 
+/**
+ * Parameters for a query.
+ * @property mode The query mode.
+ * @property onlyNeedContext Whether to return only the context.
+ * @property onlyNeedPrompt Whether to return only the prompt.
+ * @property responseType The desired response type.
+ * @property stream Whether to stream the response.
+ * @property topK The number of top results to return.
+ * @property chunkTopK The number of top chunks to return.
+ * @property maxEntityTokens The maximum number of tokens for entities.
+ * @property maxRelationTokens The maximum number of tokens for relations.
+ * @property maxTotalTokens The maximum total number of tokens.
+ * @property hlKeywords Keywords to highlight.
+ * @property llKeywords Keywords to lowlight.
+ * @property conversationHistory The conversation history.
+ * @property userPrompt The user prompt.
+ * @property enableRerank Whether to enable reranking.
+ * @property includeReferences Whether to include references.
+ */
 @Serializable
 data class QueryParam(
     val mode: String = "global",
@@ -67,6 +87,25 @@ data class QueryParam(
     val includeReferences: Boolean = false,
 )
 
+/**
+ * The main class for the LightRAG application.
+ * @param workingDir The working directory for the RAG storage.
+ * @param chatModel The chat model to use.
+ * @param embeddingModel The embedding model to use.
+ * @param hashingKv The key-value storage for hashing.
+ * @param docStatusStorageOverride The storage for document statuses.
+ * @param fullDocsStorageOverride The storage for full documents.
+ * @param textChunksStorageOverride The storage for text chunks.
+ * @param fullEntitiesStorageOverride The storage for full entities.
+ * @param fullRelationsStorageOverride The storage for full relations.
+ * @param llmBinding The binding for the language model.
+ * @param llmModelName The name of the language model.
+ * @param embeddingBinding The binding for the embedding model.
+ * @param embeddingModelName The name of the embedding model.
+ * @param graphStorageName The name of the graph storage.
+ * @param vectorStorageName The name of the vector storage.
+ * @param addonConfig The configuration for addons.
+ */
 class LightRAG(
     val workingDir: String = "./rag_storage",
     chatModel: ChatModel? = null,
@@ -99,6 +138,9 @@ class LightRAG(
 
     private val registry: EncodingRegistry = Encodings.newDefaultEncodingRegistry()
     private val enc: Encoding = registry.getEncoding(EncodingType.CL100K_BASE)
+    /**
+     * Tokenizer function that converts a string to a list of integers.
+     */
     val tokenizer: (String) -> List<Int> = { text: String ->
         val intArrayList = enc.encode(text)
         val list = mutableListOf<Int>()
@@ -107,12 +149,18 @@ class LightRAG(
         }
         list
     }
+    /**
+     * Decoder function that converts a list of integers to a string.
+     */
     val decoder: (List<Int>) -> String = { list ->
         val intArrayList = IntArrayList()
         list.forEach { intArrayList.add(it) }
         enc.decode(intArrayList)
     }
 
+    /**
+     * The global configuration for the LightRAG application.
+     */
     val globalConfig: Map<String, Any?> =
         mapOf(
             "llm_model_func" to chatModel,
@@ -125,6 +173,9 @@ class LightRAG(
             "enable_llm_cache" to (hashingKv != null),
         ) + addonConfig.toMap()
 
+    /**
+     * The storage for document statuses.
+     */
     val docStatusStorage: DocStatusStorage =
         docStatusStorageOverride
             ?: JsonDocStatusStorage(
@@ -133,6 +184,9 @@ class LightRAG(
                 globalConfig = mapOf("working_dir" to workingDir),
                 embeddingFunc = embedding,
             )
+    /**
+     * The storage for full documents.
+     */
     val fullDocs: BaseKVStorage =
         fullDocsStorageOverride
             ?: JsonKVStorage(
@@ -141,6 +195,9 @@ class LightRAG(
                 globalConfig = mapOf("working_dir" to workingDir),
                 embeddingFunc = embedding,
             )
+    /**
+     * The storage for text chunks.
+     */
     val textChunks: BaseKVStorage =
         textChunksStorageOverride
             ?: JsonKVStorage(
@@ -150,6 +207,9 @@ class LightRAG(
                 embeddingFunc = embedding,
             )
 
+    /**
+     * The storage for full entities.
+     */
     val fullEntities: BaseKVStorage =
         fullEntitiesStorageOverride
             ?: JsonKVStorage(
@@ -158,6 +218,9 @@ class LightRAG(
                 globalConfig = mapOf("working_dir" to workingDir),
                 embeddingFunc = embedding,
             )
+    /**
+     * The storage for full relations.
+     */
     val fullRelations: BaseKVStorage =
         fullRelationsStorageOverride
             ?: JsonKVStorage(
@@ -169,6 +232,14 @@ class LightRAG(
 
     private fun createVectorStorage(namespace: String): BaseVectorStorage {
         return when (vectorStorageName) {
+            "Neo4jEmbeddingStoreVectorStorage", "Neo4jEmbeddingStore" ->
+                Neo4jEmbeddingStoreVectorStorage(
+                    namespace = namespace,
+                    workspace = "default",
+                    globalConfig = globalConfig,
+                    embeddingFunc = embedding,
+                    cosineThreshold = addonConfig.cosineBetterThreshold,
+                )
             "Neo4jVectorStorage" ->
                 Neo4jVectorStorage(
                     namespace = namespace,
@@ -188,10 +259,22 @@ class LightRAG(
         }
     }
 
+    /**
+     * The vector storage for chunks.
+     */
     val chunksVdb: BaseVectorStorage = createVectorStorage("chunks_vdb")
+    /**
+     * The vector storage for entities.
+     */
     val entitiesVdb: BaseVectorStorage = createVectorStorage("entities_vdb")
+    /**
+     * The vector storage for relationships.
+     */
     val relationshipsVdb: BaseVectorStorage = createVectorStorage("relationships_vdb")
 
+    /**
+     * The graph storage for the chunk-entity-relation graph.
+     */
     val chunkEntityRelationGraph: BaseGraphStorage =
         when (graphStorageName) {
             "MongoGraphStorage" -> {
@@ -216,10 +299,25 @@ class LightRAG(
                 )
         }
 
+    /**
+     * The key-value storage.
+     */
     val kvStorage: BaseKVStorage = textChunks
+    /**
+     * The vector storage.
+     */
     val vectorStorage: BaseVectorStorage = entitiesVdb
+    /**
+     * The graph storage.
+     */
     val graphStorage: BaseGraphStorage = chunkEntityRelationGraph
 
+    /**
+     * Inserts a single document.
+     * @param input The document to insert.
+     * @param fileSource The source of the file.
+     * @return A track ID for the insertion.
+     */
     suspend fun insert(
         input: String,
         fileSource: String? = null,
@@ -228,6 +326,12 @@ class LightRAG(
         return insert(listOf(input), fileSources)
     }
 
+    /**
+     * Inserts multiple documents.
+     * @param input The documents to insert.
+     * @param fileSources The sources of the files.
+     * @return A track ID for the insertion.
+     */
     suspend fun insert(
         input: List<String>,
         fileSources: List<String>? = null,
@@ -416,6 +520,9 @@ class LightRAG(
         }
     }
 
+    /**
+     * Rebuilds the derived storage if it is empty.
+     */
     suspend fun rebuildDerivedStorageIfEmpty() {
         val processedDocs = docStatusStorage.getDocsByStatus(DocStatus.PROCESSED)
         val graphEmpty = chunkEntityRelationGraph.getAllNodes().isEmpty()
@@ -448,6 +555,12 @@ class LightRAG(
         pipelineProcessEnqueueDocuments()
     }
 
+    /**
+     * Queries the LightRAG system.
+     * @param query The query to execute.
+     * @param param The query parameters.
+     * @return The query result.
+     */
     suspend fun query(
         query: String,
         param: QueryParam,
@@ -492,10 +605,19 @@ class LightRAG(
         }
     }
 
+    /**
+     * Gets the processing status of the documents.
+     * @return A map of the status counts.
+     */
     suspend fun getProcessingStatus(): Map<String, Int> {
         return docStatusStorage.getStatusCounts()
     }
 
+    /**
+     * Deletes a document by its ID.
+     * @param docId The ID of the document to delete.
+     * @return A map of the status.
+     */
     suspend fun deleteByDocId(docId: String): Map<String, String> {
         docStatusStorage.delete(listOf(docId))
         return mapOf("status" to "success", "doc_id" to docId)

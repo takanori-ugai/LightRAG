@@ -1,6 +1,12 @@
 package lightrag.utils
 
+/**
+ * A collection of prompts used throughout the LightRAG application.
+ */
 object Prompts {
+    /**
+     * The system prompt for entity extraction.
+     */
     const val ENTITY_EXTRACTION_SYSTEM_PROMPT = """---Role---
 You are a Knowledge Graph Specialist responsible for extracting entities and relationships from the input text.
 
@@ -28,6 +34,9 @@ You are a Knowledge Graph Specialist responsible for extracting entities and rel
 
 """
 
+    /**
+     * The user prompt for entity extraction.
+     */
     const val ENTITY_EXTRACTION_USER_PROMPT = """---Task---
 Extract entities and relationships from the input text in Data to be Processed below.
 
@@ -48,6 +57,9 @@ Extract entities and relationships from the input text in Data to be Processed b
 <Output>
 """
 
+    /**
+     * Examples for entity extraction.
+     */
     val ENTITY_EXTRACTION_EXAMPLES =
         listOf(
             """<Entity_types>
@@ -291,6 +303,9 @@ At the World Athletics Championship in Tokyo, Noah Carter broke the 100m sprint 
 """,
         )
 
+    /**
+     * The prompt for summarizing entity descriptions.
+     */
     const val SUMMARIZE_ENTITY_DESCRIPTIONS = """---Role---
 You are a Knowledge Graph Specialist, proficient in data curation and synthesis.
 
@@ -326,8 +341,14 @@ Description List:
 ---Output---
 """
 
+    /**
+     * The response to return when no context is found.
+     */
     const val FAIL_RESPONSE = "Sorry, I'm not able to provide an answer to that question.[no-context]"
 
+    /**
+     * The prompt for generating a RAG response.
+     */
     const val RAG_RESPONSE = """---Role---
 
 You are an expert AI assistant specializing in synthesizing information from a provided knowledge base. Your primary function is to answer user queries accurately by ONLY using the information within the provided **Context**.
@@ -382,6 +403,9 @@ Consider the conversation history if provided to maintain conversational flow an
 {context_data}
 """
 
+    /**
+     * The prompt for generating a naive RAG response.
+     */
     const val NAIVE_RAG_RESPONSE = """---Role---
 
 You are an expert AI assistant specializing in synthesizing information from a provided knowledge base. Your primary function is to answer user queries accurately by ONLY using the information within the provided **Context**.
@@ -436,6 +460,9 @@ Consider the conversation history if provided to maintain conversational flow an
 {content_data}
 """
 
+    /**
+     * The context for a knowledge graph query.
+     */
     const val KG_QUERY_CONTEXT = """
 Knowledge Graph Data (Entity):
 
@@ -463,6 +490,9 @@ Reference Document List (Each entry starts with a [reference_id] that correspond
 
 """
 
+    /**
+     * The context for a naive query.
+     */
     const val NAIVE_QUERY_CONTEXT = """
 Document Chunks (Each entry has a reference_id refer to the `Reference Document List`):
 
@@ -478,6 +508,9 @@ Reference Document List (Each entry starts with a [reference_id] that correspond
 
 """
 
+    /**
+     * The prompt for keywords extraction.
+     */
     const val KEYWORDS_EXTRACTION = """---Role---
 You are an expert keyword extractor, specializing in analyzing user queries for a Retrieval-Augmented Generation (RAG) system. Your purpose is to identify both high-level and low-level keywords in the user's query that will be used for effective document retrieval.
 
@@ -502,6 +535,9 @@ User Query: {query}
 ---Output---
 Output:"""
 
+    /**
+     * Examples for keywords extraction.
+     */
     val KEYWORDS_EXTRACTION_EXAMPLES =
         listOf(
             """Example 1:

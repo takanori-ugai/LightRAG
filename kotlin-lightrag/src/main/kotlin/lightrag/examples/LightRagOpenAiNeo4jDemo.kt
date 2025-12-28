@@ -12,6 +12,11 @@ import java.io.File
 import java.net.URI
 import java.time.Duration
 
+/**
+ * The main function for the LightRAG OpenAI Neo4j demo.
+ * This function demonstrates how to use LightRAG with OpenAI models and a Neo4j-backed graph storage.
+ * It initializes the models and storage, inserts a document, and queries it using different modes.
+ */
 fun main() =
     runBlocking {
         // Check OpenAI environment variable

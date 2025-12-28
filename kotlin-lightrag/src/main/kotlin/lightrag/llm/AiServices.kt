@@ -6,7 +6,17 @@ import dev.langchain4j.service.V
 import lightrag.operate.ExtractionResult
 import lightrag.operate.KeywordsExtractionResult
 
+/**
+ * An AI service for extracting entities and relationships from text.
+ */
 interface EntityExtractor {
+    /**
+     * Extracts entities and relationships from the given text.
+     * @param text The text to extract from.
+     * @param entityTypes The types of entities to extract.
+     * @param language The language of the text.
+     * @return An [ExtractionResult] containing the extracted entities and relationships.
+     */
     @SystemMessage(
         """---Role---
 You are a Knowledge Graph Specialist responsible for extracting entities and relationships from the input text.
@@ -86,7 +96,17 @@ Extract entities and relationships from the input text in Data to be Processed b
     ): ExtractionResult
 }
 
+/**
+ * An AI service for extracting keywords from text.
+ */
 interface KeywordExtractor {
+    /**
+     * Extracts keywords from the given text.
+     * @param text The text to extract from.
+     * @param language The language of the text.
+     * @param examples Examples of keywords to extract.
+     * @return A [KeywordsExtractionResult] containing the extracted keywords.
+     */
     @SystemMessage(
         """---Role---
 You are an expert keyword extractor, specializing in analyzing user queries for a Retrieval-Augmented Generation (RAG) system. Your purpose is to identify both high-level and low-level keywords in the user's query that will be used for effective document retrieval.

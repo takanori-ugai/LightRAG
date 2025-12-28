@@ -20,6 +20,11 @@ private val logger = KotlinLogging.logger {}
 /**
  * A simple Neo4j-backed vector storage. It keeps an in-memory cache for similarity
  * calculations and persists vectors/metadata as nodes in Neo4j for durability.
+ * @property namespace The namespace of the storage.
+ * @property workspace The workspace of the storage.
+ * @property globalConfig The global configuration for the storage.
+ * @property embeddingFunc The embedding model to use.
+ * @property cosineThreshold The threshold for cosine similarity.
  */
 class Neo4jVectorStorage(
     override val namespace: String,
@@ -28,8 +33,14 @@ class Neo4jVectorStorage(
     override val embeddingFunc: EmbeddingModel,
     private val cosineThreshold: Double? = null,
 ) : BaseVectorStorage {
+    /**
+     * The threshold for cosine similarity.
+     */
     override val cosineBetterThanThreshold: Double =
         cosineThreshold ?: (globalConfig["cosine_better_than_threshold"] as? Double ?: 0.2)
+    /**
+     * The set of meta fields.
+     */
     override val metaFields: Set<String> = emptySet()
 
     private var driver: Driver? = null
@@ -66,6 +77,9 @@ class Neo4jVectorStorage(
         return database?.let { SessionConfig.forDatabase(it) } ?: SessionConfig.defaultConfig()
     }
 
+    /**
+     * Initializes the storage by creating a Neo4j driver and creating a constraint on the label.
+     */
     override suspend fun initialize() {
         val cfg = parseNeo4jConfig()
         val uri = System.getenv("NEO4J_URI") ?: cfg?.uri
@@ -108,6 +122,9 @@ class Neo4jVectorStorage(
         loadFromNeo()
     }
 
+    /**
+     * Closes the Neo4j driver.
+     */
     override suspend fun finalize() {
         driver?.close()
     }
@@ -140,10 +157,17 @@ class Neo4jVectorStorage(
         }
     }
 
+    /**
+     * Callback for when indexing is done.
+     */
     override suspend fun indexDoneCallback() {
         // no-op; data is persisted on each upsert
     }
 
+    /**
+     * Drops the storage.
+     * @return A map with the status of the operation.
+     */
     override suspend fun drop(): Map<String, String> {
         withContext(Dispatchers.IO) {
             driver?.session(sessionConfig())?.use { session ->
@@ -155,6 +179,13 @@ class Neo4jVectorStorage(
         return mapOf("status" to "success", "message" to "Deleted all nodes for label $label")
     }
 
+    /**
+     * Queries the vector storage.
+     * @param query The query string.
+     * @param topK The number of top results to return.
+     * @param queryEmbedding The query embedding.
+     * @return A list of maps representing the results.
+     */
     override suspend fun query(
         query: String,
         topK: Int,
@@ -181,6 +212,10 @@ class Neo4jVectorStorage(
         }
     }
 
+    /**
+     * Upserts data into the vector storage.
+     * @param data The data to upsert.
+     */
     override suspend fun upsert(data: Map<String, Map<String, Any>>) {
         data.forEach { (id, metaMap) ->
             val meta = mapToMetadata(metaMap)
@@ -200,27 +235,49 @@ class Neo4jVectorStorage(
         }
     }
 
+    /**
+     * Deletes an entity from the vector storage.
+     * @param entityName The name of the entity to delete.
+     */
     override suspend fun deleteEntity(entityName: String) {
         val idsToDelete =
             metadata.filter { it.value.entityName == entityName }.keys
         delete(idsToDelete.toList())
     }
 
+    /**
+     * Deletes an entity relation from the vector storage.
+     * @param entityName The name of the entity relation to delete.
+     */
     override suspend fun deleteEntityRelation(entityName: String) {
         val idsToDelete =
             metadata.filter { it.value.srcId == entityName || it.value.tgtId == entityName }.keys
         delete(idsToDelete.toList())
     }
 
+    /**
+     * Gets an item by its ID.
+     * @param id The ID of the item to get.
+     * @return A map representing the item.
+     */
     override suspend fun getById(id: String): Map<String, Any>? {
         val meta = metadata[id]?.raw ?: return null
         return meta + mapOf("id" to id, "vector" to (vectors[id] ?: emptyList<Float>()))
     }
 
+    /**
+     * Gets items by their IDs.
+     * @param ids The IDs of the items to get.
+     * @return A list of maps representing the items.
+     */
     override suspend fun getByIds(ids: List<String>): List<Map<String, Any>> {
         return ids.mapNotNull { getById(it) }
     }
 
+    /**
+     * Deletes items by their IDs.
+     * @param ids The IDs of the items to delete.
+     */
     override suspend fun delete(ids: List<String>) {
         if (ids.isEmpty()) return
         withContext(Dispatchers.IO) {
@@ -237,6 +294,11 @@ class Neo4jVectorStorage(
         }
     }
 
+    /**
+     * Gets vectors by their IDs.
+     * @param ids The IDs of the vectors to get.
+     * @return A map of IDs to vectors.
+     */
     override suspend fun getVectorsByIds(ids: List<String>): Map<String, List<Float>> {
         return ids.mapNotNull { id ->
             vectors[id]?.let { id to it }

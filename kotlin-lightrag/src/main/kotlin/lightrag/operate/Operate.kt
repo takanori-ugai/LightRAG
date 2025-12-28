@@ -30,12 +30,25 @@ import lightrag.utils.computeMd5
 
 private val logger = KotlinLogging.logger {}
 
+/**
+ * The result of a chunking operation.
+ * @property tokens The number of tokens in the chunk.
+ * @property content The content of the chunk.
+ * @property chunkOrderIndex The order index of the chunk.
+ */
 data class ChunkingResult(
     val tokens: Int,
     val content: String,
     val chunkOrderIndex: Int,
 )
 
+/**
+ * The result of an entity extraction operation.
+ * @property entityName The name of the entity.
+ * @property entityType The type of the entity.
+ * @property description A description of the entity.
+ * @property sourceId The ID of the source document.
+ */
 data class EntityExtractionResult(
     val entityName: String,
     val entityType: String,
@@ -43,6 +56,15 @@ data class EntityExtractionResult(
     val sourceId: String,
 )
 
+/**
+ * The result of a relation extraction operation.
+ * @property srcId The ID of the source entity.
+ * @property tgtId The ID of the target entity.
+ * @property description A description of the relation.
+ * @property keywords Keywords associated with the relation.
+ * @property weight The weight of the relation.
+ * @property sourceId The ID of the source document.
+ */
 data class RelationExtractionResult(
     val srcId: String,
     val tgtId: String,
@@ -52,11 +74,21 @@ data class RelationExtractionResult(
     val sourceId: String,
 )
 
+/**
+ * The result of a context retrieval operation.
+ * @property contextStr The context string.
+ * @property rawData The raw data of the context.
+ */
 data class ContextResult(
     val contextStr: String,
     val rawData: Map<String, Any?>?,
 )
 
+/**
+ * The result of a keywords extraction operation.
+ * @property highLevelKeywords A list of high-level keywords.
+ * @property lowLevelKeywords A list of low-level keywords.
+ */
 @Serializable
 data class KeywordsExtractionResult(
     @SerialName("highLevelKeywords")
@@ -65,6 +97,12 @@ data class KeywordsExtractionResult(
     val lowLevelKeywords: List<String> = emptyList(),
 )
 
+/**
+ * An extracted entity.
+ * @property name The name of the entity.
+ * @property type The type of the entity.
+ * @property description A description of the entity.
+ */
 @Serializable
 data class ExtractedEntity(
     val name: String = "",
@@ -72,6 +110,13 @@ data class ExtractedEntity(
     val description: String = "",
 )
 
+/**
+ * An extracted relation.
+ * @property source The source entity of the relation.
+ * @property target The target entity of the relation.
+ * @property keywords Keywords associated with the relation.
+ * @property description A description of the relation.
+ */
 @Serializable
 data class ExtractedRelation(
     val source: String = "",
@@ -80,28 +125,60 @@ data class ExtractedRelation(
     val description: String = "",
 )
 
+/**
+ * The result of an extraction operation.
+ * @property entities A list of extracted entities.
+ * @property relations A list of extracted relations.
+ */
 @Serializable
 data class ExtractionResult(
     val entities: List<ExtractedEntity> = emptyList(),
     val relations: List<ExtractedRelation> = emptyList(),
 )
 
+/**
+ * The result of getting node data.
+ * @property nodeDatas A list of node data maps.
+ * @property useRelations A list of relation data maps.
+ */
 data class GetNodeDataResult(
     val nodeDatas: List<Map<String, Any>>,
     val useRelations: List<Map<String, Any>>,
 )
 
+/**
+ * The result of getting edge data.
+ * @property edgeDatas A list of edge data maps.
+ * @property useEntities A list of entity data maps.
+ */
 data class GetEdgeDataResult(
     val edgeDatas: List<Map<String, Any>>,
     val useEntities: List<Map<String, Any>>,
 )
 
+/**
+ * The result of a knowledge graph search.
+ * @property finalEntities A list of final entities.
+ * @property finalRelations A list of final relations.
+ * @property vectorChunks A list of vector chunks.
+ */
 data class PerformKgSearchResult(
     val finalEntities: List<Map<String, Any>>,
     val finalRelations: List<Map<String, Any>>,
     val vectorChunks: List<Map<String, Any>>,
 )
 
+/**
+ * Chunks a string by token size.
+ * @param tokenizer The tokenizer to use.
+ * @param decoder The decoder to use.
+ * @param content The content to chunk.
+ * @param splitByCharacter The character to split by.
+ * @param splitByCharacterOnly Whether to split only by the character.
+ * @param chunkOverlapTokenSize The size of the chunk overlap in tokens.
+ * @param chunkTokenSize The size of the chunk in tokens.
+ * @return A list of [ChunkingResult]s.
+ */
 fun chunkingByTokenSize(
     // Assuming tokenizer returns list of tokens (Int)
     tokenizer: (String) -> List<Int>,
@@ -176,6 +253,12 @@ fun chunkingByTokenSize(
     return results
 }
 
+/**
+ * Extracts entities and relationships from a map of chunks.
+ * @param chunks A map of chunks.
+ * @param globalConfig The global configuration.
+ * @return A pair of maps containing the extracted entities and relationships.
+ */
 suspend fun extractEntities(
     chunks: Map<String, Map<String, Any>>,
     globalConfig: Map<String, Any?>,
@@ -217,6 +300,12 @@ suspend fun extractEntities(
     return nodes to edges
 }
 
+/**
+ * Processes the result of an extraction operation.
+ * @param result The extraction result.
+ * @param chunkKey The key of the chunk.
+ * @return A pair of maps containing the processed entities and relationships.
+ */
 fun processExtractionResult(
     result: ExtractionResult,
     chunkKey: String,
@@ -247,6 +336,16 @@ fun processExtractionResult(
     return nodes to edges
 }
 
+/**
+ * Merges nodes and edges into the knowledge graph.
+ * @param nodes A map of nodes.
+ * @param edges A map of edges.
+ * @param knowledgeGraphInst The knowledge graph instance.
+ * @param entitiesVdb The vector storage for entities.
+ * @param relationshipsVdb The vector storage for relationships.
+ * @param fullEntities The key-value storage for full entities.
+ * @param fullRelations The key-value storage for full relations.
+ */
 suspend fun mergeNodesAndEdges(
     nodes: Map<String, List<EntityExtractionResult>>,
     edges: Map<String, List<RelationExtractionResult>>,
@@ -328,6 +427,17 @@ suspend fun mergeNodesAndEdges(
     }
 }
 
+/**
+ * Gets the context string for a query.
+ * @param query The query string.
+ * @param queryParam The query parameters.
+ * @param knowledgeGraphInst The knowledge graph instance.
+ * @param entitiesVdb The vector storage for entities.
+ * @param relationshipsVdb The vector storage for relationships.
+ * @param chunksVdb The vector storage for chunks.
+ * @param textChunksDb The key-value storage for text chunks.
+ * @return A [ContextResult] containing the context string and raw data.
+ */
 suspend fun getContextStrForQuery(
     query: String,
     queryParam: QueryParam,
@@ -431,6 +541,21 @@ suspend fun getContextStrForQuery(
     return ContextResult(contextStr = contextContent, rawData = rawData)
 }
 
+/**
+ * Performs a knowledge graph query.
+ * @param query The query string.
+ * @param knowledgeGraphInst The knowledge graph instance.
+ * @param entitiesVdb The vector storage for entities.
+ * @param relationshipsVdb The vector storage for relationships.
+ * @param textChunksDb The key-value storage for text chunks.
+ * @param queryParam The query parameters.
+ * @param globalConfig The global configuration.
+ * @param hashingKv The key-value storage for hashing.
+ * @param systemPrompt The system prompt.
+ * @param chunksVdb The vector storage for chunks.
+ * @param chatModel The chat model to use.
+ * @return A [QueryResult] containing the result of the query.
+ */
 suspend fun kgQuery(
     query: String,
     knowledgeGraphInst: BaseGraphStorage,

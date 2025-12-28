@@ -12,13 +12,29 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import lightrag.core.LightRAG
 
+/**
+ * Represents the response containing a list of graph labels.
+ * @property labels The list of labels.
+ */
 @Serializable
 data class GraphLabelsResponse(val labels: List<String>)
 
+/**
+ * Represents a simplified knowledge graph response.
+ * @property nodes A list of nodes in the graph.
+ * @property edges A list of edges in the graph.
+ */
 @Serializable
 // Simplified
 data class KnowledgeGraphResponse(val nodes: List<String>, val edges: List<String>)
 
+/**
+ * Represents the request body for updating an entity.
+ * @property entityName The name of the entity to update.
+ * @property updatedData A map of the data to update.
+ * @property allowRename Whether to allow renaming the entity.
+ * @property allowMerge Whether to allow merging the entity.
+ */
 @Serializable
 data class EntityUpdateRequest(
     @SerialName("entity_name")
@@ -32,6 +48,11 @@ data class EntityUpdateRequest(
     val allowMerge: Boolean = false,
 )
 
+/**
+ * Represents the request body for creating an entity.
+ * @property entityName The name of the entity to create.
+ * @property entityData A map of the entity's data.
+ */
 @Serializable
 data class EntityCreateRequest(
     @SerialName("entity_name")
@@ -41,6 +62,12 @@ data class EntityCreateRequest(
     val entityData: Map<String, String>,
 )
 
+/**
+ * Represents the request body for creating a relation.
+ * @property sourceEntity The source entity of the relation.
+ * @property targetEntity The target entity of the relation.
+ * @property relationData A map of the relation's data.
+ */
 @Serializable
 data class RelationCreateRequest(
     @SerialName("source_entity")
@@ -52,6 +79,11 @@ data class RelationCreateRequest(
     val relationData: Map<String, String>,
 )
 
+/**
+ * Represents the request body for merging entities.
+ * @property entitiesToChange The list of entities to merge.
+ * @property entityToChangeInto The entity to merge into.
+ */
 @Serializable
 data class EntityMergeRequest(
     @SerialName("entities_to_change")
@@ -60,6 +92,14 @@ data class EntityMergeRequest(
     val entityToChangeInto: String,
 )
 
+/**
+ * Configures the graph-related routes for the Ktor application.
+ *
+ * This function sets up endpoints for interacting with the knowledge graph,
+ * including listing labels, retrieving graphs, and creating/editing entities and relations.
+ *
+ * @param rag The LightRAG instance to be used for graph operations.
+ */
 @Suppress("UnusedParameter")
 fun Application.configureGraphRoutes(rag: LightRAG) {
     routing {

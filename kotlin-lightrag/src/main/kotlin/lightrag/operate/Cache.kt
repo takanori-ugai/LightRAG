@@ -4,6 +4,11 @@ import lightrag.core.CacheData
 import lightrag.core.types.BaseKVStorage
 import lightrag.utils.JsonUtils
 
+/**
+ * Saves data to the cache.
+ * @param storage The storage to save to.
+ * @param data The data to save.
+ */
 suspend fun saveToCache(
     storage: BaseKVStorage,
     data: CacheData,

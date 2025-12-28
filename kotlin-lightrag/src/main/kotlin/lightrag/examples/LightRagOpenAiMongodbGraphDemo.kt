@@ -8,6 +8,11 @@ import lightrag.core.QueryParam
 import java.io.File
 import java.time.Duration
 
+/**
+ * The main function for the LightRAG OpenAI MongoDB Graph demo.
+ * This function demonstrates how to use LightRAG with OpenAI models and a MongoDB-backed graph storage.
+ * It initializes the models and storage, inserts a document, and queries it using different modes.
+ */
 fun main() {
     val workingDir = "./mongodb_test_dir"
     val dir = File(workingDir)

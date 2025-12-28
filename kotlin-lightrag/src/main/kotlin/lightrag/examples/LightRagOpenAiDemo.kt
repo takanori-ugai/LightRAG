@@ -8,6 +8,11 @@ import lightrag.core.QueryParam
 import lightrag.llm.LLMFactory
 import java.io.File
 
+/**
+ * The main function for the LightRAG OpenAI demo.
+ * This function demonstrates how to use LightRAG with OpenAI models.
+ * It initializes the models, inserts a document, and queries it using different modes.
+ */
 fun main() =
     runBlocking {
         // Check environment variable

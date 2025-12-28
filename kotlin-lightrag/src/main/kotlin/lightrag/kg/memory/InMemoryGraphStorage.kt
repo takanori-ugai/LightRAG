@@ -16,6 +16,13 @@ import java.io.File
 
 private val logger = KotlinLogging.logger {}
 
+/**
+ * An in-memory graph storage implementation.
+ * @property namespace The namespace of the storage.
+ * @property workspace The workspace of the storage.
+ * @property globalConfig The global configuration for the storage.
+ * @property embeddingFunc The embedding model to use.
+ */
 class InMemoryGraphStorage(
     override val namespace: String,
     override val workspace: String,
@@ -32,6 +39,9 @@ class InMemoryGraphStorage(
             prettyPrint = true
         }
 
+    /**
+     * Initializes the storage by loading data from the JSON file.
+     */
     @Suppress("UNCHECKED_CAST")
     override suspend fun initialize() {
         if (!workingDir.exists()) {
@@ -64,6 +74,9 @@ class InMemoryGraphStorage(
         }.onFailure { logger.error(it) { "Error loading graph storage from ${file.absolutePath}" } }
     }
 
+    /**
+     * Saves the current state of the storage to the JSON file.
+     */
     override suspend fun indexDoneCallback() {
         runCatching {
             if (!workingDir.exists()) {
@@ -89,6 +102,10 @@ class InMemoryGraphStorage(
         }.onFailure { logger.error(it) { "Error saving graph storage to ${file.absolutePath}" } }
     }
 
+    /**
+     * Drops the storage.
+     * @return A map with the status of the operation.
+     */
     override suspend fun drop(): Map<String, String> {
         nodes.clear()
         edges.clear()
@@ -100,8 +117,19 @@ class InMemoryGraphStorage(
         return mapOf("status" to "success", "message" to "data dropped")
     }
 
+    /**
+     * Checks if a node exists.
+     * @param nodeId The ID of the node to check.
+     * @return True if the node exists, false otherwise.
+     */
     override suspend fun hasNode(nodeId: String): Boolean = nodes.containsKey(nodeId)
 
+    /**
+     * Checks if an edge exists.
+     * @param sourceNodeId The ID of the source node.
+     * @param targetNodeId The ID of the target node.
+     * @return True if the edge exists, false otherwise.
+     */
     override suspend fun hasEdge(
         sourceNodeId: String,
         targetNodeId: String,
@@ -109,10 +137,21 @@ class InMemoryGraphStorage(
         return edges[sourceNodeId]?.containsKey(targetNodeId) == true
     }
 
+    /**
+     * Gets the degree of a node.
+     * @param nodeId The ID of the node.
+     * @return The degree of the node.
+     */
     override suspend fun nodeDegree(nodeId: String): Int {
         return (edges[nodeId]?.size ?: 0) // Simplified directed degree
     }
 
+    /**
+     * Gets the degree of an edge.
+     * @param srcId The ID of the source node.
+     * @param tgtId The ID of the target node.
+     * @return The degree of the edge.
+     */
     override suspend fun edgeDegree(
         srcId: String,
         tgtId: String,
@@ -120,8 +159,19 @@ class InMemoryGraphStorage(
         return nodeDegree(srcId) + nodeDegree(tgtId)
     }
 
+    /**
+     * Gets a node by its ID.
+     * @param nodeId The ID of the node to get.
+     * @return A map representing the node.
+     */
     override suspend fun getNode(nodeId: String): Map<String, String>? = nodes[nodeId]
 
+    /**
+     * Gets an edge by its source and target node IDs.
+     * @param sourceNodeId The ID of the source node.
+     * @param targetNodeId The ID of the target node.
+     * @return A map representing the edge.
+     */
     override suspend fun getEdge(
         sourceNodeId: String,
         targetNodeId: String,
@@ -129,11 +179,21 @@ class InMemoryGraphStorage(
         return edges[sourceNodeId]?.get(targetNodeId)
     }
 
+    /**
+     * Gets the edges of a node.
+     * @param sourceNodeId The ID of the source node.
+     * @return A list of pairs representing the edges.
+     */
     override suspend fun getNodeEdges(sourceNodeId: String): List<Pair<String, String>>? {
         if (!nodes.containsKey(sourceNodeId)) return null
         return edges[sourceNodeId]?.keys?.map { sourceNodeId to it } ?: emptyList()
     }
 
+    /**
+     * Upserts a node.
+     * @param nodeId The ID of the node.
+     * @param nodeData The data of the node.
+     */
     override suspend fun upsertNode(
         nodeId: String,
         nodeData: Map<String, String>,
@@ -141,6 +201,12 @@ class InMemoryGraphStorage(
         nodes[nodeId] = nodeData
     }
 
+    /**
+     * Upserts an edge.
+     * @param sourceNodeId The ID of the source node.
+     * @param targetNodeId The ID of the target node.
+     * @param edgeData The data of the edge.
+     */
     override suspend fun upsertEdge(
         sourceNodeId: String,
         targetNodeId: String,
@@ -153,16 +219,28 @@ class InMemoryGraphStorage(
         edges.computeIfAbsent(targetNodeId) { mutableMapOf() }[sourceNodeId] = edgeData
     }
 
+    /**
+     * Deletes a node.
+     * @param nodeId The ID of the node to delete.
+     */
     override suspend fun deleteNode(nodeId: String) {
         nodes.remove(nodeId)
         edges.remove(nodeId)
         edges.values.forEach { it.remove(nodeId) }
     }
 
+    /**
+     * Removes nodes.
+     * @param nodes The nodes to remove.
+     */
     override suspend fun removeNodes(nodes: List<String>) {
         nodes.forEach { deleteNode(it) }
     }
 
+    /**
+     * Removes edges.
+     * @param edges The edges to remove.
+     */
     override suspend fun removeEdges(edges: List<Pair<String, String>>) {
         edges.forEach { (src, tgt) ->
             this.edges[src]?.remove(tgt)
@@ -170,8 +248,19 @@ class InMemoryGraphStorage(
         }
     }
 
+    /**
+     * Gets all labels.
+     * @return A list of all labels.
+     */
     override suspend fun getAllLabels(): List<String> = nodes.keys.toList().sorted()
 
+    /**
+     * Gets the knowledge graph.
+     * @param nodeLabel The label of the node.
+     * @param maxDepth The maximum depth to traverse.
+     * @param maxNodes The maximum number of nodes to return.
+     * @return The knowledge graph.
+     */
     override suspend fun getKnowledgeGraph(
         nodeLabel: String,
         maxDepth: Int,
@@ -181,8 +270,16 @@ class InMemoryGraphStorage(
         return KnowledgeGraph(emptyList(), emptyList())
     }
 
+    /**
+     * Gets all nodes.
+     * @return A list of all nodes.
+     */
     override suspend fun getAllNodes(): List<Map<String, Any>> = nodes.values.map { it as Map<String, Any> }
 
+    /**
+     * Gets all edges.
+     * @return A list of all edges.
+     */
     override suspend fun getAllEdges(): List<Map<String, Any>> {
         val result = mutableListOf<Map<String, Any>>()
         val seen = mutableSetOf<Pair<String, String>>()
@@ -199,12 +296,23 @@ class InMemoryGraphStorage(
         return result
     }
 
+    /**
+     * Gets popular labels.
+     * @param limit The maximum number of labels to return.
+     * @return A list of popular labels.
+     */
     override suspend fun getPopularLabels(limit: Int): List<String> {
         // nodeDegree is suspend function, so we need to map first then sort
         val degrees = nodes.keys.associateWith { nodeDegree(it) }
         return nodes.keys.sortedByDescending { degrees[it] }.take(limit)
     }
 
+    /**
+     * Searches for labels.
+     * @param query The query to search for.
+     * @param limit The maximum number of labels to return.
+     * @return A list of labels.
+     */
     override suspend fun searchLabels(
         query: String,
         limit: Int,

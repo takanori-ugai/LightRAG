@@ -23,6 +23,11 @@ import lightrag.utils.computeMd5
 
 private val logger = KotlinLogging.logger {}
 
+/**
+ * Represents the context of a chunk.
+ * @property referenceId The reference ID of the chunk.
+ * @property content The content of the chunk.
+ */
 @Serializable
 data class ChunkContext(
     @SerialName("reference_id")
@@ -30,8 +35,23 @@ data class ChunkContext(
     val content: String?,
 )
 
+/**
+ * The default maximum number of total tokens.
+ */
 const val DEFAULT_MAX_TOTAL_TOKENS = 30000 // From python/constants.py
 
+/**
+ * Parameters for a naive query.
+ * @property query The query string.
+ * @property chunksVdb The vector storage for chunks.
+ * @property queryParam The query parameters.
+ * @property globalConfig The global configuration.
+ * @property hashingKv The key-value storage for hashing.
+ * @property systemPrompt The system prompt.
+ * @property chatModel The chat model to use.
+ * @property tokenizer The tokenizer to use.
+ * @property decoder The decoder to use.
+ */
 data class NaiveQueryParams(
     val query: String,
     val chunksVdb: BaseVectorStorage,
@@ -90,6 +110,8 @@ private suspend fun getVectorContext(
 /**
  * This function assumes chunk_id and file_path are present in the chunk map.
  * It adds "reference_id" to each processed chunk.
+ * @param chunks The chunks to process.
+ * @return A pair of the list of references and the list of processed chunks.
  */
 fun generateReferenceListFromChunks(chunks: List<Map<String, Any?>>): Pair<List<Map<String, String>>, List<Map<String, Any?>>> {
     val referenceList = mutableListOf<Map<String, String>>()
@@ -112,6 +134,18 @@ fun generateReferenceListFromChunks(chunks: List<Map<String, Any?>>): Pair<List<
 
 // Simplified version of python's process_chunks_unified, focusing on truncation
 // This will just apply token limit, no reranking for now.
+/**
+ * Processes a list of chunks to fit within a token limit.
+ * @param query The query string.
+ * @param uniqueChunks The list of unique chunks.
+ * @param queryParam The query parameters.
+ * @param globalConfig The global configuration.
+ * @param sourceType The source type of the chunks.
+ * @param chunkTokenLimit The token limit for the chunks.
+ * @param tokenizer The tokenizer to use.
+ * @param decoder The decoder to use.
+ * @return A list of processed chunks.
+ */
 fun processChunksUnified(
     @Suppress("UNUSED_PARAMETER") query: String,
     // Not directly used in this simplified version for reranking, but kept for signature
@@ -154,6 +188,14 @@ fun processChunksUnified(
     return resultChunks
 }
 
+/**
+ * Truncates a text to a maximum number of tokens.
+ * @param text The text to truncate.
+ * @param maxTokenSize The maximum number of tokens.
+ * @param tokenizer The tokenizer to use.
+ * @param decoder The decoder to use.
+ * @return The truncated text.
+ */
 fun truncateTextByTokenSize(
     text: String,
     maxTokenSize: Int,
@@ -170,6 +212,16 @@ fun truncateTextByTokenSize(
 // Function to convert map to JSON string, similar to Python's json.dumps
 // This function needs to be properly implemented based on the Python version.
 // For now, a placeholder that constructs a basic rawData map.
+/**
+ * Converts entities, relations, chunks, and references to a JSON format.
+ * @param entities The list of entities.
+ * @param relations The list of relations.
+ * @param chunks The list of chunks.
+ * @param references The list of references.
+ * @param queryMode The query mode.
+ * @param relationIdToOriginal A map of relation IDs to original relations.
+ * @return A map representing the JSON format.
+ */
 fun convertToJsonFormat(
     entities: List<Map<String, Any?>>,
     relations: List<Map<String, Any?>>,
@@ -279,10 +331,20 @@ private suspend fun saveQueryCache(
 
 // This function needs to be imported or replicated from utils.
 // For now, a placeholder. The actual implementation in utils.kt will need to handle the varargs
+/**
+ * Computes the hash of the given arguments.
+ * @param args The arguments to hash.
+ * @return The hash of the arguments.
+ */
 fun computeArgsHash(vararg args: Any?): String {
     return computeMd5(args.joinToString("|"))
 }
 
+/**
+ * Removes think tags from the given text.
+ * @param text The text to remove the tags from.
+ * @return The text without the tags.
+ */
 @Suppress("UNUSED")
 fun removeThinkTags(text: String): String {
     // This is a simplified placeholder. In Python, it would remove specific XML-like tags.
@@ -290,6 +352,11 @@ fun removeThinkTags(text: String): String {
     return text.replace("<THINK>", "").replace("</THINK>", "")
 }
 
+/**
+ * Performs a naive query.
+ * @param params The parameters for the query.
+ * @return The query result.
+ */
 suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
     if (params.query.isBlank()) {
         return QueryResult(content = Prompts.FAIL_RESPONSE)

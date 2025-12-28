@@ -41,6 +41,7 @@ dependencies {
     implementation("dev.langchain4j:langchain4j:1.9.1")
     implementation("dev.langchain4j:langchain4j-open-ai:1.9.1")
     implementation("dev.langchain4j:langchain4j-ollama:1.9.1")
+    implementation("dev.langchain4j:langchain4j-community-neo4j:1.9.1-beta17")
 
     // JTokkit
     implementation("com.knuddels:jtokkit:1.1.0")

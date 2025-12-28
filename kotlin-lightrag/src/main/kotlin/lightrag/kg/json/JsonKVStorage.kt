@@ -18,6 +18,13 @@ import java.io.File
 
 private val logger = KotlinLogging.logger {}
 
+/**
+ * A JSON-backed key-value storage.
+ * @property namespace The namespace of the storage.
+ * @property workspace The workspace of the storage.
+ * @property globalConfig The global configuration for the storage.
+ * @property embeddingFunc The embedding model to use.
+ */
 class JsonKVStorage(
     override val namespace: String,
     override val workspace: String,
@@ -35,6 +42,9 @@ class JsonKVStorage(
             prettyPrint = true
         }
 
+    /**
+     * Initializes the storage by loading data from the JSON file.
+     */
     override suspend fun initialize() {
         if (!workingDir.exists()) {
             workingDir.mkdirs()
@@ -63,6 +73,9 @@ class JsonKVStorage(
         }
     }
 
+    /**
+     * Saves the current state of the storage to the JSON file.
+     */
     override suspend fun indexDoneCallback() {
         mutex.withLock {
             try {
@@ -76,21 +89,40 @@ class JsonKVStorage(
         }
     }
 
+    /**
+     * Gets an item by its ID.
+     * @param id The ID of the item to get.
+     * @return A map representing the item.
+     */
     override suspend fun getById(id: String): Map<String, Any>? =
         mutex.withLock {
             data[id]?.value?.data
         }
 
+    /**
+     * Gets items by their IDs.
+     * @param ids The IDs of the items to get.
+     * @return A list of maps representing the items.
+     */
     override suspend fun getByIds(ids: List<String>): List<Map<String, Any>> =
         mutex.withLock {
             ids.mapNotNull { data[it]?.value?.data }
         }
 
+    /**
+     * Filters keys from the storage.
+     * @param keys The keys to filter.
+     * @return A set of the filtered keys.
+     */
     override suspend fun filterKeys(keys: Set<String>): Set<String> =
         mutex.withLock {
             keys.filter { !data.containsKey(it) }.toSet()
         }
 
+    /**
+     * Upserts data into the storage.
+     * @param data The data to upsert.
+     */
     override suspend fun upsert(data: Map<String, Map<String, Any>>) {
         mutex.withLock {
             val wrapped = data.mapValues { KVEntry(KVValue(it.value)) }
@@ -98,12 +130,20 @@ class JsonKVStorage(
         }
     }
 
+    /**
+     * Deletes items by their IDs.
+     * @param ids The IDs of the items to delete.
+     */
     override suspend fun delete(ids: List<String>) {
         mutex.withLock {
             ids.forEach { this.data.remove(it) }
         }
     }
 
+    /**
+     * Drops the storage.
+     * @return A map with the status of the operation.
+     */
     override suspend fun drop(): Map<String, String> {
         mutex.withLock {
             data.clear()
@@ -114,6 +154,10 @@ class JsonKVStorage(
         return mapOf("status" to "success", "message" to "data dropped")
     }
 
+    /**
+     * Checks if the storage is empty.
+     * @return True if the storage is empty, false otherwise.
+     */
     override suspend fun isEmpty(): Boolean =
         mutex.withLock {
             data.isEmpty()

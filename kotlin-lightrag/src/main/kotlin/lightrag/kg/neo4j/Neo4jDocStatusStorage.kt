@@ -28,6 +28,13 @@ import kotlin.math.min
 
 private val logger = KotlinLogging.logger {}
 
+/**
+ * A Neo4j-backed storage for document processing statuses.
+ * @property namespace The namespace of the storage.
+ * @property workspace The workspace of the storage.
+ * @property globalConfig The global configuration for the storage.
+ * @property embeddingFunc The embedding model to use.
+ */
 class Neo4jDocStatusStorage(
     override val namespace: String,
     override val workspace: String,
@@ -70,6 +77,9 @@ class Neo4jDocStatusStorage(
         return database?.let { SessionConfig.forDatabase(it) } ?: SessionConfig.defaultConfig()
     }
 
+    /**
+     * Initializes the storage by creating a Neo4j driver and creating a constraint on the label.
+     */
     override suspend fun initialize() {
         val cfg = parseNeo4jConfig()
         val uri = System.getenv("NEO4J_URI") ?: cfg?.uri
@@ -110,6 +120,9 @@ class Neo4jDocStatusStorage(
         loadFromNeo()
     }
 
+    /**
+     * Closes the Neo4j driver.
+     */
     override suspend fun finalize() {
         driver?.close()
     }
@@ -133,16 +146,38 @@ class Neo4jDocStatusStorage(
         }
     }
 
+    /**
+     * Callback for when indexing is done.
+     */
     override suspend fun indexDoneCallback() {
         // writes are eager
     }
 
+    /**
+     * Gets a document by its ID.
+     * @param id The ID of the document to get.
+     * @return A map representing the document.
+     */
     override suspend fun getById(id: String): Map<String, Any>? = docs[id]?.toMap(id)
 
+    /**
+     * Gets documents by their IDs.
+     * @param ids The IDs of the documents to get.
+     * @return A list of maps representing the documents.
+     */
     override suspend fun getByIds(ids: List<String>): List<Map<String, Any>> = ids.mapNotNull { getById(it) }
 
+    /**
+     * Filters keys from the storage.
+     * @param keys The keys to filter.
+     * @return A set of the filtered keys.
+     */
     override suspend fun filterKeys(keys: Set<String>): Set<String> = keys.filter { !docs.containsKey(it) }.toSet()
 
+    /**
+     * Upserts data into the storage.
+     * @param data The data to upsert.
+     */
     override suspend fun upsert(data: Map<String, Map<String, Any>>) {
         if (data.isEmpty()) return
         val sessionCfg = sessionConfig()
@@ -170,6 +205,10 @@ class Neo4jDocStatusStorage(
         }
     }
 
+    /**
+     * Deletes items by their IDs.
+     * @param ids The IDs of the items to delete.
+     */
     override suspend fun delete(ids: List<String>) {
         ids.forEach { docs.remove(it) }
         if (ids.isEmpty()) return
@@ -184,6 +223,10 @@ class Neo4jDocStatusStorage(
         }
     }
 
+    /**
+     * Drops the storage.
+     * @return A map with the status of the operation.
+     */
     override suspend fun drop(): Map<String, String> {
         docs.clear()
         val sessionCfg = sessionConfig()
@@ -195,14 +238,41 @@ class Neo4jDocStatusStorage(
         return mapOf("status" to "success", "message" to "Doc status data dropped for $label")
     }
 
+    /**
+     * Checks if the storage is empty.
+     * @return True if the storage is empty, false otherwise.
+     */
     override suspend fun isEmpty(): Boolean = docs.isEmpty()
 
+    /**
+     * Gets the status counts.
+     * @return A map of status counts.
+     */
     override suspend fun getStatusCounts(): Map<String, Int> = docs.values.groupingBy { it.status.value }.eachCount()
 
+    /**
+     * Gets documents by their status.
+     * @param status The status of the documents to get.
+     * @return A map of document IDs to document processing statuses.
+     */
     override suspend fun getDocsByStatus(status: DocStatus): Map<String, DocProcessingStatus> = docs.filterValues { it.status == status }
 
+    /**
+     * Gets documents by their track ID.
+     * @param trackId The track ID of the documents to get.
+     * @return A map of document IDs to document processing statuses.
+     */
     override suspend fun getDocsByTrackId(trackId: String): Map<String, DocProcessingStatus> = docs.filterValues { it.trackId == trackId }
 
+    /**
+     * Gets documents with pagination.
+     * @param statusFilter The status to filter by.
+     * @param page The page number.
+     * @param pageSize The size of the page.
+     * @param sortField The field to sort by.
+     * @param sortDirection The direction to sort by.
+     * @return A pair of the list of documents and the total number of documents.
+     */
     override suspend fun getDocsPaginated(
         statusFilter: DocStatus?,
         page: Int,
@@ -233,8 +303,17 @@ class Neo4jDocStatusStorage(
         return Pair(filtered.subList(start, end), total)
     }
 
+    /**
+     * Gets all status counts.
+     * @return A map of all status counts.
+     */
     override suspend fun getAllStatusCounts(): Map<String, Int> = getStatusCounts()
 
+    /**
+     * Gets a document by its file path.
+     * @param filePath The file path of the document to get.
+     * @return A map representing the document.
+     */
     override suspend fun getDocByFilePath(filePath: String): Map<String, Any>? =
         docs.entries.find { it.value.filePath == filePath }?.let { getById(it.key) }
 

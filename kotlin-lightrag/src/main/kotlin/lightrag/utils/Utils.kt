@@ -3,16 +3,32 @@ package lightrag.utils
 import java.security.MessageDigest
 import java.util.UUID
 
+/**
+ * Computes the MD5 hash of a string.
+ * @param input The string to hash.
+ * @return The MD5 hash of the string.
+ */
 fun computeMd5(input: String): String {
     val md = MessageDigest.getInstance("MD5")
     val digest = md.digest(input.toByteArray())
     return digest.joinToString("") { "%02x".format(it) }
 }
 
+/**
+ * Generates a track ID with a given prefix.
+ * @param prefix The prefix for the track ID.
+ * @return The generated track ID.
+ */
 fun generateTrackId(prefix: String): String {
     return "$prefix-${UUID.randomUUID()}"
 }
 
+/**
+ * Chunks a list into sublists of a given size with a given overlap.
+ * @param size The size of the chunks.
+ * @param overlap The overlap between chunks.
+ * @return A list of sublists.
+ */
 fun <T> List<T>.chunked(
     size: Int,
     overlap: Int,

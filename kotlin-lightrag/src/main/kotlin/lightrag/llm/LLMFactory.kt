@@ -8,6 +8,9 @@ import dev.langchain4j.model.openai.OpenAiChatModel
 import dev.langchain4j.model.openai.OpenAiEmbeddingModel
 import java.time.Duration
 
+/**
+ * A factory for creating [ChatModel]s and [EmbeddingModel]s.
+ */
 object LLMFactory {
     /**
      * Build a [ChatModel] for the given binding.
@@ -23,6 +26,15 @@ object LLMFactory {
      *     logResponses = false,
      * )
      * ```
+     * @param binding The binding to use (e.g., "openai", "ollama").
+     * @param modelName The name of the model to use.
+     * @param baseUrl The base URL of the model server.
+     * @param apiKey The API key to use.
+     * @param timeout The timeout in seconds.
+     * @param temperature The temperature to use.
+     * @param logRequests Whether to log requests.
+     * @param logResponses Whether to log responses.
+     * @return A [ChatModel] instance.
      */
     fun createChatModel(
         binding: String,
@@ -65,6 +77,15 @@ object LLMFactory {
         }
     }
 
+    /**
+     * Build an [EmbeddingModel] for the given binding.
+     * @param binding The binding to use (e.g., "openai", "ollama").
+     * @param modelName The name of the model to use.
+     * @param baseUrl The base URL of the model server.
+     * @param apiKey The API key to use.
+     * @param timeout The timeout in seconds.
+     * @return An [EmbeddingModel] instance.
+     */
     fun createEmbeddingModel(
         binding: String,
         modelName: String,

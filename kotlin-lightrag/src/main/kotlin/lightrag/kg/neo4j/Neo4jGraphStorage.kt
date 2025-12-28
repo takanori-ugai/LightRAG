@@ -21,11 +21,20 @@ import kotlin.math.min
 
 private val logger = KotlinLogging.logger {}
 
+/**
+ * A Neo4j-backed graph storage implementation.
+ * @property namespace The namespace of the storage.
+ * @property globalConfig The global configuration for the storage.
+ * @property embeddingFunc The embedding model to use.
+ */
 class Neo4jGraphStorage(
     override val namespace: String,
     override val globalConfig: Map<String, Any?>,
     override val embeddingFunc: EmbeddingModel,
 ) : BaseGraphStorage {
+    /**
+     * The workspace of the storage.
+     */
     override val workspace: String
 
     private var driver: Driver? = null
@@ -148,6 +157,9 @@ class Neo4jGraphStorage(
         }
     }
 
+    /**
+     * Initializes the storage by creating a Neo4j driver and creating indexes.
+     */
     override suspend fun initialize() {
         val uri = System.getenv("NEO4J_URI") ?: providedConfig?.uri
         val username = System.getenv("NEO4J_USERNAME") ?: providedConfig?.username
@@ -349,15 +361,25 @@ class Neo4jGraphStorage(
         }
     }
 
+    /**
+     * Closes the Neo4j driver.
+     */
     override suspend fun finalize() {
         driver?.close()
         driver = null
     }
 
+    /**
+     * Callback for when indexing is done.
+     */
     override suspend fun indexDoneCallback() {
         // Neo4j handles persistence
     }
 
+    /**
+     * Drops the storage.
+     * @return A map with the status of the operation.
+     */
     override suspend fun drop(): Map<String, String> {
         val workspaceLabel = getWorkspaceLabel()
         return withContext(Dispatchers.IO) {
@@ -374,6 +396,11 @@ class Neo4jGraphStorage(
         }
     }
 
+    /**
+     * Checks if a node exists.
+     * @param nodeId The ID of the node to check.
+     * @return True if the node exists, false otherwise.
+     */
     override suspend fun hasNode(nodeId: String): Boolean =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
@@ -390,6 +417,12 @@ class Neo4jGraphStorage(
             }
         }
 
+    /**
+     * Checks if an edge exists.
+     * @param sourceNodeId The ID of the source node.
+     * @param targetNodeId The ID of the target node.
+     * @return True if the edge exists, false otherwise.
+     */
     override suspend fun hasEdge(
         sourceNodeId: String,
         targetNodeId: String,
@@ -417,6 +450,11 @@ class Neo4jGraphStorage(
             }
         }
 
+    /**
+     * Gets the degree of a node.
+     * @param nodeId The ID of the node.
+     * @return The degree of the node.
+     */
     override suspend fun nodeDegree(nodeId: String): Int =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
@@ -438,6 +476,12 @@ class Neo4jGraphStorage(
             }
         }
 
+    /**
+     * Gets the degree of an edge.
+     * @param srcId The ID of the source node.
+     * @param tgtId The ID of the target node.
+     * @return The degree of the edge.
+     */
     override suspend fun edgeDegree(
         srcId: String,
         tgtId: String,
@@ -447,6 +491,11 @@ class Neo4jGraphStorage(
         return srcDegree + tgtDegree
     }
 
+    /**
+     * Gets a node by its ID.
+     * @param nodeId The ID of the node to get.
+     * @return A map representing the node.
+     */
     override suspend fun getNode(nodeId: String): Map<String, String>? =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
@@ -473,6 +522,12 @@ class Neo4jGraphStorage(
             }
         }
 
+    /**
+     * Gets an edge by its source and target node IDs.
+     * @param sourceNodeId The ID of the source node.
+     * @param targetNodeId The ID of the target node.
+     * @return A map representing the edge.
+     */
     override suspend fun getEdge(
         sourceNodeId: String,
         targetNodeId: String,
@@ -516,6 +571,11 @@ class Neo4jGraphStorage(
             }
         }
 
+    /**
+     * Gets the edges of a node.
+     * @param sourceNodeId The ID of the source node.
+     * @return A list of pairs representing the edges.
+     */
     override suspend fun getNodeEdges(sourceNodeId: String): List<Pair<String, String>>? =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
@@ -549,6 +609,11 @@ class Neo4jGraphStorage(
             }
         }
 
+    /**
+     * Upserts a node.
+     * @param nodeId The ID of the node.
+     * @param nodeData The data of the node.
+     */
     override suspend fun upsertNode(
         nodeId: String,
         nodeData: Map<String, String>,
@@ -572,6 +637,12 @@ class Neo4jGraphStorage(
         Unit
     }
 
+    /**
+     * Upserts an edge.
+     * @param sourceNodeId The ID of the source node.
+     * @param targetNodeId The ID of the target node.
+     * @param edgeData The data of the edge.
+     */
     override suspend fun upsertEdge(
         sourceNodeId: String,
         targetNodeId: String,
@@ -602,6 +673,10 @@ class Neo4jGraphStorage(
         Unit
     }
 
+    /**
+     * Deletes a node.
+     * @param nodeId The ID of the node to delete.
+     */
     override suspend fun deleteNode(nodeId: String) =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
@@ -618,10 +693,18 @@ class Neo4jGraphStorage(
             Unit
         }
 
+    /**
+     * Removes nodes.
+     * @param nodes The nodes to remove.
+     */
     override suspend fun removeNodes(nodes: List<String>) {
         nodes.forEach { deleteNode(it) }
     }
 
+    /**
+     * Removes edges.
+     * @param edges The edges to remove.
+     */
     override suspend fun removeEdges(edges: List<Pair<String, String>>) =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
@@ -640,6 +723,10 @@ class Neo4jGraphStorage(
             Unit
         }
 
+    /**
+     * Gets all labels.
+     * @return A list of all labels.
+     */
     override suspend fun getAllLabels(): List<String> =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
@@ -656,6 +743,13 @@ class Neo4jGraphStorage(
             }
         }
 
+    /**
+     * Gets the knowledge graph.
+     * @param nodeLabel The label of the node.
+     * @param maxDepth The maximum depth to traverse.
+     * @param maxNodes The maximum number of nodes to return.
+     * @return The knowledge graph.
+     */
     override suspend fun getKnowledgeGraph(
         nodeLabel: String,
         maxDepth: Int,
@@ -920,6 +1014,10 @@ class Neo4jGraphStorage(
         return KnowledgeGraph(nodes, edges, isTruncated)
     }
 
+    /**
+     * Gets all nodes.
+     * @return A list of all nodes.
+     */
     override suspend fun getAllNodes(): List<Map<String, Any>> =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
@@ -935,6 +1033,10 @@ class Neo4jGraphStorage(
             }
         }
 
+    /**
+     * Gets all edges.
+     * @return A list of all edges.
+     */
     override suspend fun getAllEdges(): List<Map<String, Any>> =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
@@ -954,6 +1056,11 @@ class Neo4jGraphStorage(
             }
         }
 
+    /**
+     * Gets popular labels.
+     * @param limit The maximum number of labels to return.
+     * @return A list of popular labels.
+     */
     override suspend fun getPopularLabels(limit: Int): List<String> =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
@@ -973,6 +1080,12 @@ class Neo4jGraphStorage(
             }
         }
 
+    /**
+     * Searches for labels.
+     * @param query The query to search for.
+     * @param limit The maximum number of labels to return.
+     * @return A list of labels.
+     */
     override suspend fun searchLabels(
         query: String,
         limit: Int,

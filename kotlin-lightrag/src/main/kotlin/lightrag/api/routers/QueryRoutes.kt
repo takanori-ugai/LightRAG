@@ -14,6 +14,15 @@ import kotlinx.serialization.Serializable
 import lightrag.core.LightRAG
 import lightrag.core.QueryParam
 
+/**
+ * Represents the request body for a query.
+ * @property query The query string.
+ * @property mode The query mode (e.g., "mix").
+ * @property onlyNeedContext Whether to return only the context.
+ * @property responseType The desired response type.
+ * @property topK The number of top results to return.
+ * @property maxTokenForTextUnit The maximum number of tokens for a text unit.
+ */
 @Serializable
 data class QueryRequest(
     val query: String,
@@ -28,9 +37,20 @@ data class QueryRequest(
     val maxTokenForTextUnit: Int? = null,
 )
 
+/**
+ * Represents the response to a query.
+ * @property response The response string.
+ */
 @Serializable
 data class QueryResponse(val response: String)
 
+/**
+ * Configures the query-related routes for the Ktor application.
+ *
+ * This function sets up endpoints for handling standard and streaming queries.
+ *
+ * @param rag The LightRAG instance to be used for query operations.
+ */
 fun Application.configureQueryRoutes(rag: LightRAG) {
     routing {
         route("/query") {

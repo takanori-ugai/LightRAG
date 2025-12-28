@@ -11,12 +11,21 @@ import dev.langchain4j.model.output.Response
 import kotlinx.coroutines.runBlocking
 import lightrag.core.LightRAG
 
+/**
+ * A mock chat model for testing purposes.
+ */
 class MockChatModel : ChatModel {
+    /**
+     * Returns a mock response to a user message.
+     */
     override fun chat(userMessage: String): String {
         return "entity<|#|>Entity1<|#|>Type1<|#|>Desc1\n" +
             "relation<|#|>Entity1<|#|>Entity2<|#|>Keywords<|#|>Desc2"
     }
 
+    /**
+     * Returns a mock response to a list of chat messages.
+     */
     override fun chat(messages: List<ChatMessage>): ChatResponse {
         return ChatResponse
             .builder()
@@ -29,20 +38,35 @@ class MockChatModel : ChatModel {
     }
 }
 
+/**
+ * A mock embedding model for testing purposes.
+ */
 class MockEmbeddingModel : EmbeddingModel {
+    /**
+     * Returns a mock embedding for a string.
+     */
     override fun embed(text: String): Response<Embedding> {
         return Response.from(Embedding(FloatArray(384) { 0.0f }))
     }
 
+    /**
+     * Returns a mock embedding for a text segment.
+     */
     override fun embed(textSegment: TextSegment): Response<Embedding> {
         return Response.from(Embedding(FloatArray(384) { 0.0f }))
     }
 
+    /**
+     * Returns a mock embedding for a list of text segments.
+     */
     override fun embedAll(textSegments: List<TextSegment>): Response<List<Embedding>> {
         return Response.from(textSegments.map { Embedding(FloatArray(384) { 0.0f }) })
     }
 }
 
+/**
+ * The main function for the insert example.
+ */
 fun main() =
     runBlocking {
         val rag =

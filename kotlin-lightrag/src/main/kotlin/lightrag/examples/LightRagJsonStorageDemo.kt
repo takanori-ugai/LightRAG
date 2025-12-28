@@ -8,6 +8,11 @@ import lightrag.core.QueryParam
 import lightrag.llm.LLMFactory
 import java.io.File
 
+/**
+ * The main function for the LightRAG JSON storage demo.
+ * This function demonstrates how to use LightRAG with JSON-backed storages.
+ * It initializes the storages, inserts a document, queries it using different modes, and persists the data.
+ */
 fun main() =
     runBlocking {
         val apiKey = System.getenv("OPENAI_API_KEY")
