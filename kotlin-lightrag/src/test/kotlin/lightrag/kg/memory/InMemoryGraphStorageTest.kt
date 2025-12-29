@@ -42,13 +42,12 @@ class InMemoryGraphStorageTest {
         }
     }
 
-    private fun createStorage(): InMemoryGraphStorage {
-        return InMemoryGraphStorage(
+    private fun createStorage(): InMemoryGraphStorage =
+        InMemoryGraphStorage(
             namespace = "test_graph",
             workspace = "test_workspace",
             embeddingFunc = TestEmbeddings.mockEmbeddingModel(),
         )
-    }
 
     @Test
     fun `test basic graph operations`() {

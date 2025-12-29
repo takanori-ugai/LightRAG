@@ -1,11 +1,13 @@
 package lightrag.examples
 
+import dev.langchain4j.model.embedding.EmbeddingModel
 import kotlinx.coroutines.runBlocking
-import lightrag.core.AddonConfig
 import lightrag.core.LightRAG
-import lightrag.core.LightRagOverrides
 import lightrag.core.QueryParam
-import lightrag.llm.LLMFactory
+import lightrag.di.appModule
+import lightrag.services.StorageManager
+import org.koin.core.context.startKoin
+import org.koin.java.KoinJavaComponent.get
 import java.io.File
 
 /**
@@ -15,17 +17,12 @@ import java.io.File
  */
 fun main() =
     runBlocking {
-        // Check environment variable
-        val apiKey = System.getenv("OPENAI_API_KEY")
-        if (apiKey.isNullOrBlank()) {
-            println(
-                "Error: OPENAI_API_KEY environment variable is not set. " +
-                    "Please set this variable before running the program.",
-            )
-            println("You can set the environment variable by running:")
-            println("  export OPENAI_API_KEY='your-openai-api-key'")
-            return@runBlocking
+        startKoin {
+            modules(appModule)
         }
+
+        val rag: LightRAG = get(LightRAG::class.java)
+        val storageManager: StorageManager = get(StorageManager::class.java)
 
         val workingDir = "./dickens"
         val workingDirFile = File(workingDir)
@@ -53,38 +50,8 @@ fun main() =
             }
         }
 
-        // Initialize models
-        val chatModel =
-            LLMFactory.createChatModel(
-                binding = "openai",
-                modelName = "gpt-4o-mini",
-                apiKey = apiKey,
-            )
-
-        val embeddingModel =
-            LLMFactory.createEmbeddingModel(
-                binding = "openai",
-                modelName = "text-embedding-3-small",
-                apiKey = apiKey,
-            )
-
-        // Initialize RAG
-        val rag =
-            LightRAG(
-                workingDir = workingDir,
-                chatModel = chatModel,
-                embeddingModel = embeddingModel,
-                addonConfig =
-                    AddonConfig(
-                        overrides =
-                            LightRagOverrides(
-                                chunkTokenSize = 50,
-                                chunkOverlapTokenSize = 2,
-                            ),
-                    ),
-            )
-
         // Test embedding function
+        val embeddingModel: EmbeddingModel = get(EmbeddingModel::class.java)
         val testText = "This is a test string for embedding."
         @Suppress("TooGenericExceptionCaught")
         try {

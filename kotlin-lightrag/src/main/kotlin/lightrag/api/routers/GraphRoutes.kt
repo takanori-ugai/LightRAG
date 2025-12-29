@@ -17,7 +17,9 @@ import lightrag.core.LightRAG
  * @property labels The list of labels.
  */
 @Serializable
-data class GraphLabelsResponse(val labels: List<String>)
+data class GraphLabelsResponse(
+    val labels: List<String>,
+)
 
 /**
  * Represents a simplified knowledge graph response.
@@ -26,7 +28,10 @@ data class GraphLabelsResponse(val labels: List<String>)
  */
 @Serializable
 // Simplified
-data class KnowledgeGraphResponse(val nodes: List<String>, val edges: List<String>)
+data class KnowledgeGraphResponse(
+    val nodes: List<String>,
+    val edges: List<String>,
+)
 
 /**
  * Represents the request body for updating an entity.

@@ -396,23 +396,29 @@ data class KnowledgeGraph(
 /**
  * Represents the status of a document.
  */
-enum class DocStatus(val value: String) {
+enum class DocStatus(
+    val value: String,
+) {
     /**
      * The document is pending processing.
      */
     PENDING("pending"),
+
     /**
      * The document is currently being processed.
      */
     PROCESSING("processing"),
+
     /**
      * The document has been preprocessed.
      */
     PREPROCESSED("preprocessed"),
+
     /**
      * The document has been processed.
      */
     PROCESSED("processed"),
+
     /**
      * Processing of the document has failed.
      */

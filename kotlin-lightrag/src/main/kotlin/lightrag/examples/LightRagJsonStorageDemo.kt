@@ -1,11 +1,12 @@
 package lightrag.examples
 
 import kotlinx.coroutines.runBlocking
-import lightrag.core.AddonConfig
 import lightrag.core.LightRAG
-import lightrag.core.LightRagOverrides
 import lightrag.core.QueryParam
-import lightrag.llm.LLMFactory
+import lightrag.di.appModule
+import lightrag.services.StorageManager
+import org.koin.core.context.startKoin
+import org.koin.java.KoinJavaComponent.get
 import java.io.File
 
 /**
@@ -15,51 +16,17 @@ import java.io.File
  */
 fun main() =
     runBlocking {
-        val apiKey = System.getenv("OPENAI_API_KEY")
-        if (apiKey.isNullOrBlank()) {
-            println("Error: OPENAI_API_KEY environment variable is not set.")
-            return@runBlocking
+        startKoin {
+            modules(appModule)
         }
 
-        val workingDir = "./json_demo_storage"
-        val chatModel =
-            LLMFactory.createChatModel(
-                binding = "openai",
-                modelName = "gpt-4o-mini",
-                apiKey = apiKey,
-            )
-        val embeddingModel =
-            LLMFactory.createEmbeddingModel(
-                binding = "openai",
-                modelName = "text-embedding-3-small",
-                apiKey = apiKey,
-            )
+        val rag: LightRAG = get(LightRAG::class.java)
+        val storageManager: StorageManager = get(StorageManager::class.java)
 
-        val rag =
-            LightRAG(
-                workingDir = workingDir,
-                chatModel = chatModel,
-                embeddingModel = embeddingModel,
-                addonConfig =
-                    AddonConfig(
-                        overrides =
-                            LightRagOverrides(
-                                chunkTokenSize = 50,
-                                chunkOverlapTokenSize = 2,
-                            ),
-                    ),
-            )
+        // Configure API key, chat model, embedding model through Koin modules
 
         // Initialize storages and reload any persisted state
-        rag.docStatusStorage.initialize()
-        rag.fullDocs.initialize()
-        rag.textChunks.initialize()
-        rag.fullEntities.initialize()
-        rag.fullRelations.initialize()
-        rag.chunkEntityRelationGraph.initialize()
-        rag.chunksVdb.initialize()
-        rag.entitiesVdb.initialize()
-        rag.relationshipsVdb.initialize()
+        storageManager.initialize()
 
         val bookFile = File("./book.txt")
         val content =
@@ -74,10 +41,10 @@ fun main() =
         rag.insert(content)
 
         println("\nDoc status snapshot (JsonDocStatusStorage):")
-        println(rag.docStatusStorage.getStatusCounts())
+        println(storageManager.docStatusStorage.getStatusCounts())
 
         println("\nFull docs snapshot (JsonKVStorage):")
-        println(rag.fullDocs.getByIds(listOf("0")))
+        println(storageManager.fullDocs.getByIds(listOf("0")))
 
         val modes = listOf("naive", "local", "global", "hybrid")
         val queryText = "What are the top themes in this story?"
@@ -100,16 +67,7 @@ fun main() =
         }
 
         // Persist JSON-backed storages (KV, DocStatus, Vectors)
-        rag.hashingKv?.indexDoneCallback()
-        rag.docStatusStorage.indexDoneCallback()
-        rag.fullDocs.indexDoneCallback()
-        rag.textChunks.indexDoneCallback()
-        rag.fullEntities.indexDoneCallback()
-        rag.fullRelations.indexDoneCallback()
-        rag.chunkEntityRelationGraph.indexDoneCallback()
-        rag.chunksVdb.indexDoneCallback()
-        rag.entitiesVdb.indexDoneCallback()
-        rag.relationshipsVdb.indexDoneCallback()
+        storageManager.persist()
 
-        println("\nDone! Data persisted under $workingDir using JSON-backed storages.")
+        println("\nDone! Data persisted using JSON-backed storages.")
     }

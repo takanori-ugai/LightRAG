@@ -15,6 +15,7 @@ import lightrag.core.QueryParam
 import lightrag.core.types.BaseKVStorage
 import lightrag.core.types.BaseVectorStorage
 import lightrag.utils.Prompts
+import lightrag.utils.computeMd5
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -118,17 +119,19 @@ class NaiveQueryTest {
 
             val maxTotalTokens = params.queryParam.maxTotalTokens.coerceAtMost(DEFAULT_MAX_TOTAL_TOKENS)
             val expectedHash =
-                computeArgsHash(
-                    params.queryParam.mode,
-                    params.query,
-                    params.queryParam.responseType ?: "",
-                    params.queryParam.topK.toString(),
-                    params.queryParam.chunkTopK.toString(),
-                    params.queryParam.maxEntityTokens.toString(),
-                    params.queryParam.maxRelationTokens.toString(),
-                    maxTotalTokens.toString(),
-                    params.queryParam.userPrompt ?: "",
-                    params.queryParam.enableRerank.toString(),
+                computeMd5(
+                    listOf(
+                        params.queryParam.mode,
+                        params.query,
+                        params.queryParam.responseType ?: "",
+                        params.queryParam.topK.toString(),
+                        params.queryParam.chunkTopK.toString(),
+                        params.queryParam.maxEntityTokens.toString(),
+                        params.queryParam.maxRelationTokens.toString(),
+                        maxTotalTokens.toString(),
+                        params.queryParam.userPrompt ?: "",
+                        params.queryParam.enableRerank.toString(),
+                    ).joinToString("|"),
                 )
 
             coEvery { mockKv.getById(expectedHash) } returns

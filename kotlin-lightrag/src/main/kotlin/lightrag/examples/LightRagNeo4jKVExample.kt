@@ -1,12 +1,17 @@
 package lightrag.examples
 
 import kotlinx.coroutines.runBlocking
-import lightrag.core.AddonConfig
 import lightrag.core.LightRAG
-import lightrag.core.LightRagOverrides
-import lightrag.kg.neo4j.Neo4jDocStatusStorage
+import lightrag.core.QueryParam
+import lightrag.di.AppConfig
+import lightrag.di.appModule
 import lightrag.kg.neo4j.Neo4jKVStorage
-import lightrag.llm.LLMFactory
+import lightrag.services.StorageManager
+import org.koin.core.context.loadKoinModules
+import org.koin.core.context.startKoin
+import org.koin.core.qualifier.named
+import org.koin.dsl.module
+import org.koin.java.KoinJavaComponent.get
 
 /**
  * Minimal example showing how to use Neo4jKVStorage for KV persistence.
@@ -17,104 +22,46 @@ import lightrag.llm.LLMFactory
  */
 fun main() =
     runBlocking {
-        val apiKey = System.getenv("OPENAI_API_KEY")
-        if (apiKey.isNullOrBlank()) {
-            println("Error: OPENAI_API_KEY environment variable is not set.")
-            return@runBlocking
+        startKoin {
+            allowOverride(true)
+            modules(appModule)
         }
 
-        val chatModel =
-            LLMFactory.createChatModel(
-                binding = "openai",
-                modelName = "gpt-4o-mini",
-                apiKey = apiKey,
-            )
-        val embeddingModel =
-            LLMFactory.createEmbeddingModel(
-                binding = "openai",
-                modelName = "text-embedding-3-small",
-                apiKey = apiKey,
-            )
+        // Override StorageManager to use Neo4jKVStorage for all KV stores (full docs, chunks, entities, relations).
+        val neo4jKvModule =
+            module {
+                single<StorageManager> {
+                    val appConfig = get<AppConfig>()
+                    val globalConfig = get<Map<String, Any?>>(named("globalConfig"))
+                    val embeddingModel = appConfig.embeddingModel
 
-        val neo4jConfig =
-            mapOf(
-                "neo4j" to
-                    mapOf(
-                        "uri" to (System.getenv("NEO4J_URI") ?: "bolt://localhost:7687"),
-                        "username" to (System.getenv("NEO4J_USERNAME") ?: "neo4j"),
-                        "password" to (System.getenv("NEO4J_PASSWORD") ?: "neo4j"),
-                    ),
-            )
+                    fun neo4jKv(namespace: String) =
+                        Neo4jKVStorage(
+                            namespace = namespace,
+                            workspace = System.getenv("NEO4J_WORKSPACE") ?: "default",
+                            globalConfig = globalConfig,
+                            embeddingFunc = embeddingModel,
+                        )
 
-        // Use Neo4j-backed storages for KV and doc status
-        val hashingKv =
-            Neo4jKVStorage(
-                namespace = "hash_cache",
-                workspace = "default",
-                globalConfig = neo4jConfig,
-                embeddingFunc = embeddingModel,
-            ).also { it.initialize() }
-        val docStatusStorage =
-            Neo4jDocStatusStorage(
-                namespace = "doc_status",
-                workspace = "default",
-                globalConfig = neo4jConfig,
-                embeddingFunc = embeddingModel,
-            ).also { it.initialize() }
-        val fullDocs =
-            Neo4jKVStorage(
-                namespace = "full_docs",
-                workspace = "default",
-                globalConfig = neo4jConfig,
-                embeddingFunc = embeddingModel,
-            ).also { it.initialize() }
-        val textChunks =
-            Neo4jKVStorage(
-                namespace = "text_chunks",
-                workspace = "default",
-                globalConfig = neo4jConfig,
-                embeddingFunc = embeddingModel,
-            ).also { it.initialize() }
-        val fullEntities =
-            Neo4jKVStorage(
-                namespace = "full_entities",
-                workspace = "default",
-                globalConfig = neo4jConfig,
-                embeddingFunc = embeddingModel,
-            ).also { it.initialize() }
-        val fullRelations =
-            Neo4jKVStorage(
-                namespace = "full_relations",
-                workspace = "default",
-                globalConfig = neo4jConfig,
-                embeddingFunc = embeddingModel,
-            ).also { it.initialize() }
+                    StorageManager(
+                        workingDir = appConfig.workingDir,
+                        embeddingModel = embeddingModel,
+                        graphStorageName = appConfig.graphStorageName,
+                        vectorStorageName = appConfig.vectorStorageName,
+                        addonConfig = appConfig.addonConfig,
+                        globalConfig = globalConfig,
+                        fullDocsStorageOverride = neo4jKv("full_docs"),
+                        textChunksStorageOverride = neo4jKv("text_chunks"),
+                        fullEntitiesStorageOverride = neo4jKv("full_entities"),
+                        fullRelationsStorageOverride = neo4jKv("full_relations"),
+                        docStatusStorageOverride = appConfig.docStatusStorageOverride,
+                    )
+                }
+            }
+        loadKoinModules(neo4jKvModule)
 
-        val rag =
-            LightRAG(
-                chatModel = chatModel,
-                embeddingModel = embeddingModel,
-                hashingKv = hashingKv,
-                docStatusStorageOverride = docStatusStorage,
-                fullDocsStorageOverride = fullDocs,
-                textChunksStorageOverride = textChunks,
-                fullEntitiesStorageOverride = fullEntities,
-                fullRelationsStorageOverride = fullRelations,
-                addonConfig =
-                    AddonConfig(
-                        overrides =
-                            LightRagOverrides(
-                                chunkTokenSize = 50,
-                                chunkOverlapTokenSize = 2,
-                            ),
-                    ),
-            )
-
-        // Initialize remaining storages to load any persisted state
-        rag.chunkEntityRelationGraph.initialize()
-        rag.chunksVdb.initialize()
-        rag.entitiesVdb.initialize()
-        rag.relationshipsVdb.initialize()
+        val rag: LightRAG = get(LightRAG::class.java)
+        val storageManager: StorageManager = get(StorageManager::class.java)
 
         val text =
             """
@@ -135,7 +82,7 @@ fun main() =
             val result =
                 rag.query(
                     queryText,
-                    lightrag.core.QueryParam(
+                    QueryParam(
                         mode = mode,
                         includeReferences = true,
                         topK = 3,
@@ -146,15 +93,6 @@ fun main() =
         }
 
         println("Persisting storages...")
-        hashingKv.indexDoneCallback()
-        docStatusStorage.indexDoneCallback()
-        fullDocs.indexDoneCallback()
-        textChunks.indexDoneCallback()
-        fullEntities.indexDoneCallback()
-        fullRelations.indexDoneCallback()
-        rag.chunkEntityRelationGraph.indexDoneCallback()
-        rag.chunksVdb.indexDoneCallback()
-        rag.entitiesVdb.indexDoneCallback()
-        rag.relationshipsVdb.indexDoneCallback()
+        storageManager.persist()
         println("Done. Hashing cache persisted in Neo4j and other stores saved locally.")
     }

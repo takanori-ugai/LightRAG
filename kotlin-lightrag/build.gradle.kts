@@ -1,9 +1,11 @@
+import org.jlleitschuh.gradle.ktlint.reporter.ReporterType
+
 plugins {
     kotlin("jvm") version "2.3.0"
     application
     id("com.gradleup.shadow") version "9.2.0"
     kotlin("plugin.serialization") version "2.3.0"
-    id("org.jlleitschuh.gradle.ktlint") version "12.1.0"
+    id("org.jlleitschuh.gradle.ktlint") version "14.0.1"
     id("io.gitlab.arturbosch.detekt") version "1.23.6"
 }
 
@@ -16,14 +18,21 @@ group = "com.lightrag"
 version = "0.0.1"
 
 application {
-//    mainClass.set("lightrag.ApplicationKt")
-    mainClass.set("lightrag.examples.LightRagOpenAiDemoKt")
+    mainClass.set("lightrag.ApplicationKt")
 }
 
 repositories {
     mavenCentral()
     gradlePluginPortal()
 }
+
+// sourceSets {
+//    main {
+//        kotlin {
+//            exclude("lightrag/examples/**")
+//        }
+//    }
+// }
 
 dependencies {
     implementation("io.ktor:ktor-server-core:2.3.12")
@@ -36,6 +45,11 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
     implementation("io.github.oshai:kotlin-logging-jvm:5.1.0")
+
+    // Koin for Ktor
+    implementation("io.insert-koin:koin-ktor:4.1.1")
+    implementation("io.insert-koin:koin-core:4.1.1")
+    implementation("io.insert-koin:koin-logger-slf4j:4.1.1")
 
     // LangChain4j dependencies
     implementation("dev.langchain4j:langchain4j:1.9.1")
@@ -74,5 +88,20 @@ tasks {
             },
         )
         classpath = sourceSets.main.get().runtimeClasspath
+    }
+}
+
+ktlint {
+    version.set("1.8.0")
+    verbose.set(true)
+    outputToConsole.set(true)
+    coloredOutput.set(true)
+    reporters {
+        reporter(ReporterType.CHECKSTYLE)
+        reporter(ReporterType.JSON)
+        reporter(ReporterType.HTML)
+    }
+    filter {
+        exclude("**/style-violations.kt")
     }
 }

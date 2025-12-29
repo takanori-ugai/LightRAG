@@ -171,12 +171,13 @@ class MongoGraphStorage(
      */
     override suspend fun getNode(nodeId: String): Map<String, String>? {
         val doc =
-            nodesCollection.find(
-                Filters.and(
-                    Filters.eq("id", nodeId),
-                    Filters.eq("type", "node"),
-                ),
-            ).firstOrNull() ?: return null
+            nodesCollection
+                .find(
+                    Filters.and(
+                        Filters.eq("id", nodeId),
+                        Filters.eq("type", "node"),
+                    ),
+                ).firstOrNull() ?: return null
 
         return doc.entries.associate { (k, v) -> k to v.toString() }
     }
@@ -192,13 +193,14 @@ class MongoGraphStorage(
         targetNodeId: String,
     ): Map<String, String>? {
         val doc =
-            edgesCollection.find(
-                Filters.and(
-                    Filters.eq("source_id", sourceNodeId),
-                    Filters.eq("target_id", targetNodeId),
-                    Filters.eq("type", "edge"),
-                ),
-            ).firstOrNull() ?: return null
+            edgesCollection
+                .find(
+                    Filters.and(
+                        Filters.eq("source_id", sourceNodeId),
+                        Filters.eq("target_id", targetNodeId),
+                        Filters.eq("type", "edge"),
+                    ),
+                ).firstOrNull() ?: return null
 
         return doc.entries.associate { (k, v) -> k to v.toString() }
     }
@@ -215,15 +217,16 @@ class MongoGraphStorage(
         // Usually edges(n) returns all edges adjacent to n.
 
         val edges =
-            edgesCollection.find(
-                Filters.and(
-                    Filters.or(
-                        Filters.eq("source_id", sourceNodeId),
-                        Filters.eq("target_id", sourceNodeId),
+            edgesCollection
+                .find(
+                    Filters.and(
+                        Filters.or(
+                            Filters.eq("source_id", sourceNodeId),
+                            Filters.eq("target_id", sourceNodeId),
+                        ),
+                        Filters.eq("type", "edge"),
                     ),
-                    Filters.eq("type", "edge"),
-                ),
-            ).toList()
+                ).toList()
 
         return edges.map { doc ->
             (doc.getString("source_id") ?: "") to (doc.getString("target_id") ?: "")
@@ -359,32 +362,28 @@ class MongoGraphStorage(
      * Gets all nodes.
      * @return A list of all nodes.
      */
-    override suspend fun getAllNodes(): List<Map<String, Any>> {
-        return nodesCollection
+    override suspend fun getAllNodes(): List<Map<String, Any>> =
+        nodesCollection
             .find(Filters.eq("type", "node"))
             .toList()
             .map { it.toMap() }
-    }
 
     /**
      * Gets all edges.
      * @return A list of all edges.
      */
-    override suspend fun getAllEdges(): List<Map<String, Any>> {
-        return edgesCollection
+    override suspend fun getAllEdges(): List<Map<String, Any>> =
+        edgesCollection
             .find(Filters.eq("type", "edge"))
             .toList()
             .map { it.toMap() }
-    }
 
     /**
      * Gets popular labels.
      * @param limit The maximum number of labels to return.
      * @return A list of popular labels.
      */
-    override suspend fun getPopularLabels(limit: Int): List<String> {
-        return emptyList()
-    }
+    override suspend fun getPopularLabels(limit: Int): List<String> = emptyList()
 
     /**
      * Searches for labels.
@@ -395,7 +394,5 @@ class MongoGraphStorage(
     override suspend fun searchLabels(
         query: String,
         limit: Int,
-    ): List<String> {
-        return emptyList()
-    }
+    ): List<String> = emptyList()
 }

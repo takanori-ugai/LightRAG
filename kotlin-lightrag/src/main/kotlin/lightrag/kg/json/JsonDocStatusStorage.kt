@@ -4,13 +4,14 @@ import dev.langchain4j.model.embedding.EmbeddingModel
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import lightrag.core.types.DocProcessingStatus
 import lightrag.core.types.DocStatus
 import lightrag.core.types.DocStatusStorage
 import java.io.File
-import java.lang.Math.min
+import kotlin.math.min
 
 private val logger = KotlinLogging.logger {}
 
@@ -103,9 +104,7 @@ class JsonDocStatusStorage(
      * @param ids The IDs of the documents to get.
      * @return A list of maps representing the documents.
      */
-    override suspend fun getByIds(ids: List<String>): List<Map<String, Any>> {
-        return ids.mapNotNull { getById(it) }
-    }
+    override suspend fun getByIds(ids: List<String>): List<Map<String, Any>> = ids.mapNotNull { getById(it) }
 
     /**
      * Filters keys from the storage.

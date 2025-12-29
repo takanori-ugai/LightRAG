@@ -1,14 +1,19 @@
 package lightrag.examples
 
-import dev.langchain4j.model.openai.OpenAiChatModel
-import dev.langchain4j.model.openai.OpenAiEmbeddingModel
 import kotlinx.coroutines.runBlocking
-import lightrag.core.AddonConfig
 import lightrag.core.LightRAG
-import lightrag.core.LightRagOverrides
-import lightrag.core.Neo4jConfig
 import lightrag.core.QueryParam
-import java.time.Duration
+import lightrag.di.AppConfig
+import lightrag.di.LightRagConfig
+import lightrag.di.appModule
+import lightrag.core.AddonConfig
+import lightrag.core.LightRagOverrides
+import lightrag.services.StorageManager
+import org.koin.core.context.loadKoinModules
+import org.koin.core.context.startKoin
+import org.koin.core.qualifier.named
+import org.koin.dsl.module
+import org.koin.java.KoinJavaComponent.get
 
 /**
  * Demo showing LightRAG with Neo4jEmbeddingStoreVectorStorage (langchain4j community Neo4j embedding store).
@@ -19,64 +24,71 @@ import java.time.Duration
  */
 fun main() =
     runBlocking {
-        val apiKey = System.getenv("OPENAI_API_KEY")
-        if (apiKey.isNullOrBlank()) {
-            println("Error: OPENAI_API_KEY is not set.")
-            return@runBlocking
+        startKoin {
+            allowOverride(true)
+            modules(appModule)
         }
 
-        // Neo4j settings (can override via env NEO4J_URI/USERNAME/PASSWORD/DATABASE)
-        val neo4jUri = System.getenv("NEO4J_URI") ?: "bolt://localhost:7687"
-        val neo4jUser = System.getenv("NEO4J_USERNAME") ?: "neo4j"
-        val neo4jPass = System.getenv("NEO4J_PASSWORD") ?: "neo4j"
+        // Force vector storage to Neo4jEmbeddingStoreVectorStorage.
+        val neo4jEmbeddingStoreModule =
+            module {
+                single<AppConfig> {
+                    val cfg = get<LightRagConfig>()
+                    AppConfig(
+                        workingDir = cfg.storage.workingDir,
+                        graphStorageName = cfg.storage.graphStorageName,
+                        vectorStorageName = "Neo4jEmbeddingStoreVectorStorage",
+                        addonConfig =
+                            AddonConfig(
+                                overrides =
+                                    LightRagOverrides(
+                                        chunkTokenSize = cfg.addonConfig.chunkTokenSize,
+                                        chunkOverlapTokenSize = cfg.addonConfig.chunkOverlapTokenSize,
+                                        entityTypes = cfg.addonConfig.entityTypes,
+                                        language = cfg.addonConfig.language,
+                                        cosineBetterThreshold = cfg.addonConfig.cosineBetterThreshold,
+                                    ),
+                                cosineBetterThreshold = cfg.addonConfig.cosineBetterThreshold,
+                            ),
+                        llmBinding = "openai",
+                        llmModelName = cfg.openai.chatModelName,
+                        embeddingBinding = "openai",
+                        embeddingModelName = cfg.openai.embeddingModelName,
+                        chatModel = get(),
+                        embeddingModel = get(),
+                    )
+                }
 
-        val chatModel =
-            OpenAiChatModel.builder()
-                .apiKey(apiKey)
-                .modelName("gpt-4o-mini")
-                .timeout(Duration.ofSeconds(60))
-                .build()
+                single<Map<String, Any?>>(named("globalConfig")) {
+                    val appConfig = get<AppConfig>()
+                    val overrides = appConfig.addonConfig.overrides
+                    val chunkTokenSize = overrides.chunkTokenSize ?: 1200
+                    val chunkOverlapTokenSize = overrides.chunkOverlapTokenSize ?: 100
+                    val entityTypes =
+                        overrides.entityTypes ?: listOf("Person", "Organization", "Location", "Event", "Concept")
+                    val language = overrides.language ?: "English"
+                    mapOf(
+                        "llm_model_func" to appConfig.chatModel,
+                        "embedding_func" to appConfig.embeddingModel,
+                        "chunk_token_size" to chunkTokenSize,
+                        "chunk_overlap_token_size" to chunkOverlapTokenSize,
+                        "entity_types" to entityTypes,
+                        "language" to language,
+                        "working_dir" to appConfig.workingDir,
+                        "enable_llm_cache" to (appConfig.hashingKv != null),
+                    ) + appConfig.addonConfig.toMap()
+                }
+            }
+        loadKoinModules(neo4jEmbeddingStoreModule)
 
-        val embeddingModel =
-            OpenAiEmbeddingModel.builder()
-                .apiKey(apiKey)
-                .modelName("text-embedding-3-small")
-                .build()
-
-        val addonConfig =
-            AddonConfig(
-                neo4j =
-                    Neo4jConfig(
-                        uri = neo4jUri,
-                        username = neo4jUser,
-                        password = neo4jPass,
-                    ),
-                overrides =
-                    LightRagOverrides(
-                        chunkTokenSize = 256,
-                        chunkOverlapTokenSize = 16,
-                        cosineBetterThreshold = 0.2,
-                    ),
-            )
-
-        val rag =
-            LightRAG(
-                workingDir = "./neo4j_embedding_store_demo",
-                chatModel = chatModel,
-                embeddingModel = embeddingModel,
-                vectorStorageName = "Neo4jEmbeddingStoreVectorStorage",
-                addonConfig = addonConfig,
-            )
+        val rag: LightRAG = get(LightRAG::class.java)
+        val storageManager: StorageManager = get(StorageManager::class.java)
 
         println("Initializing Neo4j embedding store vector storage...")
-        rag.chunksVdb.initialize()
-        rag.entitiesVdb.initialize()
-        rag.relationshipsVdb.initialize()
+        storageManager.initialize()
 
         // start clean for the demo
-        rag.chunksVdb.drop()
-        rag.entitiesVdb.drop()
-        rag.relationshipsVdb.drop()
+        storageManager.drop()
 
         val content =
             """
@@ -105,7 +117,5 @@ fun main() =
             println(result?.content ?: "No result")
         }
 
-        rag.chunksVdb.finalize()
-        rag.entitiesVdb.finalize()
-        rag.relationshipsVdb.finalize()
+        storageManager.persist()
     }

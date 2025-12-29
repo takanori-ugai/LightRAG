@@ -4,6 +4,8 @@ import dev.langchain4j.data.embedding.Embedding
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.store.embedding.CosineSimilarity
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -12,6 +14,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import lightrag.core.types.BaseVectorStorage
 import java.io.File
@@ -37,6 +40,7 @@ class InMemoryVectorStorage(
      * The threshold for cosine similarity.
      */
     override val cosineBetterThanThreshold: Double = cosineThreshold ?: (globalConfig["cosine_better_than_threshold"] as? Double ?: 0.2)
+
     /**
      * The set of meta fields.
      */
@@ -71,25 +75,17 @@ class InMemoryVectorStorage(
         try {
             val content = file.readText()
             if (content.isNotBlank()) {
-                val jsonElement = json.parseToJsonElement(content)
-                if (jsonElement is JsonObject) {
-                    val loadedVectors = mutableMapOf<String, List<Float>>()
-                    val loadedMetadata = mutableMapOf<String, Metadata>()
-                    jsonElement.entries.forEach { (id, value) ->
-                        if (value is JsonObject) {
-                            val vec = (value["vector"] as? JsonArray)?.mapNotNull { it.toAny() as? Number }?.map { it.toFloat() }
-                            val metaObj = value["metadata"]
-                            val rawMap = (metaObj?.toAny() as? Map<String, Any>) ?: emptyMap()
-                            if (vec != null) {
-                                loadedVectors[id] = vec
-                            }
-                            loadedMetadata[id] = mapToMetadata(rawMap)
-                        }
+                val loadedData = json.decodeFromString<Map<String, JsonObject>>(content)
+                loadedData.forEach { (id, jsonObject) ->
+                    val vec = (jsonObject["vector"] as? JsonArray)?.mapNotNull { it.jsonPrimitive.doubleOrNull?.toFloat() }
+                    val metaObj = jsonObject["metadata"] as? JsonObject
+                    val rawMap = (metaObj?.toAny() as? Map<String, Any>) ?: emptyMap()
+                    if (vec != null) {
+                        vectors[id] = vec
                     }
-                    vectors.putAll(loadedVectors)
-                    metadata.putAll(loadedMetadata)
-                    logger.info { "Loaded ${vectors.size} vectors for '$namespace' from ${file.absolutePath}" }
+                    metadata[id] = mapToMetadata(rawMap)
                 }
+                logger.info { "Loaded ${vectors.size} vectors for '$namespace' from ${file.absolutePath}" }
             }
         } catch (e: Exception) {
             logger.error(e) { "Error loading vector storage from ${file.absolutePath}" }
@@ -110,13 +106,13 @@ class InMemoryVectorStorage(
                         val meta = metadata[id]?.raw ?: emptyMap()
                         JsonObject(
                             mapOf(
-                                "vector" to vec.toJsonElement(),
+                                "vector" to JsonArray(vec.map { JsonPrimitive(it) }),
                                 "metadata" to meta.toJsonElement(),
                             ),
                         )
                     },
                 )
-            val content = json.encodeToString(JsonElement.serializer(), jsonObject)
+            val content = json.encodeToString(jsonObject)
             file.writeText(content)
             debug { "[$namespace/$workspace] Persisted ${vectors.size} vectors to ${file.absolutePath}" }
         } catch (e: Exception) {
@@ -166,33 +162,32 @@ class InMemoryVectorStorage(
 
         // Calculate cosine similarity for all vectors
         val results =
-            vectors.mapNotNull { (id, vec) ->
-                val meta = metadata[id]
-                if (meta == null) {
-                    logger.warn { "Skipping vector '$id' in '$namespace' due to missing metadata." }
-                    return@mapNotNull null
-                }
-                if (vec.isEmpty()) {
-                    logger.warn { "Skipping vector '$id' in '$namespace' because it is empty." }
-                    return@mapNotNull null
-                }
-                if (vec.size != queryVec.size) {
-                    logger.warn {
-                        "Skipping vector '$id' in '$namespace' due to dimension mismatch: stored=${vec.size}, query=${queryVec.size}"
+            vectors
+                .mapNotNull { (id, vec) ->
+                    val meta = metadata[id]
+                    if (meta == null) {
+                        logger.warn { "Skipping vector '$id' in '$namespace' due to missing metadata." }
+                        return@mapNotNull null
                     }
-                    return@mapNotNull null
-                }
-                val similarity =
-                    CosineSimilarity.between(
-                        Embedding(queryVec.toFloatArray()),
-                        Embedding(vec.toFloatArray()),
-                    )
-                Triple(id, similarity, meta)
-            }
-                .filter {
+                    if (vec.isEmpty()) {
+                        logger.warn { "Skipping vector '$id' in '$namespace' because it is empty." }
+                        return@mapNotNull null
+                    }
+                    if (vec.size != queryVec.size) {
+                        logger.warn {
+                            "Skipping vector '$id' in '$namespace' due to dimension mismatch: stored=${vec.size}, query=${queryVec.size}"
+                        }
+                        return@mapNotNull null
+                    }
+                    val similarity =
+                        CosineSimilarity.between(
+                            Embedding(queryVec.toFloatArray()),
+                            Embedding(vec.toFloatArray()),
+                        )
+                    Triple(id, similarity, meta)
+                }.filter {
                     it.third != null && it.second >= cosineBetterThanThreshold
-                }
-                .sortedByDescending { it.second }
+                }.sortedByDescending { it.second }
                 .take(topK)
 
         if (results.isEmpty()) {
@@ -216,7 +211,7 @@ class InMemoryVectorStorage(
         // We expect metadata to contain "content" field which needs to be embedded if not already vectors?
         // In Python LightRAG, upsert logic in vector storage often handles embedding if content is provided.
 
-        val embeddingModel = embeddingFunc
+        val embeddingModel = embeddingFunc as? EmbeddingModel
         debug {
             "[$namespace/$workspace] Upsert ${data.size} items. Has embedding model: ${embeddingModel != null}"
         }
@@ -247,7 +242,7 @@ class InMemoryVectorStorage(
     }
 
     private fun embed(text: String): List<Float> {
-        val embeddingModel = embeddingFunc as? EmbeddingModel ?: return emptyList()
+        val embeddingModel = embeddingFunc
         return try {
             val response = embeddingModel.embed(text)
             val content = response.content()
@@ -268,9 +263,10 @@ class InMemoryVectorStorage(
     override suspend fun deleteEntity(entityName: String) {
         // Remove entities where entity_name matches
         val idsToDelete =
-            metadata.filter {
-                it.value.entityName == entityName
-            }.keys
+            metadata
+                .filter {
+                    it.value.entityName == entityName
+                }.keys
         delete(idsToDelete.toList())
     }
 
@@ -281,9 +277,10 @@ class InMemoryVectorStorage(
     override suspend fun deleteEntityRelation(entityName: String) {
         // Remove relations where src_id or tgt_id matches
         val idsToDelete =
-            metadata.filter {
-                it.value.srcId == entityName || it.value.tgtId == entityName
-            }.keys
+            metadata
+                .filter {
+                    it.value.srcId == entityName || it.value.tgtId == entityName
+                }.keys
         delete(idsToDelete.toList())
     }
 
@@ -292,18 +289,14 @@ class InMemoryVectorStorage(
      * @param id The ID of the item to get.
      * @return A map representing the item.
      */
-    override suspend fun getById(id: String): Map<String, Any>? {
-        return metadata[id]?.raw
-    }
+    override suspend fun getById(id: String): Map<String, Any>? = metadata[id]?.raw
 
     /**
      * Gets items by their IDs.
      * @param ids The IDs of the items to get.
      * @return A list of maps representing the items.
      */
-    override suspend fun getByIds(ids: List<String>): List<Map<String, Any>> {
-        return ids.mapNotNull { metadata[it]?.raw }
-    }
+    override suspend fun getByIds(ids: List<String>): List<Map<String, Any>> = ids.mapNotNull { metadata[it]?.raw }
 
     /**
      * Deletes items by their IDs.
@@ -321,17 +314,17 @@ class InMemoryVectorStorage(
      * @param ids The IDs of the vectors to get.
      * @return A map of IDs to vectors.
      */
-    override suspend fun getVectorsByIds(ids: List<String>): Map<String, List<Float>> {
-        return ids.mapNotNull { id ->
-            vectors[id]?.let { id to it }
-        }.toMap()
-    }
+    override suspend fun getVectorsByIds(ids: List<String>): Map<String, List<Float>> =
+        ids
+            .mapNotNull { id ->
+                vectors[id]?.let { id to it }
+            }.toMap()
 
     private fun mapToMetadata(meta: Map<String, Any>): Metadata {
         val content = meta["content"] as? String
 
         @Suppress("UNCHECKED_CAST")
-        val vector = meta["vector"] as? List<Float>
+        val vector = (meta["vector"] as? List<*>)?.mapNotNull { (it as? Number)?.toFloat() }
         val entityName = meta["entity_name"] as? String
         val srcId = meta["src_id"] as? String
         val tgtId = meta["tgt_id"] as? String
@@ -345,21 +338,30 @@ class InMemoryVectorStorage(
         )
     }
 
-    private fun Any?.toJsonElement(): JsonElement {
-        return when (this) {
+    private fun Any?.toJsonElement(): JsonElement =
+        when (this) {
             null -> JsonNull
+
             is Boolean -> JsonPrimitive(this)
-            is Number -> JsonPrimitive(this)
+
+            is Number -> JsonPrimitive(this.toString())
+
+            // Convert number to string for JsonPrimitive
             is String -> JsonPrimitive(this)
-            is List<*> -> JsonArray(this.map { it.toJsonElement() })
+
+            is List<*> -> kotlinx.serialization.json.JsonArray(this.map { it.toJsonElement() })
+
             is Map<*, *> -> JsonObject(this.entries.associate { it.key.toString() to it.value.toJsonElement() })
+
             else -> JsonPrimitive(this.toString())
         }
-    }
 
-    private fun JsonElement.toAny(): Any? {
-        return when (this) {
-            is JsonNull -> null
+    private fun JsonElement.toAny(): Any? =
+        when (this) {
+            is JsonNull -> {
+                null
+            }
+
             is JsonPrimitive -> {
                 if (isString) {
                     content
@@ -367,8 +369,17 @@ class InMemoryVectorStorage(
                     booleanOrNull ?: longOrNull ?: doubleOrNull ?: content
                 }
             }
-            is JsonArray -> this.map { it.toAny() }
-            is JsonObject -> this.mapValues { it.value.toAny() }
+
+            is kotlinx.serialization.json.JsonArray -> {
+                this.map { it.toAny() }
+            }
+
+            is JsonObject -> {
+                this.mapValues { it.value.toAny() }
+            }
+
+            else -> {
+                null
+            }
         }
-    }
 }

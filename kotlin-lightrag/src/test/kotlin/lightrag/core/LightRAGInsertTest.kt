@@ -14,6 +14,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import kotlinx.coroutines.runBlocking
+import lightrag.buildTestLightRag
 import lightrag.core.types.DocProcessingStatus
 import lightrag.core.types.DocStatus
 import org.junit.Test
@@ -77,12 +78,7 @@ class LightRAGInsertTest {
                 val tempDir = File("build/tmp/test_rag_storage_mockk_${System.currentTimeMillis()}")
                 tempDir.mkdirs()
 
-                val rag =
-                    LightRAG(
-                        workingDir = tempDir.absolutePath,
-                        chatModel = mockChatModel,
-                        embeddingModel = mockEmbeddingModel,
-                    )
+                val rag = buildTestLightRag(mockChatModel, mockEmbeddingModel, tempDir)
 
                 // Test Input
                 val content = "Apple released the new iPhone yesterday."
@@ -95,7 +91,7 @@ class LightRAGInsertTest {
 
                 // Check DocStatus
                 val processedDocs: Map<String, DocProcessingStatus> =
-                    rag.docStatusStorage.getDocsByStatus(DocStatus.PROCESSED)
+                    rag.storageManager.docStatusStorage.getDocsByStatus(DocStatus.PROCESSED)
                 assertEquals(1, processedDocs.size)
 
                 val docId = processedDocs.keys.first()
@@ -104,7 +100,7 @@ class LightRAGInsertTest {
                 assertEquals(DocStatus.PROCESSED, docData?.status)
 
                 // Check Graph
-                val graph = rag.chunkEntityRelationGraph
+                val graph = rag.storageManager.chunkEntityRelationGraph
                 val node = graph.getNode("Apple")
                 assertNotNull(node, "Node 'Apple' should exist in graph")
                 assertEquals("Organization", node["entity_type"])
@@ -154,12 +150,7 @@ class LightRAGInsertTest {
                 val tempDir = File("build/tmp/test_rag_storage_dup_mockk_${System.currentTimeMillis()}")
                 tempDir.mkdirs()
 
-                val rag =
-                    LightRAG(
-                        workingDir = tempDir.absolutePath,
-                        chatModel = mockChatModel,
-                        embeddingModel = mockEmbeddingModel,
-                    )
+                val rag = buildTestLightRag(mockChatModel, mockEmbeddingModel, tempDir)
 
                 val content = "This is a test document."
 
@@ -167,16 +158,16 @@ class LightRAGInsertTest {
                 rag.insert(content)
 
                 var processedDocs: Map<String, DocProcessingStatus> =
-                    rag.docStatusStorage.getDocsByStatus(DocStatus.PROCESSED)
+                    rag.storageManager.docStatusStorage.getDocsByStatus(DocStatus.PROCESSED)
                 assertEquals(1, processedDocs.size)
 
                 // Second Insert (Same content)
                 rag.insert(content)
 
-                processedDocs = rag.docStatusStorage.getDocsByStatus(DocStatus.PROCESSED)
+                processedDocs = rag.storageManager.docStatusStorage.getDocsByStatus(DocStatus.PROCESSED)
                 assertEquals(1, processedDocs.size, "Should still be 1 document after duplicate insertion")
 
-                val pendingDocs = rag.docStatusStorage.getDocsByStatus(DocStatus.PENDING)
+                val pendingDocs = rag.storageManager.docStatusStorage.getDocsByStatus(DocStatus.PENDING)
                 assertEquals(0, pendingDocs.size)
 
                 // Cleanup

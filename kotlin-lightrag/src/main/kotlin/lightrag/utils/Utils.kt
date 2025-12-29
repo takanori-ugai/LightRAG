@@ -19,9 +19,7 @@ fun computeMd5(input: String): String {
  * @param prefix The prefix for the track ID.
  * @return The generated track ID.
  */
-fun generateTrackId(prefix: String): String {
-    return "$prefix-${UUID.randomUUID()}"
-}
+fun generateTrackId(prefix: String): String = "$prefix-${UUID.randomUUID()}"
 
 /**
  * Chunks a list into sublists of a given size with a given overlap.
