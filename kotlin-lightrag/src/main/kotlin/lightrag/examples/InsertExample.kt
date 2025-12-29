@@ -9,11 +9,7 @@ import org.koin.java.KoinJavaComponent.get
 /**
  * The main function for the insert example.
  */
-fun main() {
-    runExample()
-}
-
-fun runExample() =
+fun main() =
     runBlocking {
         startKoin {
             allowOverride(true)

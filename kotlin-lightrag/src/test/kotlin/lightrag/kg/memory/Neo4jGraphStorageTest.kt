@@ -40,7 +40,8 @@ class Neo4jGraphStorageTest {
                             ),
                     ),
                 embeddingFunc =
-                    OpenAiEmbeddingModel.builder()
+                    OpenAiEmbeddingModel
+                        .builder()
                         .apiKey(apiKey)
                         .modelName("text-embedding-3-large")
                         .dimensions(3072)

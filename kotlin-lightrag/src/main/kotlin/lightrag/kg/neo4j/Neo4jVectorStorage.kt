@@ -59,19 +59,25 @@ class Neo4jVectorStorage(
         return result
     }
 
-    private fun parseNeo4jConfig(): Neo4jConfig? {
-        return when (val cfg = globalConfig["neo4j"]) {
-            is Neo4jConfig -> cfg
-            is Map<*, *> ->
+    private fun parseNeo4jConfig(): Neo4jConfig? =
+        when (val cfg = globalConfig["neo4j"]) {
+            is Neo4jConfig -> {
+                cfg
+            }
+
+            is Map<*, *> -> {
                 Neo4jConfig(
                     uri = cfg["uri"] as? String,
                     username = cfg["username"] as? String,
                     password = cfg["password"] as? String,
                     database = cfg["database"] as? String,
                 )
-            else -> null
+            }
+
+            else -> {
+                null
+            }
         }
-    }
 
     private fun sessionConfig(): SessionConfig {
         val database = System.getenv("NEO4J_DATABASE") ?: parseNeo4jConfig()?.database
@@ -104,7 +110,8 @@ class Neo4jVectorStorage(
         val maxLifetimeMs = System.getenv("NEO4J_MAX_CONNECTION_LIFETIME")?.toLongOrNull() ?: 300_000L
 
         val config =
-            org.neo4j.driver.Config.builder()
+            org.neo4j.driver.Config
+                .builder()
                 .withMaxConnectionPoolSize(maxPool)
                 .withConnectionTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                 .withMaxConnectionLifetime(maxLifetimeMs, TimeUnit.MILLISECONDS)
@@ -114,9 +121,10 @@ class Neo4jVectorStorage(
 
         withContext(Dispatchers.IO) {
             driver?.session(sessionConfig())?.use { session ->
-                session.run(
-                    "CREATE CONSTRAINT IF NOT EXISTS FOR (n:$label) REQUIRE n.id IS UNIQUE",
-                ).consume()
+                session
+                    .run(
+                        "CREATE CONSTRAINT IF NOT EXISTS FOR (n:$label) REQUIRE n.id IS UNIQUE",
+                    ).consume()
             }
         }
 
@@ -144,10 +152,7 @@ class Neo4jVectorStorage(
                             value.asList { it.asDouble() }.map { it.toFloat() }
                         } ?: emptyList()
                     val rawMeta =
-                        record["metadata"]?.asList { it.asString() }?.associate { entry ->
-                            val parts = entry.split(":", limit = 2)
-                            if (parts.size == 2) parts[0] to parts[1] else entry to ""
-                        } ?: emptyMap()
+                        record["metadata"]?.asMap { it.asString() } ?: emptyMap()
                     vectors[id] = vec
                     metadata[id] = mapToMetadata(rawMeta)
                 }
@@ -177,7 +182,7 @@ class Neo4jVectorStorage(
         }
         vectors.clear()
         metadata.clear()
-        return mapOf("status" to "success", "message" to "Deleted all nodes for label $label")
+        return mapOf("status" to "success", "message" to "data dropped and file removed at $label")
     }
 
     /**
@@ -195,19 +200,52 @@ class Neo4jVectorStorage(
         val qVec = queryEmbedding ?: embed(query)
         if (qVec.isEmpty()) return emptyList()
 
-        val scored =
-            vectors.mapNotNull { (id, vec) ->
-                if (vec.isEmpty()) return@mapNotNull null
-                val score = CosineSimilarity.between(Embedding.from(qVec), Embedding.from(vec))
-                if (score >= cosineBetterThanThreshold) {
-                    Triple(id, score, metadata[id])
-                } else {
-                    null
-                }
-            }.sortedByDescending { it.second }
+        if (vectors.isEmpty()) {
+            logger.warn { "Vector storage '$namespace' is empty during query." }
+            return emptyList()
+        }
+
+        logger.debug {
+            "[$namespace/$workspace] Query='$query', topK=$topK, vectors=${vectors.size}, metadata=${metadata.size}"
+        }
+
+        // Calculate cosine similarity for all vectors
+        val results =
+            vectors
+                .mapNotNull { (id, vec) ->
+                    val meta = metadata[id]
+                    if (meta == null) {
+                        logger.warn { "Skipping vector '$id' in '$namespace' due to missing metadata." }
+                        return@mapNotNull null
+                    }
+                    if (vec.isEmpty()) {
+                        logger.warn { "Skipping vector '$id' in '$namespace' because it is empty." }
+                        return@mapNotNull null
+                    }
+                    if (vec.size != qVec.size) {
+                        logger.warn {
+                            "Skipping vector '$id' in '$namespace' due to dimension mismatch: stored=${vec.size}, query=${qVec.size}"
+                        }
+                        return@mapNotNull null
+                    }
+                    val similarity =
+                        CosineSimilarity.between(
+                            Embedding(qVec.toFloatArray()),
+                            Embedding(vec.toFloatArray()),
+                        )
+                    Triple(id, similarity, meta)
+                }.filter {
+                    it.third != null && it.second >= cosineBetterThanThreshold
+                }.sortedByDescending { it.second }
                 .take(topK)
 
-        return scored.map { (id, score, meta) ->
+        if (results.isEmpty()) {
+            logger.warn {
+                "No results found for query: '$query' in '$namespace'. Vectors count: ${vectors.size}"
+            }
+        }
+
+        return results.map { (id, score, meta) ->
             val raw = meta?.raw ?: emptyMap()
             raw + mapOf("id" to id, "score" to score, "distance" to score)
         }
@@ -271,9 +309,7 @@ class Neo4jVectorStorage(
      * @param ids The IDs of the items to get.
      * @return A list of maps representing the items.
      */
-    override suspend fun getByIds(ids: List<String>): List<Map<String, Any>> {
-        return ids.mapNotNull { getById(it) }
-    }
+    override suspend fun getByIds(ids: List<String>): List<Map<String, Any>> = ids.mapNotNull { getById(it) }
 
     /**
      * Deletes items by their IDs.
@@ -283,10 +319,11 @@ class Neo4jVectorStorage(
         if (ids.isEmpty()) return
         withContext(Dispatchers.IO) {
             driver?.session(sessionConfig())?.use { session ->
-                session.run(
-                    "MATCH (n:$label) WHERE n.id IN \$ids DETACH DELETE n",
-                    mapOf("ids" to ids),
-                ).consume()
+                session
+                    .run(
+                        "MATCH (n:$label) WHERE n.id IN \$ids DETACH DELETE n",
+                        mapOf("ids" to ids),
+                    ).consume()
             }
         }
         ids.forEach {
@@ -300,11 +337,11 @@ class Neo4jVectorStorage(
      * @param ids The IDs of the vectors to get.
      * @return A map of IDs to vectors.
      */
-    override suspend fun getVectorsByIds(ids: List<String>): Map<String, List<Float>> {
-        return ids.mapNotNull { id ->
-            vectors[id]?.let { id to it }
-        }.toMap()
-    }
+    override suspend fun getVectorsByIds(ids: List<String>): Map<String, List<Float>> =
+        ids
+            .mapNotNull { id ->
+                vectors[id]?.let { id to it }
+            }.toMap()
 
     private fun persistNode(
         id: String,
@@ -327,15 +364,16 @@ class Neo4jVectorStorage(
                 "metadata" to metaList,
             )
         driver?.session(sessionConfig())?.use { session ->
-            session.run(
-                "MERGE (n:$label {id: \$id}) SET n.vector = \$vector, n.metadata = \$metadata",
-                params,
-            ).consume()
+            session
+                .run(
+                    "MERGE (n:$label {id: \$id}) SET n.vector = \$vector, n.metadata = \$metadata",
+                    params,
+                ).consume()
         }
     }
 
-    private fun embed(text: String): List<Float> {
-        return try {
+    private fun embed(text: String): List<Float> =
+        try {
             val response = embeddingFunc.embed(text)
             val content = response.content()
             content.vector().toList()
@@ -343,7 +381,6 @@ class Neo4jVectorStorage(
             logger.error(e) { "Error embedding text for Neo4jVectorStorage" }
             emptyList()
         }
-    }
 
     private fun mapToMetadata(meta: Map<String, Any>): Metadata {
         val content = meta["content"] as? String

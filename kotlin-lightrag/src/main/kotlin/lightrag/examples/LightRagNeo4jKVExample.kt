@@ -3,10 +3,14 @@ package lightrag.examples
 import kotlinx.coroutines.runBlocking
 import lightrag.core.LightRAG
 import lightrag.core.QueryParam
+import lightrag.di.AppConfig
 import lightrag.di.appModule
-import lightrag.di.neo4jKVExampleModule
+import lightrag.kg.neo4j.Neo4jKVStorage
 import lightrag.services.StorageManager
+import org.koin.core.context.loadKoinModules
 import org.koin.core.context.startKoin
+import org.koin.core.qualifier.named
+import org.koin.dsl.module
 import org.koin.java.KoinJavaComponent.get
 
 /**
@@ -20,8 +24,41 @@ fun main() =
     runBlocking {
         startKoin {
             allowOverride(true)
-            modules(appModule, neo4jKVExampleModule)
+            modules(appModule)
         }
+
+        // Override StorageManager to use Neo4jKVStorage for all KV stores (full docs, chunks, entities, relations).
+        val neo4jKvModule =
+            module {
+                single<StorageManager> {
+                    val appConfig = get<AppConfig>()
+                    val globalConfig = get<Map<String, Any?>>(named("globalConfig"))
+                    val embeddingModel = appConfig.embeddingModel
+
+                    fun neo4jKv(namespace: String) =
+                        Neo4jKVStorage(
+                            namespace = namespace,
+                            workspace = System.getenv("NEO4J_WORKSPACE") ?: "default",
+                            globalConfig = globalConfig,
+                            embeddingFunc = embeddingModel,
+                        )
+
+                    StorageManager(
+                        workingDir = appConfig.workingDir,
+                        embeddingModel = embeddingModel,
+                        graphStorageName = appConfig.graphStorageName,
+                        vectorStorageName = appConfig.vectorStorageName,
+                        addonConfig = appConfig.addonConfig,
+                        globalConfig = globalConfig,
+                        fullDocsStorageOverride = neo4jKv("full_docs"),
+                        textChunksStorageOverride = neo4jKv("text_chunks"),
+                        fullEntitiesStorageOverride = neo4jKv("full_entities"),
+                        fullRelationsStorageOverride = neo4jKv("full_relations"),
+                        docStatusStorageOverride = appConfig.docStatusStorageOverride,
+                    )
+                }
+            }
+        loadKoinModules(neo4jKvModule)
 
         val rag: LightRAG = get(LightRAG::class.java)
         val storageManager: StorageManager = get(StorageManager::class.java)

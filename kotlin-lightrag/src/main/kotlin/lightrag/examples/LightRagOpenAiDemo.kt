@@ -18,7 +18,6 @@ import java.io.File
 fun main() =
     runBlocking {
         startKoin {
-            allowOverride(true)
             modules(appModule)
         }
 

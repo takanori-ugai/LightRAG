@@ -3,10 +3,14 @@ package lightrag.examples
 import kotlinx.coroutines.runBlocking
 import lightrag.core.LightRAG
 import lightrag.core.QueryParam
+import lightrag.di.AppConfig
 import lightrag.di.appModule
-import lightrag.di.neo4jDocStatusExampleModule
+import lightrag.kg.neo4j.Neo4jDocStatusStorage
 import lightrag.services.StorageManager
+import org.koin.core.context.loadKoinModules
 import org.koin.core.context.startKoin
+import org.koin.core.qualifier.named
+import org.koin.dsl.module
 import org.koin.java.KoinJavaComponent.get
 import java.io.File
 
@@ -21,8 +25,38 @@ fun main() =
     runBlocking {
         startKoin {
             allowOverride(true)
-            modules(appModule, neo4jDocStatusExampleModule)
+            modules(appModule)
         }
+
+        // Override StorageManager to use Neo4jDocStatusStorage instead of the default JSON store.
+        val neo4jDocStatusModule =
+            module {
+                single<StorageManager> {
+                    val appConfig = get<AppConfig>()
+                    val globalConfig = get<Map<String, Any?>>(named("globalConfig"))
+                    val embeddingModel = appConfig.embeddingModel
+                    StorageManager(
+                        workingDir = appConfig.workingDir,
+                        embeddingModel = embeddingModel,
+                        graphStorageName = appConfig.graphStorageName,
+                        vectorStorageName = appConfig.vectorStorageName,
+                        addonConfig = appConfig.addonConfig,
+                        globalConfig = globalConfig,
+                        docStatusStorageOverride =
+                            Neo4jDocStatusStorage(
+                                namespace = "doc_status",
+                                workspace = System.getenv("NEO4J_WORKSPACE") ?: "default",
+                                globalConfig = globalConfig,
+                                embeddingFunc = embeddingModel,
+                            ),
+                        fullDocsStorageOverride = appConfig.fullDocsStorageOverride,
+                        textChunksStorageOverride = appConfig.textChunksStorageOverride,
+                        fullEntitiesStorageOverride = appConfig.fullEntitiesStorageOverride,
+                        fullRelationsStorageOverride = appConfig.fullRelationsStorageOverride,
+                    )
+                }
+            }
+        loadKoinModules(neo4jDocStatusModule)
 
         val rag: LightRAG = get(LightRAG::class.java)
         val storageManager: StorageManager = get(StorageManager::class.java)

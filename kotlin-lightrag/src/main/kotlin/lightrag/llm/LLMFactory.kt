@@ -45,11 +45,12 @@ object LLMFactory {
         temperature: Double? = null,
         logRequests: Boolean = true,
         logResponses: Boolean = true,
-    ): ChatModel {
-        return when (binding) {
+    ): ChatModel =
+        when (binding) {
             "openai" -> {
                 val builder =
-                    OpenAiChatModel.builder()
+                    OpenAiChatModel
+                        .builder()
                         .modelName(modelName)
                         .apiKey(apiKey ?: "demo")
                         .logRequests(logRequests)
@@ -60,9 +61,11 @@ object LLMFactory {
                 }
                 builder.build()
             }
+
             "ollama" -> {
                 val builder =
-                    OllamaChatModel.builder()
+                    OllamaChatModel
+                        .builder()
                         .modelName(modelName)
                         .baseUrl(baseUrl ?: "http://localhost:11434")
                         .timeout(Duration.ofSeconds(timeout))
@@ -73,9 +76,11 @@ object LLMFactory {
                 }
                 builder.build()
             }
-            else -> throw IllegalArgumentException("Unsupported LLM binding: $binding")
+
+            else -> {
+                throw IllegalArgumentException("Unsupported LLM binding: $binding")
+            }
         }
-    }
 
     /**
      * Build an [EmbeddingModel] for the given binding.
@@ -92,11 +97,12 @@ object LLMFactory {
         baseUrl: String? = null,
         apiKey: String? = null,
         timeout: Long = 60,
-    ): EmbeddingModel {
-        return when (binding) {
+    ): EmbeddingModel =
+        when (binding) {
             "openai" -> {
                 val builder =
-                    OpenAiEmbeddingModel.builder()
+                    OpenAiEmbeddingModel
+                        .builder()
                         .modelName(modelName)
                         .apiKey(apiKey ?: "demo")
                         .logRequests(true)
@@ -106,15 +112,19 @@ object LLMFactory {
                 }
                 builder.build()
             }
+
             "ollama" -> {
                 val builder =
-                    OllamaEmbeddingModel.builder()
+                    OllamaEmbeddingModel
+                        .builder()
                         .modelName(modelName)
                         .baseUrl(baseUrl ?: "http://localhost:11434")
                         .timeout(Duration.ofSeconds(timeout))
                 builder.build()
             }
-            else -> throw IllegalArgumentException("Unsupported embedding binding: $binding")
+
+            else -> {
+                throw IllegalArgumentException("Unsupported embedding binding: $binding")
+            }
         }
-    }
 }

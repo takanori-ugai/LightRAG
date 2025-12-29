@@ -7,7 +7,7 @@ import io.ktor.server.application.ApplicationStopping
 import io.ktor.server.application.call
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
-import io.ktor.server.http.content.staticResources
+import io.ktor.server.http.content.staticResources // Added missing import
 import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.cors.routing.CORS
@@ -18,7 +18,6 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.Serializable
 import lightrag.api.routers.configureDocumentRoutes
 import lightrag.api.routers.configureGraphRoutes
 import lightrag.api.routers.configureOllamaRoutes
@@ -48,7 +47,7 @@ fun Application.module() {
     }
     install(CORS) {
         anyHost()
-        allowHeader(io.ktor.http.HttpHeaders.ContentType)
+        allowHeader("Content-Type")
     }
 
     install(Koin) {
@@ -86,14 +85,3 @@ fun Application.module() {
     configureGraphRoutes(rag)
     configureOllamaRoutes(rag)
 }
-
-/**
- * The response for the drop operation.
- * @property status The status of the operation.
- * @property details The details of the operation.
- */
-@Serializable
-data class DropResponse(
-    val status: String,
-    val details: Map<String, Map<String, String>>,
-)

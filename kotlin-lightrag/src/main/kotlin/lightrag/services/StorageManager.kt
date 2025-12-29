@@ -10,7 +10,9 @@ import lightrag.kg.json.JsonDocStatusStorage
 import lightrag.kg.json.JsonKVStorage
 import lightrag.kg.memory.InMemoryGraphStorage
 import lightrag.kg.memory.InMemoryVectorStorage
+import lightrag.kg.mongo.MongoGraphStorage
 import lightrag.kg.neo4j.Neo4jEmbeddingStoreVectorStorage
+import lightrag.kg.neo4j.Neo4jGraphStorage
 import lightrag.kg.neo4j.Neo4jVectorStorage
 
 class StorageManager(
@@ -58,7 +60,7 @@ class StorageManager(
                 workspace = "default",
                 globalConfig = mapOf("working_dir" to workingDir),
                 embeddingFunc = embeddingModel,
-            )
+            ) as BaseKVStorage // Explicitly cast to BaseKVStorage
 
     /**
 
@@ -75,7 +77,7 @@ class StorageManager(
                 workspace = "default",
                 globalConfig = mapOf("working_dir" to workingDir),
                 embeddingFunc = embeddingModel,
-            )
+            ) as BaseKVStorage // Explicitly cast to BaseKVStorage
 
     /**
 
@@ -92,7 +94,7 @@ class StorageManager(
                 workspace = "default",
                 globalConfig = mapOf("working_dir" to workingDir),
                 embeddingFunc = embeddingModel,
-            )
+            ) as BaseKVStorage // Explicitly cast to BaseKVStorage
 
     /**
 
@@ -109,7 +111,7 @@ class StorageManager(
                 workspace = "default",
                 globalConfig = mapOf("working_dir" to workingDir),
                 embeddingFunc = embeddingModel,
-            )
+            ) as BaseKVStorage // Explicitly cast to BaseKVStorage
 
     private fun createVectorStorage(
         namespace: String,
@@ -117,10 +119,9 @@ class StorageManager(
         globalConfig: Map<String, Any?>,
         embeddingModel: EmbeddingModel,
         addonConfig: AddonConfig,
-    ): BaseVectorStorage {
-        return when (vectorStorageName) {
-            "Neo4jEmbeddingStoreVectorStorage", "Neo4jEmbeddingStore" ->
-
+    ): BaseVectorStorage =
+        when (vectorStorageName) {
+            "Neo4jEmbeddingStoreVectorStorage", "Neo4jEmbeddingStore" -> {
                 Neo4jEmbeddingStoreVectorStorage(
                     namespace = namespace,
                     workspace = "default",
@@ -128,9 +129,9 @@ class StorageManager(
                     embeddingFunc = embeddingModel,
                     cosineThreshold = addonConfig.cosineBetterThreshold,
                 )
+            }
 
-            "Neo4jVectorStorage" ->
-
+            "Neo4jVectorStorage" -> {
                 Neo4jVectorStorage(
                     namespace = namespace,
                     workspace = "default",
@@ -138,9 +139,9 @@ class StorageManager(
                     embeddingFunc = embeddingModel,
                     cosineThreshold = addonConfig.cosineBetterThreshold,
                 )
+            }
 
-            else ->
-
+            else -> {
                 InMemoryVectorStorage(
                     namespace = namespace,
                     workspace = "default",
@@ -148,8 +149,8 @@ class StorageManager(
                     globalConfig = globalConfig,
                     cosineThreshold = addonConfig.cosineBetterThreshold,
                 )
+            }
         }
-    }
 
     /**
 
@@ -188,7 +189,7 @@ class StorageManager(
 
             "MongoGraphStorage" -> {
 
-                lightrag.kg.mongo.MongoGraphStorage(
+                MongoGraphStorage(
                     namespace = "chunk_entity_relation_graph",
                     globalConfig = globalConfig,
                     embeddingFunc = embeddingModel,
@@ -197,20 +198,20 @@ class StorageManager(
 
             "Neo4jGraphStorage" -> {
 
-                lightrag.kg.neo4j.Neo4jGraphStorage(
+                Neo4jGraphStorage(
                     namespace = "chunk_entity_relation_graph",
                     globalConfig = globalConfig,
                     embeddingFunc = embeddingModel,
                 )
             }
 
-            else ->
-
+            else -> {
                 InMemoryGraphStorage(
                     namespace = "chunk_entity_relation_graph",
                     workspace = "default",
                     embeddingFunc = embeddingModel,
                 )
+            }
         }
 
     /**
@@ -277,8 +278,8 @@ class StorageManager(
         relationshipsVdb.indexDoneCallback()
     }
 
-    suspend fun drop(): Map<String, Map<String, String>> {
-        return mapOf(
+    suspend fun drop(): Map<String, Map<String, String>> =
+        mapOf(
             "doc_status" to docStatusStorage.drop(),
             "full_docs" to fullDocs.drop(),
             "text_chunks" to textChunks.drop(),
@@ -289,5 +290,4 @@ class StorageManager(
             "entities_vdb" to entitiesVdb.drop(),
             "relationships_vdb" to relationshipsVdb.drop(),
         )
-    }
 }

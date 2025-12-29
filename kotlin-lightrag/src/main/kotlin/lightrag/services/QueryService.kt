@@ -6,8 +6,8 @@ import lightrag.core.QueryParam
 import lightrag.core.QueryResult
 import lightrag.core.types.BaseKVStorage
 import lightrag.operate.NaiveQueryParams
-import lightrag.operate.kgQuery
-import lightrag.operate.naiveQuery
+import lightrag.operate.QueryProcessor
+import lightrag.operate.naiveQuery // Added missing import
 
 private val logger = KotlinLogging.logger {}
 
@@ -19,6 +19,19 @@ class QueryService(
     private val tokenizer: (String) -> List<Int>,
     private val decoder: (List<Int>) -> String,
 ) {
+    private val queryProcessor =
+        QueryProcessor(
+            knowledgeGraphInst = storageManager.chunkEntityRelationGraph,
+            entitiesVdb = storageManager.entitiesVdb,
+            relationshipsVdb = storageManager.relationshipsVdb,
+            textChunksDb = storageManager.textChunks,
+            chatModel = chatModel,
+            hashingKv = hashingKv,
+            globalConfig = globalConfig,
+            tokenizer = tokenizer,
+            decoder = decoder,
+        )
+
     /**
      * Queries the LightRAG system.
      * @param query The query to execute.
@@ -28,22 +41,16 @@ class QueryService(
     suspend fun query(
         query: String,
         param: QueryParam,
-    ): QueryResult? {
-        return when (param.mode) {
+    ): QueryResult? =
+        when (param.mode) {
             "local", "global", "hybrid", "mix" -> {
-                kgQuery(
+                queryProcessor.kgQuery(
                     query = query,
-                    knowledgeGraphInst = storageManager.chunkEntityRelationGraph,
-                    entitiesVdb = storageManager.entitiesVdb,
-                    relationshipsVdb = storageManager.relationshipsVdb,
-                    textChunksDb = storageManager.textChunks,
                     queryParam = param,
-                    globalConfig = globalConfig,
                     chunksVdb = storageManager.chunksVdb,
-                    chatModel = chatModel,
-                    hashingKv = hashingKv,
                 )
             }
+
             "naive" -> {
                 naiveQuery(
                     NaiveQueryParams(
@@ -58,14 +65,15 @@ class QueryService(
                     ),
                 )
             }
+
             "bypass" -> {
                 val response = chatModel.chat(query)
                 QueryResult(content = response)
             }
+
             else -> {
                 logger.error { "Unsupported query mode: ${param.mode}" }
                 null
             }
         }
-    }
 }

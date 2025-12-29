@@ -17,14 +17,12 @@ import java.io.File
 fun main() =
     runBlocking {
         startKoin {
-            allowOverride(true)
             modules(appModule)
         }
 
         val rag: LightRAG = get(LightRAG::class.java)
         val storageManager: StorageManager = get(StorageManager::class.java)
 
-        val workingDir = "./json_demo_storage"
         // Configure API key, chat model, embedding model through Koin modules
 
         // Initialize storages and reload any persisted state
@@ -71,5 +69,5 @@ fun main() =
         // Persist JSON-backed storages (KV, DocStatus, Vectors)
         storageManager.persist()
 
-        println("\nDone! Data persisted under $workingDir using JSON-backed storages.")
+        println("\nDone! Data persisted using JSON-backed storages.")
     }

@@ -45,6 +45,8 @@ class Neo4jGraphStorage(
         private const val DEFAULT_POOL_SIZE = 100
         private const val DEFAULT_TIMEOUT_MS = 30000L
         private const val DEFAULT_MAX_LIFETIME_MS = 300000L
+        private const val DEFAULT_URI = "bolt://localhost:7687"
+        private const val DEFAULT_USERNAME = "neo4j"
         private const val SCORE_EXACT_MATCH = 1000
         private const val SCORE_STARTS_WITH = 500
         private const val SCORE_CONTAINS = 500
@@ -80,13 +82,9 @@ class Neo4jGraphStorage(
                 ?: providedConfig?.database
     }
 
-    private fun sessionConfig(): SessionConfig {
-        return database?.let { SessionConfig.forDatabase(it) } ?: SessionConfig.defaultConfig()
-    }
+    private fun sessionConfig(): SessionConfig = database?.let { SessionConfig.forDatabase(it) } ?: SessionConfig.defaultConfig()
 
-    private fun databaseForLog(): String {
-        return database ?: "default"
-    }
+    private fun databaseForLog(): String = database ?: "default"
 
     private fun logQuery(
         query: String,
@@ -118,9 +116,7 @@ class Neo4jGraphStorage(
         }
     }
 
-    private fun getWorkspaceLabel(): String {
-        return workspace
-    }
+    private fun getWorkspaceLabel(): String = workspace
 
     private fun normalizeIndexSuffix(workspaceLabel: String): String {
         var normalized = workspaceLabel.replace(Regex("[^A-Za-z0-9_]+"), "_").trim('_')
@@ -139,34 +135,40 @@ class Neo4jGraphStorage(
     }
 
     private fun isChineseText(text: String): Boolean {
-        val cjkPattern = Regex("[\\u3400-\\u4dbf\\u4e00-\\u9fff\\uf900-\\ufaff]|[\uD840-\uD87F][\uDC00-\uDFFF]")
+        val cjkPattern = Regex("[\\u3400-\\u4dbf\\u4e00-\\u9fff\\uf900-\\ufaff]|[�-�][�-�]")
         return cjkPattern.containsMatchIn(text)
     }
 
-    private fun parseNeo4jConfig(): Neo4jConfig? {
-        return when (val config = globalConfig["neo4j"]) {
-            is Neo4jConfig -> config
-            is Map<*, *> ->
+    private fun parseNeo4jConfig(): Neo4jConfig? =
+        when (val config = globalConfig["neo4j"]) {
+            is Neo4jConfig -> {
+                config
+            }
+
+            is Map<*, *> -> {
                 Neo4jConfig(
                     uri = config["uri"] as? String,
                     username = config["username"] as? String,
                     password = config["password"] as? String,
                     database = config["database"] as? String,
                 )
-            else -> null
+            }
+
+            else -> {
+                null
+            }
         }
-    }
 
     /**
      * Initializes the storage by creating a Neo4j driver and creating indexes.
      */
     override suspend fun initialize() {
-        val uri = System.getenv("NEO4J_URI") ?: providedConfig?.uri
-        val username = System.getenv("NEO4J_USERNAME") ?: providedConfig?.username
+        val uri = System.getenv("NEO4J_URI") ?: providedConfig?.uri ?: DEFAULT_URI
+        val username = System.getenv("NEO4J_USERNAME") ?: providedConfig?.username ?: DEFAULT_USERNAME
         val password = System.getenv("NEO4J_PASSWORD") ?: providedConfig?.password
 
-        if (uri == null) {
-            logger.error { "NEO4J_URI is not set" }
+        if (uri.isBlank()) {
+            logger.error { "NEO4J_URI is not set and no default available" }
             return
         }
 
@@ -194,7 +196,8 @@ class Neo4jGraphStorage(
         )
 
         val config =
-            org.neo4j.driver.Config.builder()
+            org.neo4j.driver.Config
+                .builder()
                 .withMaxConnectionPoolSize(maxConnectionPoolSize)
                 .withConnectionTimeout(connectionTimeout, TimeUnit.MILLISECONDS)
                 .withMaxConnectionLifetime(maxConnectionLifetime, TimeUnit.MILLISECONDS)
@@ -226,9 +229,10 @@ class Neo4jGraphStorage(
             // Create B-Tree index
             try {
                 driver!!.session(sessionCfg).use { neoSession: Session ->
-                    neoSession.run(
-                        "CREATE INDEX IF NOT EXISTS FOR (n:`$workspaceLabel`) ON (n.entity_id)",
-                    ).consume()
+                    neoSession
+                        .run(
+                            "CREATE INDEX IF NOT EXISTS FOR (n:`$workspaceLabel`) ON (n.entity_id)",
+                        ).consume()
                     logger.info {
                         "[$workspace] Ensured B-Tree index on entity_id for $workspaceLabel in " +
                             databaseForLog()
@@ -405,7 +409,8 @@ class Neo4jGraphStorage(
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
             driver!!.session(sessionConfig()).use { neoSession: Session ->
-                val query = "MATCH (n:`$workspaceLabel` {entity_id: \$entity_id}) RETURN count(n) > 0 AS node_exists"
+                val query =
+                    "MATCH (n:`$workspaceLabel` {entity_id: \$entity_id}) RETURN count(n) > 0 AS node_exists"
                 val params = mapOf("entity_id" to nodeId)
                 logQuery(query, params)
                 val result = neoSession.run(query, params)
@@ -462,7 +467,7 @@ class Neo4jGraphStorage(
                 val query =
                     """
                     MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id})
-                    OPTIONAL MATCH (n)-[r]-()
+                    OPTIONAL MATCH (n)-[r]-() 
                     RETURN COUNT(r) AS degree
                     """.trimIndent()
                 val params = mapOf("entity_id" to nodeId)
@@ -660,14 +665,15 @@ class Neo4jGraphStorage(
                     SET r += ${'$'}properties
                     RETURN r
                     """.trimIndent()
-                tx.run(
-                    query,
-                    mapOf(
-                        "source_entity_id" to sourceNodeId,
-                        "target_entity_id" to targetNodeId,
-                        "properties" to edgeData,
-                    ),
-                ).consume()
+                tx
+                    .run(
+                        query,
+                        mapOf(
+                            "source_entity_id" to sourceNodeId,
+                            "target_entity_id" to targetNodeId,
+                            "properties" to edgeData,
+                        ),
+                    ).consume()
             }
         }
         Unit
@@ -807,20 +813,22 @@ class Neo4jGraphStorage(
             return getKnowledgeGraphWildcard(maxNodes)
         }
 
-        driver!!.session(sessionConfig()).use { neoSession: Session ->
-            val query = "MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id}) RETURN n"
-            val result = neoSession.run(query, mapOf("entity_id" to nodeLabel))
-            if (result.hasNext()) {
-                val node = result.next().get("n").asNode()
-                val props = node.asMap().toMutableMap()
-                val entityId = props["entity_id"]?.toString() ?: return@use
-                val nodeMap =
-                    mapOf(
-                        "id" to entityId,
-                        "labels" to listOf(entityId),
-                        "properties" to props,
-                    )
-                queue.add(Triple(nodeMap, null, 0))
+        withContext(Dispatchers.IO) {
+            driver!!.session(sessionConfig()).use { neoSession: Session ->
+                val query = "MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id}) RETURN n"
+                val result = neoSession.run(query, mapOf("entity_id" to nodeLabel))
+                if (result.hasNext()) {
+                    val node = result.next().get("n").asNode()
+                    val props = node.asMap().toMutableMap()
+                    val entityId = props["entity_id"]?.toString() ?: return@use
+                    val nodeMap =
+                        mapOf(
+                            "id" to entityId,
+                            "labels" to listOf(entityId),
+                            "properties" to props,
+                        )
+                    queue.add(Triple(nodeMap, null, 0))
+                }
             }
         }
 
@@ -863,9 +871,7 @@ class Neo4jGraphStorage(
         depth: Int,
         maxDepth: Int,
         visitedNodes: Set<String>,
-    ): Boolean {
-        return visitedNodes.contains(entityId) || depth > maxDepth
-    }
+    ): Boolean = visitedNodes.contains(entityId) || depth > maxDepth
 
     @Suppress("LoopWithTooManyJumpStatements")
     private fun processNeighbors(
@@ -932,87 +938,93 @@ class Neo4jGraphStorage(
         }
     }
 
-    private fun getKnowledgeGraphWildcard(maxNodes: Int): KnowledgeGraph {
-        val workspaceLabel = getWorkspaceLabel()
-        val nodes = mutableListOf<Map<String, Any>>()
-        val edges = mutableListOf<Map<String, Any>>()
-        var isTruncated = false
+    private suspend fun getKnowledgeGraphWildcard(maxNodes: Int): KnowledgeGraph =
+        withContext(Dispatchers.IO) {
+            val workspaceLabel = getWorkspaceLabel()
+            val nodes = mutableListOf<Map<String, Any>>()
+            val edges = mutableListOf<Map<String, Any>>()
+            var isTruncated = false
 
-        driver!!.session(sessionConfig()).use { neoSession: Session ->
-            val countQuery = "MATCH (n:`$workspaceLabel`) RETURN count(n) as total"
-            logQuery(countQuery, emptyMap())
-            val total = neoSession.run(countQuery).single().get("total").asInt()
+            driver!!.session(sessionConfig()).use { neoSession: Session ->
+                val countQuery = "MATCH (n:`$workspaceLabel`) RETURN count(n) as total"
+                logQuery(countQuery, emptyMap())
+                val total =
+                    neoSession
+                        .run(countQuery)
+                        .single()
+                        .get("total")
+                        .asInt()
 
-            if (total > maxNodes) {
-                isTruncated = true
-            }
-
-            val pyQuery =
-                """
-                MATCH (n:`$workspaceLabel`)
-                OPTIONAL MATCH (n)-[r]-()
-                WITH n, COALESCE(count(r), 0) AS degree
-                ORDER BY degree DESC
-                LIMIT ${'$'}max_nodes
-                WITH collect({node: n}) AS filtered_nodes
-                UNWIND filtered_nodes AS node_info
-                WITH collect(node_info.node) AS kept_nodes, filtered_nodes
-                OPTIONAL MATCH (a)-[r]-(b)
-                WHERE a IN kept_nodes AND b IN kept_nodes
-                RETURN filtered_nodes AS node_info,
-                       collect(DISTINCT r) AS relationships
-                """.trimIndent()
-
-            val params = mapOf("max_nodes" to maxNodes)
-            logQuery(pyQuery, params)
-            val result = neoSession.run(pyQuery, params)
-            if (result.hasNext()) {
-                val record = result.single()
-                val nodeInfos = record.get("node_info").asList { it.asMap() }
-                val relationships = record.get("relationships").asList { it.asRelationship() }
-
-                val idToEntityId = mutableMapOf<String, String>()
-
-                nodeInfos.forEach { info ->
-                    val node = info["node"] as Node
-                    val props = node.asMap().toMutableMap()
-                    val entityId = props["entity_id"] as? String
-                    if (entityId != null) {
-                        idToEntityId[node.elementId()] = entityId
-                        nodes.add(
-                            mapOf(
-                                "id" to entityId,
-                                "labels" to listOf(entityId),
-                                "properties" to props,
-                            ),
-                        )
-                    }
+                if (total > maxNodes) {
+                    isTruncated = true
                 }
 
-                relationships.forEach { rel ->
-                    val startId = rel.startNodeElementId()
-                    val endId = rel.endNodeElementId()
+                val pyQuery =
+                    """
+                    MATCH (n:`$workspaceLabel`)
+                    OPTIONAL MATCH (n)-[r]-() 
+                    WITH n, COALESCE(count(r), 0) AS degree
+                    ORDER BY degree DESC
+                    LIMIT ${'$'}max_nodes
+                    WITH collect({node: n}) AS filtered_nodes
+                    UNWIND filtered_nodes AS node_info
+                    WITH collect(node_info.node) AS kept_nodes, filtered_nodes
+                    OPTIONAL MATCH (a)-[r]-(b)
+                    WHERE a IN kept_nodes AND b IN kept_nodes
+                    RETURN filtered_nodes AS node_info,
+                           collect(DISTINCT r) AS relationships
+                    """.trimIndent()
 
-                    val srcEntityId = idToEntityId[startId]
-                    val tgtEntityId = idToEntityId[endId]
+                val params = mapOf("max_nodes" to maxNodes)
+                logQuery(pyQuery, params)
+                val result = neoSession.run(pyQuery, params)
+                if (result.hasNext()) {
+                    val record = result.single()
+                    val nodeInfos = record.get("node_info").asList { it.asMap() }
+                    val relationships = record.get("relationships").asList { it.asRelationship() }
 
-                    if (srcEntityId != null && tgtEntityId != null) {
-                        val edgeProps = rel.asMap().toMutableMap()
-                        edges.add(
-                            mapOf(
-                                "id" to rel.elementId(),
-                                "type" to rel.type(),
-                                "source" to srcEntityId,
-                                "target" to tgtEntityId,
-                                "properties" to edgeProps,
-                            ),
-                        )
+                    val idToEntityId = mutableMapOf<String, String>()
+
+                    nodeInfos.forEach { info ->
+                        val node = info["node"] as Node
+                        val props = node.asMap().toMutableMap()
+                        val entityId = props["entity_id"] as? String
+                        if (entityId != null) {
+                            idToEntityId[node.elementId()] = entityId
+                            nodes.add(
+                                mapOf(
+                                    "id" to entityId,
+                                    "labels" to listOf(entityId),
+                                    "properties" to props,
+                                ),
+                            )
+                        }
+                    }
+
+                    relationships.forEach { rel ->
+                        val startId = rel.startNodeElementId()
+                        val endId = rel.endNodeElementId()
+
+                        val srcEntityId = idToEntityId[startId]
+                        val tgtEntityId = idToEntityId[endId]
+
+                        if (srcEntityId != null && tgtEntityId != null) {
+                            val edgeProps = rel.asMap().toMutableMap()
+                            edges.add(
+                                mapOf(
+                                    "id" to rel.elementId(),
+                                    "type" to rel.type(),
+                                    "source" to srcEntityId,
+                                    "target" to tgtEntityId,
+                                    "properties" to edgeProps,
+                                ),
+                            )
+                        }
                     }
                 }
             }
+            KnowledgeGraph(nodes, edges, isTruncated)
         }
-        return KnowledgeGraph(nodes, edges, isTruncated)
-    }
 
     /**
      * Gets all nodes.
@@ -1069,7 +1081,7 @@ class Neo4jGraphStorage(
                     """
                     MATCH (n:`$workspaceLabel`)
                     WHERE n.entity_id IS NOT NULL
-                    OPTIONAL MATCH (n)-[r]-()
+                    OPTIONAL MATCH (n)-[r]-() 
                     WITH n.entity_id AS label, count(r) AS degree
                     ORDER BY degree DESC, label ASC
                     LIMIT ${'$'}limit

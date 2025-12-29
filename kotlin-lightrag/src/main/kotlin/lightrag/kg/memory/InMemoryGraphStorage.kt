@@ -2,7 +2,10 @@ package lightrag.kg.memory
 
 import dev.langchain4j.model.embedding.EmbeddingModel
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -51,25 +54,28 @@ class InMemoryGraphStorage(
         runCatching {
             val content = file.readText()
             if (content.isBlank()) return@runCatching
-            val parsed = json.parseToJsonElement(content)
-            if (parsed is JsonObject) {
-                val loadedNodes =
-                    (parsed["nodes"] as? JsonObject)?.entries?.associate { (k, v) ->
-                        k to ((v.toAny() as? Map<String, String>) ?: emptyMap())
-                    } ?: emptyMap()
-                val loadedEdges =
-                    (parsed["edges"] as? JsonObject)?.entries?.associate { (src, tgtObj) ->
+            val parsed = json.decodeFromString<JsonObject>(content)
+
+            val loadedNodes =
+                (parsed["nodes"] as? JsonObject)?.entries?.associate { (k, v) ->
+                    k to ((v.toAny() as? Map<String, String>) ?: emptyMap())
+                } ?: emptyMap()
+            val loadedEdges =
+                (parsed["edges"] as? JsonObject)
+                    ?.entries
+                    ?.associate { (src, tgtObj) ->
                         val tgtMap =
-                            (tgtObj as? JsonObject)?.entries?.associate { (tgt, data) ->
-                                tgt to ((data.toAny() as? Map<String, String>) ?: emptyMap())
-                            }?.toMutableMap() ?: mutableMapOf()
+                            (tgtObj as? JsonObject)
+                                ?.entries
+                                ?.associate { (tgt, data) ->
+                                    tgt to ((data.toAny() as? Map<String, String>) ?: emptyMap())
+                                }?.toMutableMap() ?: mutableMapOf()
                         src to tgtMap
-                    } ?: emptyMap()
-                nodes.putAll(loadedNodes)
-                edges.putAll(loadedEdges)
-                logger.info {
-                    "Loaded graph '$namespace' with ${nodes.size} nodes and ${edges.size} edge buckets from ${file.absolutePath}"
-                }
+                    }?.toMutableMap() ?: mutableMapOf()
+            nodes.putAll(loadedNodes)
+            edges.putAll(loadedEdges)
+            logger.info {
+                "Loaded graph '$namespace' with ${nodes.size} nodes and ${edges.size} edge buckets from ${file.absolutePath}"
             }
         }.onFailure { logger.error(it) { "Error loading graph storage from ${file.absolutePath}" } }
     }
@@ -82,7 +88,7 @@ class InMemoryGraphStorage(
             if (!workingDir.exists()) {
                 workingDir.mkdirs()
             }
-            val nodesObj = JsonObject(nodes.mapValues { (_, v) -> v.toJsonElement() as JsonObject })
+            val nodesObj = JsonObject(nodes.mapValues { it.value.toJsonElement() as JsonObject })
             val edgesObj =
                 JsonObject(
                     edges.mapValues { (_, targets) ->
@@ -96,7 +102,7 @@ class InMemoryGraphStorage(
                         "edges" to edgesObj,
                     ),
                 )
-            val content = json.encodeToString(JsonElement.serializer(), payload)
+            val content = json.encodeToString(payload)
             file.writeText(content)
             logger.debug { "Persisted graph '$namespace' with ${nodes.size} nodes to ${file.absolutePath}" }
         }.onFailure { logger.error(it) { "Error saving graph storage to ${file.absolutePath}" } }
@@ -133,9 +139,7 @@ class InMemoryGraphStorage(
     override suspend fun hasEdge(
         sourceNodeId: String,
         targetNodeId: String,
-    ): Boolean {
-        return edges[sourceNodeId]?.containsKey(targetNodeId) == true
-    }
+    ): Boolean = edges[sourceNodeId]?.containsKey(targetNodeId) == true
 
     /**
      * Gets the degree of a node.
@@ -155,9 +159,7 @@ class InMemoryGraphStorage(
     override suspend fun edgeDegree(
         srcId: String,
         tgtId: String,
-    ): Int {
-        return nodeDegree(srcId) + nodeDegree(tgtId)
-    }
+    ): Int = nodeDegree(srcId) + nodeDegree(tgtId)
 
     /**
      * Gets a node by its ID.
@@ -175,9 +177,7 @@ class InMemoryGraphStorage(
     override suspend fun getEdge(
         sourceNodeId: String,
         targetNodeId: String,
-    ): Map<String, String>? {
-        return edges[sourceNodeId]?.get(targetNodeId)
-    }
+    ): Map<String, String>? = edges[sourceNodeId]?.get(targetNodeId)
 
     /**
      * Gets the edges of a node.
@@ -316,25 +316,32 @@ class InMemoryGraphStorage(
     override suspend fun searchLabels(
         query: String,
         limit: Int,
-    ): List<String> {
-        return nodes.keys.filter { it.contains(query, ignoreCase = true) }.take(limit)
-    }
+    ): List<String> = nodes.keys.filter { it.contains(query, ignoreCase = true) }.take(limit)
 
-    private fun Any?.toJsonElement(): JsonElement {
-        return when (this) {
+    private fun Any?.toJsonElement(): JsonElement =
+        when (this) {
             null -> JsonNull
+
             is Boolean -> JsonPrimitive(this)
-            is Number -> JsonPrimitive(this)
+
+            is Number -> JsonPrimitive(this.toString())
+
+            // Convert number to string for JsonPrimitive
             is String -> JsonPrimitive(this)
-            is List<*> -> kotlinx.serialization.json.JsonArray(this.map { it.toJsonElement() })
+
+            is List<*> -> JsonArray(this.map { it.toJsonElement() })
+
             is Map<*, *> -> JsonObject(this.entries.associate { it.key.toString() to it.value.toJsonElement() })
+
             else -> JsonPrimitive(this.toString())
         }
-    }
 
-    private fun JsonElement.toAny(): Any? {
-        return when (this) {
-            is JsonNull -> null
+    private fun JsonElement.toAny(): Any? =
+        when (this) {
+            is JsonNull -> {
+                null
+            }
+
             is JsonPrimitive -> {
                 if (isString) {
                     content
@@ -342,8 +349,17 @@ class InMemoryGraphStorage(
                     booleanOrNull ?: longOrNull ?: doubleOrNull ?: content
                 }
             }
-            is kotlinx.serialization.json.JsonArray -> this.map { it.toAny() }
-            is JsonObject -> this.mapValues { it.value.toAny() }
+
+            is JsonArray -> {
+                this.map { it.toAny() }
+            }
+
+            is JsonObject -> {
+                this.mapValues { it.value.toAny() }
+            }
+
+            else -> {
+                null
+            }
         }
-    }
 }

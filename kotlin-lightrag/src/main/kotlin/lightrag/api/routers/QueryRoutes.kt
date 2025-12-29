@@ -42,7 +42,9 @@ data class QueryRequest(
  * @property response The response string.
  */
 @Serializable
-data class QueryResponse(val response: String)
+data class QueryResponse(
+    val response: String,
+)
 
 /**
  * Configures the query-related routes for the Ktor application.

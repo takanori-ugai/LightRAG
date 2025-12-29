@@ -5,19 +5,20 @@ import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.model.chat.ChatModel
 import dev.langchain4j.model.chat.StreamingChatModel
 import dev.langchain4j.model.chat.response.ChatResponse
-import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler // Corrected import
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import lightrag.core.CacheData
 import lightrag.core.QueryParam
 import lightrag.core.QueryParamCache
 import lightrag.core.QueryResult
 import lightrag.core.types.BaseKVStorage
 import lightrag.core.types.BaseVectorStorage
-import lightrag.utils.JsonUtils
 import lightrag.utils.Prompts
 import lightrag.utils.computeMd5
 
@@ -249,51 +250,8 @@ fun convertToJsonFormat(
     )
 }
 
-// Cache helpers could live in a dedicated Cache.kt or Utils.kt module
-// For now, embedding them here for a self-contained replacement.
-
-private suspend fun handleCache(
-    hashingKv: BaseKVStorage?,
-    argsHash: String,
-    @Suppress("UNUSED_PARAMETER") prompt: String,
-    @Suppress("UNUSED_PARAMETER") mode: String,
-    @Suppress("UNUSED_PARAMETER") cacheType: String,
-): Pair<String, Long>? { // Returns content and timestamp
-    if (hashingKv == null) return null
-
-    val cached = hashingKv.getById(argsHash)
-    if (cached != null) {
-        val cachedContent = cached["content"] as? String
-        val timestamp = (cached["create_time"] as? Number)?.toLong() ?: 0L
-        if (cachedContent != null) {
-            return cachedContent to timestamp
-        }
-    }
-    return null
-}
-
-private suspend fun saveToCache(
-    hashingKv: BaseKVStorage?,
-    cacheData: CacheData,
-) {
-    if (hashingKv == null) return
-    hashingKv.upsert(
-        mapOf(
-            cacheData.argsHash to
-                mapOf(
-                    "content" to cacheData.content,
-                    "prompt" to cacheData.prompt,
-                    "mode" to cacheData.mode,
-                    "cache_type" to cacheData.cacheType,
-                    "queryparam" to cacheData.queryParam,
-                    "history_messages" to cacheData.historyMessages,
-                    // Unix timestamp in seconds
-                    "create_time" to System.currentTimeMillis() / 1000,
-                ).filterValues { it != null }.mapValues { it.value!! },
-        ),
-    )
-}
-
+// Cache helpers moved to QueryProcessor
+// For now, just re-implementing saveQueryCache here.
 private suspend fun saveQueryCache(
     params: NaiveQueryParams,
     argsHash: String,
@@ -331,16 +289,46 @@ private suspend fun saveQueryCache(
     }
 }
 
-// This function needs to be imported or replicated from utils.
-// For now, a placeholder. The actual implementation in utils.kt will need to handle the varargs
+private suspend fun saveToCache(
+    hashingKv: BaseKVStorage?,
+    cacheData: CacheData,
+) {
+    if (hashingKv == null) return
+    hashingKv.upsert(
+        mapOf(
+            cacheData.argsHash to
+                mapOf(
+                    "content" to cacheData.content,
+                    "prompt" to cacheData.prompt,
+                    "mode" to cacheData.mode,
+                    "cache_type" to cacheData.cacheType,
+                    "queryparam" to cacheData.queryParam,
+                    "history_messages" to cacheData.historyMessages,
+                    // Unix timestamp in seconds
+                    "create_time" to System.currentTimeMillis() / 1000,
+                ).filterValues { it != null }.mapValues { it.value!! },
+        ),
+    )
+}
 
-/**
- * Computes the hash of the given arguments.
- * @param args The arguments to hash.
- * @return The hash of the arguments.
- */
-fun computeArgsHash(vararg args: Any?): String {
-    return computeMd5(args.joinToString("|"))
+private suspend fun handleCache(
+    hashingKv: BaseKVStorage?,
+    argsHash: String,
+    @Suppress("UNUSED_PARAMETER") prompt: String,
+    @Suppress("UNUSED_PARAMETER") mode: String,
+    @Suppress("UNUSED_PARAMETER") cacheType: String,
+): Pair<String, Long>? { // Returns content and timestamp
+    if (hashingKv == null) return null
+
+    val cached = hashingKv.getById(argsHash)
+    if (cached != null) {
+        val cachedContent = cached["content"] as? String
+        val timestamp = (cached["create_time"] as? Number)?.toLong() ?: 0L
+        if (cachedContent != null) {
+            return cachedContent to timestamp
+        }
+    }
+    return null
 }
 
 /**
@@ -465,7 +453,7 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
             )
         }
 
-    val textUnitsStr = JsonUtils.convertObjectToJson(chunksContext)
+    val textUnitsStr = Json.encodeToString(chunksContext)
     val referenceListStr =
         referenceList.joinToString("\n") { ref ->
             "[${ref["reference_id"]}] ${ref["file_path"]}"
@@ -498,17 +486,19 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
 
     // Handle cache
     val argsHash =
-        computeArgsHash(
-            params.queryParam.mode,
-            params.query,
-            params.queryParam.responseType ?: "",
-            params.queryParam.topK.toString(),
-            params.queryParam.chunkTopK.toString(),
-            params.queryParam.maxEntityTokens.toString(),
-            params.queryParam.maxRelationTokens.toString(),
-            maxTotalTokens.toString(),
-            params.queryParam.userPrompt ?: "",
-            params.queryParam.enableRerank.toString(),
+        computeMd5(
+            listOf(
+                params.queryParam.mode,
+                params.query,
+                params.queryParam.responseType ?: "",
+                params.queryParam.topK.toString(),
+                params.queryParam.chunkTopK.toString(),
+                params.queryParam.maxEntityTokens.toString(),
+                params.queryParam.maxRelationTokens.toString(),
+                maxTotalTokens.toString(),
+                params.queryParam.userPrompt ?: "",
+                params.queryParam.enableRerank.toString(),
+            ).joinToString("|"),
         )
     val cachedResult = handleCache(params.hashingKv, argsHash, userQuery, params.queryParam.mode, "query")
     if (cachedResult != null) {
@@ -529,7 +519,7 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
         val responseFlow =
             flow {
                 val fullResponse = StringBuilder()
-                val channel = Channel<String>(Channel.UNLIMITED)
+                val channel = kotlinx.coroutines.channels.Channel<String>(kotlinx.coroutines.channels.Channel.UNLIMITED)
 
                 streamingModel.chat(
                     listOf(SystemMessage(sysPrompt), UserMessage(userQuery)),

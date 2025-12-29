@@ -19,14 +19,18 @@ import lightrag.core.LightRAG
  * @property version The version of the Ollama API.
  */
 @Serializable
-data class OllamaVersionResponse(val version: String)
+data class OllamaVersionResponse(
+    val version: String,
+)
 
 /**
  * Represents the response for the Ollama tags endpoint.
  * @property models A list of Ollama models.
  */
 @Serializable
-data class OllamaTagResponse(val models: List<OllamaModel>)
+data class OllamaTagResponse(
+    val models: List<OllamaModel>,
+)
 
 /**
  * Represents an Ollama model.
@@ -117,7 +121,8 @@ data class OllamaMessage(
 @Suppress("UnusedParameter")
 fun Application.configureOllamaRoutes(rag: LightRAG) {
     routing {
-        route("/api") { // Ollama API is prefixed with /api in python code as well when included in main app
+        route("/api") {
+            // Ollama API is prefixed with /api in python code as well when included in main app
             get("/version") {
                 call.respond(OllamaVersionResponse("0.1.0"))
             }

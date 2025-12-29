@@ -396,7 +396,9 @@ data class KnowledgeGraph(
 /**
  * Represents the status of a document.
  */
-enum class DocStatus(val value: String) {
+enum class DocStatus(
+    val value: String,
+) {
     /**
      * The document is pending processing.
      */

@@ -6,7 +6,9 @@ import lightrag.services.IngestionService
 import lightrag.services.QueryService
 import lightrag.services.StorageManager
 
-private val logger = io.github.oshai.kotlinlogging.KotlinLogging.logger {}
+private val logger =
+    io.github.oshai.kotlinlogging.KotlinLogging
+        .logger {}
 
 /**
  * Parameters for a query.
@@ -75,9 +77,7 @@ class LightRAG(
     suspend fun insert(
         input: String,
         fileSource: String? = null,
-    ): String {
-        return ingestionService.insert(input, fileSource)
-    }
+    ): String = ingestionService.insert(input, fileSource)
 
     /**
      * Inserts multiple documents.
@@ -88,9 +88,7 @@ class LightRAG(
     suspend fun insert(
         input: List<String>,
         fileSources: List<String>? = null,
-    ): String {
-        return ingestionService.insert(input, fileSources)
-    }
+    ): String = ingestionService.insert(input, fileSources)
 
     /**
      * Rebuilds the derived storage if it is empty.
@@ -108,24 +106,18 @@ class LightRAG(
     suspend fun query(
         query: String,
         param: QueryParam,
-    ): QueryResult? {
-        return queryService.query(query, param)
-    }
+    ): QueryResult? = queryService.query(query, param)
 
     /**
      * Gets the processing status of the documents.
      * @return A map of the status counts.
      */
-    suspend fun getProcessingStatus(): Map<String, Int> {
-        return ingestionService.getProcessingStatus()
-    }
+    suspend fun getProcessingStatus(): Map<String, Int> = ingestionService.getProcessingStatus()
 
     /**
      * Deletes a document by its ID.
      * @param docId The ID of the document to delete.
      * @return A map of the status.
      */
-    suspend fun deleteByDocId(docId: String): Map<String, String> {
-        return ingestionService.deleteByDocId(docId)
-    }
+    suspend fun deleteByDocId(docId: String): Map<String, String> = ingestionService.deleteByDocId(docId)
 }

@@ -4,15 +4,11 @@ import dev.langchain4j.model.embedding.EmbeddingModel
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.* // Wildcard import should cover these
+
 import lightrag.core.Neo4jConfig
 import lightrag.core.types.BaseKVStorage
 import org.neo4j.driver.AuthTokens
@@ -63,15 +59,22 @@ class Neo4jKVStorage(
 
     private fun parseNeo4jConfig(): Neo4jConfig? =
         when (val cfg = globalConfig["neo4j"]) {
-            is Neo4jConfig -> cfg
-            is Map<*, *> ->
+            is Neo4jConfig -> {
+                cfg
+            }
+
+            is Map<*, *> -> {
                 Neo4jConfig(
                     uri = cfg["uri"] as? String,
                     username = cfg["username"] as? String,
                     password = cfg["password"] as? String,
                     database = cfg["database"] as? String,
                 )
-            else -> null
+            }
+
+            else -> {
+                null
+            }
         }
 
     private fun sessionConfig(): SessionConfig {
@@ -105,7 +108,8 @@ class Neo4jKVStorage(
         val maxLifetimeMs = System.getenv("NEO4J_MAX_CONNECTION_LIFETIME")?.toLongOrNull() ?: 300_000L
 
         val config =
-            org.neo4j.driver.Config.builder()
+            org.neo4j.driver.Config
+                .builder()
                 .withMaxConnectionPoolSize(maxPool)
                 .withConnectionTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                 .withMaxConnectionLifetime(maxLifetimeMs, TimeUnit.MILLISECONDS)
@@ -139,7 +143,7 @@ class Neo4jKVStorage(
                     val rawJson = record["data_json"].asString(null)
                     val kv =
                         if (rawJson != null && rawJson.isNotBlank()) {
-                            val parsed = json.parseToJsonElement(rawJson)
+                            val parsed = json.decodeFromString<JsonObject>(rawJson)
                             (parsed.toAny() as? Map<String, Any>) ?: emptyMap()
                         } else {
                             emptyMap()
@@ -197,13 +201,13 @@ class Neo4jKVStorage(
                 rows.forEach { row ->
                     val jsonStr =
                         json.encodeToString(
-                            JsonElement.serializer(),
                             (row["data"] ?: emptyMap<String, Any>()).toJsonElement(),
                         )
-                    session.run(
-                        "MERGE (n:$label {id: \$id}) SET n.data_json = \$data_json",
-                        Values.parameters("id", row["id"], "data_json", jsonStr),
-                    ).consume()
+                    session
+                        .run(
+                            "MERGE (n:$label {id: \$id}) SET n.data_json = \$data_json",
+                            Values.parameters("id", row["id"], "data_json", jsonStr),
+                        ).consume()
                 }
             }
         }
@@ -220,10 +224,11 @@ class Neo4jKVStorage(
         withContext(Dispatchers.IO) {
             driver?.session(sessionCfg)?.use { session ->
                 val cypher = "MATCH (n:$label) WHERE n.id IN " + "$" + "ids DETACH DELETE n"
-                session.run(
-                    cypher,
-                    Values.parameters("ids", ids),
-                ).consume()
+                session
+                    .run(
+                        cypher,
+                        Values.parameters("ids", ids),
+                    ).consume()
             }
         }
     }
@@ -253,7 +258,7 @@ class Neo4jKVStorage(
         when (this) {
             null -> JsonNull
             is Boolean -> JsonPrimitive(this)
-            is Number -> JsonPrimitive(this)
+            is Number -> JsonPrimitive(this.toString())
             is String -> JsonPrimitive(this)
             is List<*> -> JsonArray(this.map { it.toJsonElement() })
             is Map<*, *> -> JsonObject(this.entries.associate { it.key.toString() to it.value.toJsonElement() })
@@ -262,14 +267,32 @@ class Neo4jKVStorage(
 
     private fun JsonElement.toAny(): Any? =
         when (this) {
-            is JsonNull -> null
-            is JsonPrimitive ->
-                if (isString) {
-                    content
+            is JsonNull -> {
+                null
+            }
+
+            is JsonPrimitive -> {
+                if (this.isString) {
+                    this.content
                 } else {
-                    booleanOrNull ?: longOrNull ?: doubleOrNull ?: content
+                    // Manually parse the content string to Boolean, Long, or Double
+                    this.content.toBooleanStrictOrNull()
+                        ?: this.content.toLongOrNull()
+                        ?: this.content.toDoubleOrNull()
+                        ?: this.content
                 }
-            is JsonArray -> this.map { it.toAny() }
-            is JsonObject -> this.mapValues { it.value.toAny() }
+            }
+
+            is JsonArray -> {
+                this.map { it.toAny() }
+            }
+
+            is JsonObject -> {
+                this.mapValues { it.value.toAny() }
+            }
+
+            else -> {
+                null
+            }
         }
 }

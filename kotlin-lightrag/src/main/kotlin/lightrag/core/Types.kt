@@ -22,7 +22,8 @@ data class QueryResult(
      */
     val referenceList: List<Map<String, String>>
         get() =
-            rawData?.get("data")
+            rawData
+                ?.get("data")
                 ?.let { it as? Map<String, Any?> }
                 ?.get("references")
                 ?.let { it as? List<Map<String, String>> }
@@ -33,7 +34,8 @@ data class QueryResult(
      */
     val metadata: Map<String, Any?>
         get() =
-            rawData?.get("metadata")
+            rawData
+                ?.get("metadata")
                 ?.let { it as? Map<String, Any?> }
                 ?: emptyMap()
 }

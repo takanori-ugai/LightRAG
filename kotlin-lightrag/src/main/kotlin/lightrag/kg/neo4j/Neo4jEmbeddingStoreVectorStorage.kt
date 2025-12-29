@@ -62,19 +62,25 @@ class Neo4jEmbeddingStoreVectorStorage(
         return result
     }
 
-    private fun parseNeo4jConfig(): Neo4jConfig? {
-        return when (val cfg = globalConfig["neo4j"]) {
-            is Neo4jConfig -> cfg
-            is Map<*, *> ->
+    private fun parseNeo4jConfig(): Neo4jConfig? =
+        when (val cfg = globalConfig["neo4j"]) {
+            is Neo4jConfig -> {
+                cfg
+            }
+
+            is Map<*, *> -> {
                 Neo4jConfig(
                     uri = cfg["uri"] as? String,
                     username = cfg["username"] as? String,
                     password = cfg["password"] as? String,
                     database = cfg["database"] as? String,
                 )
-            else -> null
+            }
+
+            else -> {
+                null
+            }
         }
-    }
 
     private fun sessionConfig(): SessionConfig {
         val database = System.getenv("NEO4J_DATABASE") ?: parseNeo4jConfig()?.database
@@ -125,7 +131,8 @@ class Neo4jEmbeddingStoreVectorStorage(
         val maxLifetimeMs = System.getenv("NEO4J_MAX_CONNECTION_LIFETIME")?.toLongOrNull() ?: 300_000L
 
         val driverConfig =
-            org.neo4j.driver.Config.builder()
+            org.neo4j.driver.Config
+                .builder()
                 .withMaxConnectionPoolSize(maxPool)
                 .withConnectionTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                 .withMaxConnectionLifetime(maxLifetimeMs, TimeUnit.MILLISECONDS)
@@ -135,7 +142,8 @@ class Neo4jEmbeddingStoreVectorStorage(
         embeddingDimension = resolveDimension()
 
         store =
-            Neo4jEmbeddingStore.builder()
+            Neo4jEmbeddingStore
+                .builder()
                 .driver(driver!!)
                 .config(sessionConfig())
                 .label(label)
@@ -178,7 +186,8 @@ class Neo4jEmbeddingStoreVectorStorage(
         if (qVec.isEmpty()) return emptyList()
 
         val request =
-            EmbeddingSearchRequest.builder()
+            EmbeddingSearchRequest
+                .builder()
                 .queryEmbedding(Embedding.from(qVec.toFloatArray()))
                 .maxResults(topK)
                 .minScore(cosineBetterThanThreshold)
@@ -186,7 +195,12 @@ class Neo4jEmbeddingStoreVectorStorage(
 
         val matches = withContext(Dispatchers.IO) { store.search(request).matches() }
         return matches.map { match ->
-            val meta = match.embedded()?.metadata()?.toMap()?.toMutableMap() ?: mutableMapOf()
+            val meta =
+                match
+                    .embedded()
+                    ?.metadata()
+                    ?.toMap()
+                    ?.toMutableMap() ?: mutableMapOf()
             match.embedded()?.text()?.let { meta["content"] = it }
             meta["id"] = match.embeddingId()
             meta["score"] = match.score()
@@ -257,9 +271,7 @@ class Neo4jEmbeddingStoreVectorStorage(
         delete(ids)
     }
 
-    override suspend fun getById(id: String): Map<String, Any>? {
-        return getByIds(listOf(id)).firstOrNull()
-    }
+    override suspend fun getById(id: String): Map<String, Any>? = getByIds(listOf(id)).firstOrNull()
 
     override suspend fun getByIds(ids: List<String>): List<Map<String, Any>> {
         if (ids.isEmpty()) return emptyList()
@@ -308,12 +320,14 @@ class Neo4jEmbeddingStoreVectorStorage(
                         "MATCH (n:${labelName()}) WHERE n.$idProp IN \$ids RETURN n.$idProp AS id, n.$embeddingProp AS embedding",
                         mapOf("ids" to ids),
                     )
-                result.list().mapNotNull { record ->
-                    val id = record["id"]?.asString() ?: return@mapNotNull null
-                    val vec =
-                        record["embedding"]?.asList { (it as Number).toFloat() } ?: emptyList()
-                    id to vec
-                }.toMap()
+                result
+                    .list()
+                    .mapNotNull { record ->
+                        val id = record["id"]?.asString() ?: return@mapNotNull null
+                        val vec =
+                            record["embedding"]?.asList { (it as Number).toFloat() } ?: emptyList()
+                        id to vec
+                    }.toMap()
             } ?: emptyMap()
         }
     }
@@ -333,9 +347,7 @@ class Neo4jEmbeddingStoreVectorStorage(
         return meta
     }
 
-    private fun metadataProperty(key: String): String {
-        return metadataPrefix + key
-    }
+    private fun metadataProperty(key: String): String = metadataPrefix + key
 
     private suspend fun findIdsByMetadata(
         metaKey: String,
@@ -357,13 +369,12 @@ class Neo4jEmbeddingStoreVectorStorage(
 
     private fun labelName(): String = store?.sanitizedLabel ?: label
 
-    private fun embed(text: String): List<Float> {
-        return try {
+    private fun embed(text: String): List<Float> =
+        try {
             val response = embeddingFunc.embed(text)
             response.content().vector().toList()
         } catch (e: Exception) {
             logger.error(e) { "Error embedding text for Neo4jEmbeddingStoreVectorStorage" }
             emptyList()
         }
-    }
 }
