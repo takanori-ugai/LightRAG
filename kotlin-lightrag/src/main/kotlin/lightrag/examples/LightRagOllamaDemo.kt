@@ -1,12 +1,14 @@
 package lightrag.examples
 
-import dev.langchain4j.model.ollama.OllamaChatModel
-import dev.langchain4j.model.ollama.OllamaEmbeddingModel
+import dev.langchain4j.model.embedding.EmbeddingModel
 import kotlinx.coroutines.runBlocking
-import lightrag.core.AddonConfig
 import lightrag.core.LightRAG
-import lightrag.core.LightRagOverrides
 import lightrag.core.QueryParam
+import lightrag.di.appModule
+import lightrag.di.ollamaExampleModule
+import lightrag.services.StorageManager
+import org.koin.core.context.startKoin
+import org.koin.java.KoinJavaComponent.get
 import java.io.File
 
 /**
@@ -16,7 +18,14 @@ import java.io.File
  */
 fun main() =
     runBlocking {
-        val baseUrl = System.getenv("OLLAMA_BASE_URL") ?: "http://localhost:11434"
+        startKoin {
+            allowOverride(true)
+            modules(appModule, ollamaExampleModule)
+        }
+
+        val rag: LightRAG = get(LightRAG::class.java)
+        val storageManager: StorageManager = get(StorageManager::class.java)
+
         val workingDir = "./ollama-demo"
         val workingDirFile = File(workingDir)
         if (!workingDirFile.exists()) {
@@ -43,37 +52,8 @@ fun main() =
             }
         }
 
-        // Initialize models served by Ollama
-        val chatModel =
-            OllamaChatModel.builder()
-                .modelName("llama3")
-                .baseUrl(baseUrl)
-                .temperature(0.0)
-                .build()
-
-        val embeddingModel =
-            OllamaEmbeddingModel.builder()
-                .modelName("all-minilm")
-                .baseUrl(baseUrl)
-                .build()
-
-        // Initialize RAG
-        val rag =
-            LightRAG(
-                workingDir = workingDir,
-                chatModel = chatModel,
-                embeddingModel = embeddingModel,
-                addonConfig =
-                    AddonConfig(
-                        overrides =
-                            LightRagOverrides(
-                                chunkTokenSize = 50,
-                                chunkOverlapTokenSize = 2,
-                            ),
-                    ),
-            )
-
-        // Test embedding function
+        // Test embedding function - get embedding model from Koin
+        val embeddingModel: EmbeddingModel = get(EmbeddingModel::class.java)
         val testText = "This is a test string for embedding."
         @Suppress("TooGenericExceptionCaught")
         try {

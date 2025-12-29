@@ -24,7 +24,10 @@ import lightrag.api.routers.configureGraphRoutes
 import lightrag.api.routers.configureOllamaRoutes
 import lightrag.api.routers.configureQueryRoutes
 import lightrag.core.LightRAG
-import lightrag.llm.LLMFactory
+import lightrag.di.appModule
+import lightrag.services.StorageManager
+import org.koin.ktor.ext.inject
+import org.koin.ktor.plugin.Koin
 
 private val logger = KotlinLogging.logger {}
 
@@ -48,42 +51,23 @@ fun Application.module() {
         allowHeader(io.ktor.http.HttpHeaders.ContentType)
     }
 
-    val apiKey =
-        System.getenv("OPENAI_API_KEY")
-            ?: error("OPENAI_API_KEY environment variable is required to use OpenAI models.")
+    install(Koin) {
+        modules(appModule)
+    }
 
-    val chatModel =
-        LLMFactory.createChatModel(
-            binding = "openai",
-            modelName = "gpt-5.2",
-            apiKey = apiKey,
-        )
-
-    val embeddingModel =
-        LLMFactory.createEmbeddingModel(
-            binding = "openai",
-            modelName = "text-embedding-3-small",
-            apiKey = apiKey,
-        )
-
-    logger.info { "Starting LightRAG with OpenAI models: chat=gpt-4o-mini, embedding=text-embedding-3-small" }
-
-    val rag =
-        LightRAG(
-            chatModel = chatModel,
-            embeddingModel = embeddingModel,
-        )
+    val rag by inject<LightRAG>()
+    val storageManager by inject<StorageManager>()
 
     val resetStorage = System.getenv("LIGHTRAG_RESET_STORAGE")?.equals("true", ignoreCase = true) == true
     if (resetStorage) {
         logger.warn { "LIGHTRAG_RESET_STORAGE=true detected. Dropping all persisted stores before initialization." }
-        runBlocking { rag.dropStorages() }
+        runBlocking { storageManager.drop() }
     }
 
-    runBlocking { rag.initializeStorages() }
+    runBlocking { storageManager.initialize() }
     runBlocking { rag.rebuildDerivedStorageIfEmpty() }
     environment.monitor.subscribe(ApplicationStopping) {
-        runBlocking { rag.persistStorages() }
+        runBlocking { storageManager.persist() }
     }
 
     routing {
@@ -92,8 +76,8 @@ fun Application.module() {
         staticResources("/ui", "static")
         get("/app") { call.respondRedirect("/ui/index.html") }
         post("/admin/drop") {
-            val result = rag.dropStorages()
-            call.respond<DropResponse>(result)
+            val result = storageManager.drop()
+            call.respond(result)
         }
     }
 
@@ -101,34 +85,6 @@ fun Application.module() {
     configureQueryRoutes(rag)
     configureGraphRoutes(rag)
     configureOllamaRoutes(rag)
-}
-
-private suspend fun LightRAG.initializeStorages() {
-    hashingKv?.initialize()
-    docStatusStorage.initialize()
-    fullDocs.initialize()
-    textChunks.initialize()
-    fullEntities.initialize()
-    fullRelations.initialize()
-    chunkEntityRelationGraph.initialize()
-    chunksVdb.initialize()
-    entitiesVdb.initialize()
-    relationshipsVdb.initialize()
-    logger.info { "Persistent stores initialized under working dir: $workingDir" }
-}
-
-private suspend fun LightRAG.persistStorages() {
-    hashingKv?.indexDoneCallback()
-    docStatusStorage.indexDoneCallback()
-    fullDocs.indexDoneCallback()
-    textChunks.indexDoneCallback()
-    fullEntities.indexDoneCallback()
-    fullRelations.indexDoneCallback()
-    chunkEntityRelationGraph.indexDoneCallback()
-    chunksVdb.indexDoneCallback()
-    entitiesVdb.indexDoneCallback()
-    relationshipsVdb.indexDoneCallback()
-    logger.info { "Persistent stores flushed under working dir: $workingDir" }
 }
 
 /**
@@ -141,21 +97,3 @@ data class DropResponse(
     val status: String,
     val details: Map<String, Map<String, String>>,
 )
-
-private suspend fun LightRAG.dropStorages(): DropResponse {
-    val results: Map<String, Map<String, String>> =
-        mapOf(
-            "hashing_kv" to (hashingKv?.drop() ?: mapOf("status" to "skipped", "message" to "hashingKv not configured")),
-            "doc_status" to docStatusStorage.drop(),
-            "full_docs" to fullDocs.drop(),
-            "text_chunks" to textChunks.drop(),
-            "full_entities" to fullEntities.drop(),
-            "full_relations" to fullRelations.drop(),
-            "graph" to chunkEntityRelationGraph.drop(),
-            "chunks_vdb" to chunksVdb.drop(),
-            "entities_vdb" to entitiesVdb.drop(),
-            "relationships_vdb" to relationshipsVdb.drop(),
-        )
-    logger.info { "Persistent stores dropped under working dir: $workingDir" }
-    return DropResponse(status = "success", details = results)
-}

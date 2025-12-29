@@ -1,16 +1,15 @@
 package lightrag.examples
 
-import dev.langchain4j.model.openai.OpenAiChatModel
-import dev.langchain4j.model.openai.OpenAiEmbeddingModel
 import kotlinx.coroutines.runBlocking
-import lightrag.core.AddonConfig
 import lightrag.core.LightRAG
-import lightrag.core.LightRagOverrides
-import lightrag.core.Neo4jConfig
 import lightrag.core.QueryParam
+import lightrag.di.appModule
+import lightrag.di.openAiNeo4jGraphExampleModule
+import lightrag.services.StorageManager
+import org.koin.core.context.startKoin
+import org.koin.java.KoinJavaComponent.get
 import java.io.File
 import java.net.URI
-import java.time.Duration
 
 /**
  * The main function for the LightRAG OpenAI Neo4j demo.
@@ -19,6 +18,11 @@ import java.time.Duration
  */
 fun main() =
     runBlocking {
+        startKoin {
+            allowOverride(true)
+            modules(appModule, openAiNeo4jGraphExampleModule)
+        }
+
         // Check OpenAI environment variable
         val apiKey = System.getenv("OPENAI_API_KEY")
         if (apiKey.isNullOrBlank()) {
@@ -63,51 +67,14 @@ fun main() =
             dir.mkdirs()
         }
 
-        // Configure OpenAI Models
-        val chatModel =
-            OpenAiChatModel.builder()
-                .apiKey(apiKey)
-                .modelName("gpt-4o-mini")
-                .timeout(Duration.ofSeconds(60))
-                .build()
-
-        val embeddingModel =
-            OpenAiEmbeddingModel.builder()
-                .apiKey(apiKey)
-                .modelName("text-embedding-3-large")
-                .dimensions(3072)
-                .build()
-
-        // Pass configuration to LightRAG via addonConfig
-        val addonConfig =
-            AddonConfig(
-                neo4j =
-                    Neo4jConfig(
-                        uri = neo4jUri,
-                        username = neo4jUser,
-                        password = neo4jPass,
-                    ),
-                overrides =
-                    LightRagOverrides(
-                        chunkTokenSize = 50,
-                        chunkOverlapTokenSize = 2,
-                    ),
-            )
-
-        val rag =
-            LightRAG(
-                workingDir = workingDir,
-                chatModel = chatModel,
-                embeddingModel = embeddingModel,
-                graphStorageName = "Neo4jGraphStorage",
-                addonConfig = addonConfig,
-            )
+        val rag: LightRAG = get(LightRAG::class.java)
+        val storageManager: StorageManager = get(StorageManager::class.java)
 
         // Initialize Neo4j Storage (Create indexes etc.)
         println("Initializing Neo4j Graph Storage...")
         try {
-            rag.chunkEntityRelationGraph.initialize()
-            rag.chunkEntityRelationGraph.drop()
+            storageManager.initialize()
+            storageManager.drop()
         } catch (e: Exception) {
             println("Error initializing Neo4j storage: ${e.message}")
             println("Please ensure Neo4j is running at $neo4jUri")
@@ -163,6 +130,6 @@ fun main() =
         }
 
         // Finalize
-        rag.chunkEntityRelationGraph.finalize()
+        storageManager.persist()
         println("\nDone!")
     }

@@ -38,6 +38,7 @@ class Neo4jVectorStorage(
      */
     override val cosineBetterThanThreshold: Double =
         cosineThreshold ?: (globalConfig["cosine_better_than_threshold"] as? Double ?: 0.2)
+
     /**
      * The set of meta fields.
      */

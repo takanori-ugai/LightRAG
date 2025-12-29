@@ -1,12 +1,13 @@
 package lightrag.examples
 
 import kotlinx.coroutines.runBlocking
-import lightrag.core.AddonConfig
 import lightrag.core.LightRAG
-import lightrag.core.LightRagOverrides
 import lightrag.core.QueryParam
-import lightrag.kg.neo4j.Neo4jDocStatusStorage
-import lightrag.llm.LLMFactory
+import lightrag.di.appModule
+import lightrag.di.neo4jDocStatusExampleModule
+import lightrag.services.StorageManager
+import org.koin.core.context.startKoin
+import org.koin.java.KoinJavaComponent.get
 import java.io.File
 
 /**
@@ -18,66 +19,13 @@ import java.io.File
  */
 fun main() =
     runBlocking {
-        val apiKey = System.getenv("OPENAI_API_KEY")
-        if (apiKey.isNullOrBlank()) {
-            println("Error: OPENAI_API_KEY environment variable is not set.")
-            return@runBlocking
+        startKoin {
+            allowOverride(true)
+            modules(appModule, neo4jDocStatusExampleModule)
         }
 
-        val chatModel =
-            LLMFactory.createChatModel(
-                binding = "openai",
-                modelName = "gpt-4o-mini",
-                apiKey = apiKey,
-            )
-        val embeddingModel =
-            LLMFactory.createEmbeddingModel(
-                binding = "openai",
-                modelName = "text-embedding-3-small",
-                apiKey = apiKey,
-            )
-
-        val docStatusStorage =
-            Neo4jDocStatusStorage(
-                namespace = "doc_status",
-                workspace = "default",
-                globalConfig =
-                    mapOf(
-                        "neo4j" to
-                            mapOf(
-                                "uri" to (System.getenv("NEO4J_URI") ?: "bolt://localhost:7687"),
-                                "username" to (System.getenv("NEO4J_USERNAME") ?: "neo4j"),
-                                "password" to (System.getenv("NEO4J_PASSWORD") ?: "neo4j"),
-                            ),
-                    ),
-                embeddingFunc = embeddingModel,
-            )
-        docStatusStorage.initialize()
-
-        val rag =
-            LightRAG(
-                chatModel = chatModel,
-                embeddingModel = embeddingModel,
-                docStatusStorageOverride = docStatusStorage,
-                addonConfig =
-                    AddonConfig(
-                        overrides =
-                            LightRagOverrides(
-                                chunkTokenSize = 50,
-                                chunkOverlapTokenSize = 2,
-                            ),
-                    ),
-            )
-
-        // Initialize other storages
-        rag.fullDocs.initialize()
-        rag.textChunks.initialize()
-        rag.fullEntities.initialize()
-        rag.fullRelations.initialize()
-        rag.chunkEntityRelationGraph.initialize()
-        rag.chunksVdb.initialize()
-        rag.entitiesVdb.initialize()
-        rag.relationshipsVdb.initialize()
+        val rag: LightRAG = get(LightRAG::class.java)
+        val storageManager: StorageManager = get(StorageManager::class.java)
 
         val bookFile = File("./book.txt")
         val content =
@@ -92,7 +40,7 @@ fun main() =
         rag.insert(content)
 
         println("Doc status snapshot (Neo4jDocStatusStorage):")
-        println(docStatusStorage.getStatusCounts())
+        println(storageManager.docStatusStorage.getStatusCounts())
 
         val queryText = "How does LightRAG use Neo4j?"
         val modes = listOf("global", "local")
@@ -112,14 +60,6 @@ fun main() =
         }
 
         println("Persisting storages...")
-        docStatusStorage.indexDoneCallback()
-        rag.fullDocs.indexDoneCallback()
-        rag.textChunks.indexDoneCallback()
-        rag.fullEntities.indexDoneCallback()
-        rag.fullRelations.indexDoneCallback()
-        rag.chunkEntityRelationGraph.indexDoneCallback()
-        rag.chunksVdb.indexDoneCallback()
-        rag.entitiesVdb.indexDoneCallback()
-        rag.relationshipsVdb.indexDoneCallback()
+        storageManager.persist()
         println("Done. Doc statuses persisted in Neo4j.")
     }

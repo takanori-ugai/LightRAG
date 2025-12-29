@@ -134,6 +134,7 @@ fun generateReferenceListFromChunks(chunks: List<Map<String, Any?>>): Pair<List<
 
 // Simplified version of python's process_chunks_unified, focusing on truncation
 // This will just apply token limit, no reranking for now.
+
 /**
  * Processes a list of chunks to fit within a token limit.
  * @param query The query string.
@@ -212,6 +213,7 @@ fun truncateTextByTokenSize(
 // Function to convert map to JSON string, similar to Python's json.dumps
 // This function needs to be properly implemented based on the Python version.
 // For now, a placeholder that constructs a basic rawData map.
+
 /**
  * Converts entities, relations, chunks, and references to a JSON format.
  * @param entities The list of entities.
@@ -331,6 +333,7 @@ private suspend fun saveQueryCache(
 
 // This function needs to be imported or replicated from utils.
 // For now, a placeholder. The actual implementation in utils.kt will need to handle the varargs
+
 /**
  * Computes the hash of the given arguments.
  * @param args The arguments to hash.

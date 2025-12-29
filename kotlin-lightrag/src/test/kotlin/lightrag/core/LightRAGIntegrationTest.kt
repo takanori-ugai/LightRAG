@@ -15,6 +15,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
 import kotlinx.coroutines.runBlocking
+import lightrag.buildTestLightRag
 import org.junit.Test
 import java.io.File
 import kotlin.test.assertTrue
@@ -76,12 +77,7 @@ class LightRAGIntegrationTest {
                 }
                 every { mockChatModel.supportedCapabilities() } returns emptySet()
 
-                val rag =
-                    LightRAG(
-                        workingDir = tempDir.absolutePath,
-                        chatModel = mockChatModel,
-                        embeddingModel = mockEmbeddingModel,
-                    )
+                val rag = buildTestLightRag(mockChatModel, mockEmbeddingModel, tempDir)
 
                 // 3. Insert
                 val content = "The capital of France is Paris."
@@ -168,12 +164,7 @@ class LightRAGIntegrationTest {
                 }
                 every { mockChatModel.supportedCapabilities() } returns emptySet()
 
-                val rag =
-                    LightRAG(
-                        workingDir = tempDir.absolutePath,
-                        chatModel = mockChatModel,
-                        embeddingModel = mockEmbeddingModel,
-                    )
+                val rag = buildTestLightRag(mockChatModel, mockEmbeddingModel, tempDir)
 
                 rag.insert("The capital of France is Paris.")
 

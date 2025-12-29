@@ -16,8 +16,7 @@ group = "com.lightrag"
 version = "0.0.1"
 
 application {
-//    mainClass.set("lightrag.ApplicationKt")
-    mainClass.set("lightrag.examples.LightRagOpenAiDemoKt")
+    mainClass.set("lightrag.ApplicationKt")
 }
 
 repositories {
@@ -36,6 +35,11 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
     implementation("io.github.oshai:kotlin-logging-jvm:5.1.0")
+
+    // Koin for Ktor
+    implementation("io.insert-koin:koin-ktor:4.1.1")
+    implementation("io.insert-koin:koin-core:4.1.1")
+    implementation("io.insert-koin:koin-logger-slf4j:4.1.1")
 
     // LangChain4j dependencies
     implementation("dev.langchain4j:langchain4j:1.9.1")

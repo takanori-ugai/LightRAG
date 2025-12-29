@@ -196,10 +196,11 @@ class Neo4jEmbeddingStoreVectorStorage(
     }
 
     override suspend fun upsert(data: Map<String, Map<String, Any>>) {
-        val store = store ?: run {
-            logger.error { "Neo4jEmbeddingStoreVectorStorage is not initialized" }
-            return
-        }
+        val store =
+            store ?: run {
+                logger.error { "Neo4jEmbeddingStoreVectorStorage is not initialized" }
+                return
+            }
         if (data.isEmpty()) return
 
         val ids = mutableListOf<String>()
@@ -336,7 +337,10 @@ class Neo4jEmbeddingStoreVectorStorage(
         return metadataPrefix + key
     }
 
-    private suspend fun findIdsByMetadata(metaKey: String, value: String): List<String> {
+    private suspend fun findIdsByMetadata(
+        metaKey: String,
+        value: String,
+    ): List<String> {
         val idProp = store?.idProperty ?: idProperty
         val sessionCfg = sessionConfig()
         return withContext(Dispatchers.IO) {
