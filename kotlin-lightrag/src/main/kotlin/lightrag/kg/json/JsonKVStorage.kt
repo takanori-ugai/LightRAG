@@ -99,7 +99,9 @@ class JsonKVStorage(
      */
     override suspend fun getById(id: String): Map<String, Any>? =
         mutex.withLock {
-            data[id]?.value?.data
+            data[id]
+                ?.value
+                ?.data
                 ?.filterValues { it != null }
                 ?.mapValues { it.value as Any }
         }
@@ -112,7 +114,9 @@ class JsonKVStorage(
     override suspend fun getByIds(ids: List<String>): List<Map<String, Any>> =
         mutex.withLock {
             ids.mapNotNull {
-                data[it]?.value?.data
+                data[it]
+                    ?.value
+                    ?.data
                     ?.filterValues { v -> v != null }
                     ?.mapValues { entry -> entry.value as Any }
             }

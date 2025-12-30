@@ -19,10 +19,11 @@ import java.io.File
  */
 fun main() =
     runBlocking {
-        val koin = startKoin {
-            allowOverride(true)
-            modules(appModule)
-        }.koin
+        val koin =
+            startKoin {
+                allowOverride(true)
+                modules(appModule)
+            }.koin
 
         // Enable HTTP request/response logging for the OpenAI chat model in this demo.
         val loggingModule =

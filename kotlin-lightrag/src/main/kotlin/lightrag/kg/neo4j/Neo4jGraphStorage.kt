@@ -10,13 +10,13 @@ import lightrag.core.types.KnowledgeGraph
 import org.neo4j.driver.AuthTokens
 import org.neo4j.driver.Driver
 import org.neo4j.driver.GraphDatabase
+import org.neo4j.driver.Logging
 import org.neo4j.driver.Result
-import org.neo4j.driver.Value
 import org.neo4j.driver.Session
 import org.neo4j.driver.SessionConfig
 import org.neo4j.driver.Transaction
 import org.neo4j.driver.TransactionContext
-import org.neo4j.driver.Logging
+import org.neo4j.driver.Value
 import org.neo4j.driver.exceptions.ClientException
 import org.neo4j.driver.exceptions.Neo4jException
 import org.neo4j.driver.exceptions.ServiceUnavailableException
@@ -715,20 +715,20 @@ class Neo4jGraphStorage(
         val entityType = properties["entity_type"] ?: "UNKNOWN"
         require(properties.containsKey("entity_id")) { "Neo4j: node properties must contain an 'entity_id' field" }
 
-            driver!!.session(sessionConfig()).use { neoSession: Session ->
-                neoSession.executeWrite { tx ->
-                    val query =
-                        """
-                        MERGE (n:`$workspaceLabel` {entity_id: ${'$'}entity_id})
-                        SET n += ${'$'}properties
-                        SET n:`$entityType`
-                        """.trimIndent()
-                    tx.runLogged(query, mapOf("entity_id" to nodeId, "properties" to properties)).consume()
-                    Unit
-                }
+        driver!!.session(sessionConfig()).use { neoSession: Session ->
+            neoSession.executeWrite { tx ->
+                val query =
+                    """
+                    MERGE (n:`$workspaceLabel` {entity_id: ${'$'}entity_id})
+                    SET n += ${'$'}properties
+                    SET n:`$entityType`
+                    """.trimIndent()
+                tx.runLogged(query, mapOf("entity_id" to nodeId, "properties" to properties)).consume()
+                Unit
             }
-            Unit
         }
+        Unit
+    }
 
     /**
      * Upserts an edge.
@@ -808,17 +808,17 @@ class Neo4jGraphStorage(
                 neoSession.executeWrite { tx ->
                     val query =
                         """
-                    MATCH (source:`$workspaceLabel` {entity_id: ${'$'}source_entity_id})-[r]-(target:`$workspaceLabel` {entity_id: ${'$'}target_entity_id})
-                    DELETE r
-                    """.trimIndent()
-                edges.forEach { (src, tgt) ->
-                    tx.runLogged(query, mapOf("source_entity_id" to src, "target_entity_id" to tgt)).consume()
+                        MATCH (source:`$workspaceLabel` {entity_id: ${'$'}source_entity_id})-[r]-(target:`$workspaceLabel` {entity_id: ${'$'}target_entity_id})
+                        DELETE r
+                        """.trimIndent()
+                    edges.forEach { (src, tgt) ->
+                        tx.runLogged(query, mapOf("source_entity_id" to src, "target_entity_id" to tgt)).consume()
+                    }
+                    Unit
                 }
-                Unit
             }
+            Unit
         }
-        Unit
-    }
 
     /**
      * Gets all labels.

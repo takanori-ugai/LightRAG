@@ -1,13 +1,13 @@
 package lightrag.examples
 
 import kotlinx.coroutines.runBlocking
+import lightrag.core.AddonConfig
 import lightrag.core.LightRAG
+import lightrag.core.LightRagOverrides
 import lightrag.core.QueryParam
 import lightrag.di.AppConfig
 import lightrag.di.LightRagConfig
 import lightrag.di.appModule
-import lightrag.core.LightRagOverrides
-import lightrag.core.AddonConfig
 import lightrag.services.StorageManager
 import org.koin.core.context.loadKoinModules
 import org.koin.core.context.startKoin

@@ -21,12 +21,6 @@ import org.koin.dsl.module
 
 val appModule =
     module {
-
-        single {
-            io.github.oshai.kotlinlogging.KotlinLogging
-                .logger {}
-        }
-
         single {
             val rawConfig: Config = ConfigFactory.load()
             val lightragConfig = rawConfig.getConfig("lightrag")
