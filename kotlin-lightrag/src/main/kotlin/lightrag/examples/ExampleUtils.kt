@@ -104,6 +104,7 @@ fun runDemoQueries(
 
 fun addonConfigFrom(cfg: LightRagConfig) =
     AddonConfig(
+        neo4j = cfg.neo4j,
         overrides =
             LightRagOverrides(
                 chunkTokenSize = cfg.addonConfig.chunkTokenSize,

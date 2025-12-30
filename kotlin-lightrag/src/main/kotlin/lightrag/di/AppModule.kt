@@ -104,6 +104,7 @@ val appModule =
                 vectorStorageName = lightRagConfig.storage.vectorStorageName,
                 addonConfig =
                     AddonConfig(
+                        neo4j = lightRagConfig.neo4j,
                         overrides =
                             LightRagOverrides(
                                 chunkTokenSize = lightRagConfig.addonConfig.chunkTokenSize,
@@ -155,6 +156,7 @@ val appModule =
             mapOf(
                 "llm_model_func" to appConfig.chatModel,
                 "embedding_func" to appConfig.embeddingModel,
+                "neo4j" to get<LightRagConfig>().neo4j,
                 "chunk_token_size" to chunkTokenSize,
                 "chunk_overlap_token_size" to chunkOverlapTokenSize,
                 "entity_types" to entityTypes,

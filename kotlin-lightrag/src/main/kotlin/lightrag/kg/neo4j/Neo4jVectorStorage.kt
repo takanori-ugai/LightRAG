@@ -189,12 +189,48 @@ class Neo4jVectorStorage(
                 while (result.hasNext()) {
                     val record = result.next()
                     val id = record["id"].asString()
+                    val vectorValue = record["vector"]
+                    if (vectorValue == null || vectorValue.isNull) {
+                        logger.warn { "[$namespace/$workspace] Skipping vector '$id' because stored vector is null" }
+                        continue
+                    }
                     val vec =
-                        record["vector"]?.let { value ->
-                            value.asList { it.asDouble() }.map { it.toFloat() }
-                        } ?: emptyList()
+                        runCatching { vectorValue.asList { it.asDouble() }.map { it.toFloat() } }
+                            .getOrElse {
+                                logger.warn(it) { "[$namespace/$workspace] Skipping vector '$id' due to invalid vector format" }
+                                emptyList()
+                            }
+                    if (vec.isEmpty()) continue
+
                     val rawMeta =
-                        record["metadata"]?.asMap { it.asString() } ?: emptyMap()
+                        record["metadata"]
+                            ?.takeIf { !it.isNull }
+                            ?.let { value ->
+                                // Neo4j stores properties as scalars or lists; older runs persisted metadata as
+                                // a list of "key:value" strings. Try to read as a map first, then fall back to list parsing.
+                                runCatching { value.asMap { v -> v.asString() } }
+                                    .getOrElse { mapEx ->
+                                        runCatching {
+                                            value
+                                                .asList { it.asString() }
+                                                .mapNotNull { entry ->
+                                                    val sep = entry.indexOf(':')
+                                                    if (sep <= 0) return@mapNotNull null
+                                                    val key = entry.substring(0, sep)
+                                                    val rawVal = entry.substring(sep + 1)
+                                                    key to rawVal
+                                                }.toMap()
+                                        }.getOrElse { listEx ->
+                                            logger.warn(mapEx) {
+                                                "[$namespace/$workspace] Skipping metadata for vector '$id' due to invalid format"
+                                            }
+                                            logger.warn(listEx) {
+                                                "[$namespace/$workspace] Failed to parse legacy metadata list for vector '$id'"
+                                            }
+                                            emptyMap()
+                                        }
+                                    }
+                            } ?: emptyMap()
                     vectors[id] = vec
                     metadata[id] = mapToMetadata(rawMeta)
                 }

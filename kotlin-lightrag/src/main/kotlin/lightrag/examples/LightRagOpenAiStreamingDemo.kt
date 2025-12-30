@@ -99,7 +99,7 @@ fun main() =
         rag.insert(loadBookContent())
         rag.rebuildDerivedStorageIfEmpty()
 
-        val queryText = "What are the top themes in this story?"
+        val queryText = "What are the top themes related with king of England?"
         val modes = listOf("local", "global", "hybrid")
         modes.forEach { mode ->
             val contextResult =
@@ -127,7 +127,7 @@ fun main() =
                     includeReferences = true,
                 )
 
-            val result = rag.query(queryText, queryParam) ?: rag.query(queryText, queryParam.copy(stream = false))
+            val result = rag.query(queryText, queryParam)
             when {
                 result == null -> {
                     println("No result generated for mode $mode.")

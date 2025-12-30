@@ -187,12 +187,8 @@ class QueryProcessor(
             logger.warn { "high_level_keywords is empty" }
         }
         if (hlKeywords.isEmpty() && llKeywords.isEmpty()) {
-            if (query.length < 50) {
-                logger.warn { "Forced low_level_keywords to origin query: $query" }
-                queryParam.llKeywords = listOf(query)
-            } else {
-                return QueryResult(content = Prompts.FAIL_RESPONSE)
-            }
+            logger.warn { "Both keyword lists are empty; falling back to original query text" }
+            queryParam.llKeywords = listOf(query)
         }
         return null
     }

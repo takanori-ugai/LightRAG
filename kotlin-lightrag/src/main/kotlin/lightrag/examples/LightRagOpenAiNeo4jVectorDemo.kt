@@ -33,6 +33,8 @@ fun main() =
 
         println("Initializing Neo4j vector/graph storage...")
         storageManager.initialize()
+        println("Dropping existing storage data...")
+        storageManager.drop()
 
         insertDemoContent(rag)
         runDemoQueries(

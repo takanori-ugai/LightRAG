@@ -32,7 +32,7 @@ fun main() =
         insertContent(rag, loadNeo4jContent())
         runDemoQueries(
             rag,
-            "What are the top themes in this story?",
+            "What are the top themes related with king of England?",
             paramBuilder =
                 { mode ->
                     lightrag.core.QueryParam(
@@ -66,6 +66,7 @@ private suspend fun initializeNeo4j(storageManager: StorageManager): Boolean {
     println("Initializing Neo4j Graph Storage...")
     return try {
         storageManager.initialize()
+        println("Dropping existing storage data...")
         storageManager.drop()
         true
     } catch (e: IllegalStateException) {

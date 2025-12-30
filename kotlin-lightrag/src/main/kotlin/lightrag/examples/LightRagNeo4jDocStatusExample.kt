@@ -11,7 +11,6 @@ import org.koin.core.context.loadKoinModules
 import org.koin.core.context.startKoin
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
-import org.koin.java.KoinJavaComponent.get
 
 /**
  * Example showing how to use Neo4jDocStatusStorage for doc status persistence.
@@ -22,15 +21,17 @@ import org.koin.java.KoinJavaComponent.get
  */
 fun main() =
     runBlocking {
-        startKoin {
-            allowOverride(true)
-            modules(appModule)
-        }
+        val koin =
+            startKoin {
+                allowOverride(true)
+                modules(appModule)
+            }.koin
         loadKoinModules(neo4jDocStatusModule())
 
-        val rag: LightRAG = get(LightRAG::class.java)
-        val storageManager: StorageManager = get(StorageManager::class.java)
+        val rag: LightRAG = koin.get<LightRAG>()
+        val storageManager: StorageManager = koin.get<StorageManager>()
 
+        storageManager.initialize()
         println("Inserting document (status tracked in Neo4j)...")
         rag.insert(loadBookContent())
 
@@ -39,8 +40,8 @@ fun main() =
 
         runDemoQueries(
             rag,
-            "How does LightRAG use Neo4j?",
-            modes = listOf("global", "local"),
+            "What roles do the kings and queens have in this story?",
+            modes = listOf("naive", "global", "local", "hybrid"),
         ) { mode ->
             QueryParam(
                 mode = mode,
@@ -56,6 +57,23 @@ fun main() =
 
 private fun neo4jDocStatusModule() =
     module {
+        single<AppConfig> {
+            val cfg = get<lightrag.di.LightRagConfig>()
+            AppConfig(
+                workingDir = cfg.storage.workingDir,
+                graphStorageName = "Neo4jGraphStorage",
+                vectorStorageName = "Neo4jVectorStorage",
+                addonConfig = addonConfigFrom(cfg).copy(neo4j = cfg.neo4j),
+                chatModel = get(),
+                embeddingModel = get(),
+            )
+        }
+
+        single<Map<String, Any?>>(named("globalConfig")) {
+            val appConfig = get<AppConfig>()
+            globalConfigFrom(appConfig) + mapOf("neo4j" to appConfig.addonConfig.neo4j?.toMap())
+        }
+
         single<StorageManager> {
             val appConfig = get<AppConfig>()
             val globalConfig = get<Map<String, Any?>>(named("globalConfig"))
