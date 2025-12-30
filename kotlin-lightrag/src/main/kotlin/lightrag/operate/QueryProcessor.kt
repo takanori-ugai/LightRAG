@@ -413,22 +413,7 @@ class QueryProcessor(
                 query,
                 chunksVdb,
             )
-        var allChunks = (entityChunks + relationChunks).distinctBy { it["id"] }
-
-        // Fallback: if graph search returns nothing, try direct chunk vector search
-        if (allChunks.isEmpty() && chunksVdb != null) {
-            logger.info { "No graph matches found; falling back to chunk vector search." }
-            val chunkHits =
-                chunksVdb.query(query, queryParam.chunkTopK).map {
-                    mapOf(
-                        "id" to (it["id"] ?: ""),
-                        "content" to (it["content"] ?: ""),
-                        "file_path" to (it["file_path"] ?: "unknown_source"),
-                        "score" to (it["score"] ?: it["distance"] ?: 0.0),
-                    )
-                }
-            allChunks = chunkHits
-        }
+        val allChunks = (entityChunks + relationChunks).distinctBy { it["id"] }
 
         val contextBuilder = StringBuilder()
         contextBuilder.append(Prompts.KG_QUERY_CONTEXT)
