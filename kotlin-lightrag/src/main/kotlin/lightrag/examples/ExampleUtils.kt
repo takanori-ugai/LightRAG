@@ -10,6 +10,12 @@ import lightrag.di.AppConfig
 import lightrag.di.LightRagConfig
 import java.io.File
 
+/**
+ * Ensures the working directory exists and optionally prunes old files to keep demo runs clean.
+ * @param path target directory path to create/use
+ * @param filesToDelete file names to delete from that directory if present
+ * @return the working directory as a [File]
+ */
 fun prepareWorkingDir(
     path: String,
     filesToDelete: List<String> = emptyList(),
@@ -24,6 +30,11 @@ fun prepareWorkingDir(
     return workingDirFile
 }
 
+/**
+ * Deletes the provided file names from the working directory if they exist.
+ * @param workingDirFile directory to clean
+ * @param filesToDelete list of file names to remove
+ */
 fun cleanOldFiles(
     workingDirFile: File,
     filesToDelete: List<String>,
@@ -37,6 +48,11 @@ fun cleanOldFiles(
     }
 }
 
+/**
+ * Sends a small sample text through the configured embedding model and prints its dimension for diagnostics.
+ * @param embeddingModel the embedding model to evaluate
+ * @param testText sample text to embed
+ */
 fun testEmbeddingModel(
     embeddingModel: EmbeddingModel,
     testText: String,
@@ -57,6 +73,10 @@ fun testEmbeddingModel(
     }
 }
 
+/**
+ * Loads demo book content from `./book.txt` or returns a fallback story snippet when absent.
+ * @return the loaded or fallback text
+ */
 fun loadBookContent(): String {
     val bookFile = File("./book.txt")
     return if (bookFile.exists()) {
@@ -70,6 +90,13 @@ fun loadBookContent(): String {
     }
 }
 
+/**
+ * Runs the provided query text across the given modes and prints their responses.
+ * @param rag LightRAG instance to query
+ * @param queryText text to query with
+ * @param modes query modes to run
+ * @param paramBuilder builds [QueryParam] per mode
+ */
 fun runDemoQueries(
     rag: LightRAG,
     queryText: String,
@@ -102,6 +129,11 @@ fun runDemoQueries(
     }
 }
 
+/**
+ * Builds an [AddonConfig] from the strongly typed configuration.
+ * @param cfg loaded application configuration
+ * @return constructed addon configuration
+ */
 fun addonConfigFrom(cfg: LightRagConfig) =
     AddonConfig(
         neo4j = cfg.neo4j,
@@ -116,6 +148,11 @@ fun addonConfigFrom(cfg: LightRagConfig) =
         cosineBetterThreshold = cfg.addonConfig.cosineBetterThreshold,
     )
 
+/**
+ * Derives the `globalConfig` map passed into storage and services from the strongly typed [AppConfig].
+ * @param appConfig application config carrying models and overrides
+ * @return merged global configuration map
+ */
 fun globalConfigFrom(appConfig: AppConfig): Map<String, Any?> {
     val overrides = appConfig.addonConfig.overrides
     val chunkTokenSize = overrides.chunkTokenSize ?: 1200

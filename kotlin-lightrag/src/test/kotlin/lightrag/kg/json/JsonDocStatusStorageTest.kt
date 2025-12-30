@@ -10,9 +10,11 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
+/** Tests covering JSON-backed doc status storage lifecycle and behaviors. */
 class JsonDocStatusStorageTest {
     private val embeddingModel = TestEmbeddings.mockEmbeddingModel()
 
+    /** Verifies persisted statuses are loaded on initialize. */
     @Test
     fun `initialize loads persisted statuses`() {
         runBlocking {
@@ -64,6 +66,7 @@ class JsonDocStatusStorageTest {
         }
     }
 
+    /** Ensures upsert merges new data while retaining existing fields when missing. */
     @Test
     fun `upsert merges existing values when fields missing`() {
         runBlocking {
@@ -116,6 +119,7 @@ class JsonDocStatusStorageTest {
         }
     }
 
+    /** Confirms status queries, filters, and pagination respect timestamps. */
     @Test
     fun `status queries and pagination respect updated timestamps`() {
         runBlocking {
@@ -139,6 +143,7 @@ class JsonDocStatusStorageTest {
         }
     }
 
+    /** Ensures drop clears in-memory state and deletes the persisted file. */
     @Test
     fun `drop clears state and deletes persisted file`() {
         runBlocking {

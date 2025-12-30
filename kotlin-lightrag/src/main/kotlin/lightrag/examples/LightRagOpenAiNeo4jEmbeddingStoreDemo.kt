@@ -52,6 +52,9 @@ fun main() =
         storageManager.persist()
     }
 
+/**
+ * Overrides Koin bindings to run the demo with Neo4jEmbeddingStore-backed vector storage.
+ */
 private fun neo4jEmbeddingStoreModule() =
     module {
         single<AppConfig> {
@@ -76,6 +79,10 @@ private fun neo4jEmbeddingStoreModule() =
         }
     }
 
+/**
+ * Inserts a small sample about France and Paris for querying.
+ * @param rag LightRAG instance used for ingestion
+ */
 private suspend fun insertDemoContent(rag: LightRAG) {
     val content =
         """

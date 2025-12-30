@@ -53,6 +53,9 @@ fun main() =
         storageManager.persist()
     }
 
+/**
+ * Overrides Koin bindings to force Neo4j-backed graph and vector storage for the demo run.
+ */
 private fun neo4jOverrideModule() =
     module {
         single<AppConfig> {
@@ -77,6 +80,10 @@ private fun neo4jOverrideModule() =
         }
     }
 
+/**
+ * Inserts the canned demo content into LightRAG.
+ * @param rag LightRAG instance to ingest the sample text
+ */
 private suspend fun insertDemoContent(rag: LightRAG) {
     val content =
         """

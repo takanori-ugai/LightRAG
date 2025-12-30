@@ -15,7 +15,9 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+/** Tests for in-memory vector storage covering upsert, embedding, persistence, and deletion. */
 class InMemoryVectorStorageTest {
+    /** Confirms explicit vectors support similarity querying. */
     @Test
     fun `upsert with provided vector supports similarity query`() {
         runBlocking {
@@ -58,6 +60,7 @@ class InMemoryVectorStorageTest {
         }
     }
 
+    /** Ensures content-only entries trigger embedding model usage during upsert. */
     @Test
     fun `content is embedded when embedding model provided`() {
         runBlocking {
@@ -80,6 +83,7 @@ class InMemoryVectorStorageTest {
         }
     }
 
+    /** Verifies vectors and metadata persist across initialize/indexDoneCallback. */
     @Test
     fun `vectors and metadata persist across initialize`() {
         runBlocking {

@@ -21,7 +21,9 @@ import org.junit.Test
 import java.io.File
 import kotlin.test.assertTrue
 
+/** Integration tests verifying ingest + query flows across naive and local modes. */
 class LightRAGIntegrationTest {
+    /** Confirms naive mode surfaces inserted text in the returned context/system prompt. */
     @Test
     fun testInsertAndQueryNaiveMode() {
         runBlocking {
@@ -34,6 +36,7 @@ class LightRAGIntegrationTest {
         }
     }
 
+    /** Confirms local mode surfaces extracted entities in the returned context/system prompt. */
     @Test
     fun testInsertAndQueryLocalMode() {
         runBlocking {

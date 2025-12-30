@@ -124,6 +124,9 @@ data class PerformKgSearchResult(
     val vectorChunks: List<Map<String, Any>>,
 )
 
+/**
+ * Coordinates query execution across knowledge graph, vector stores, and text chunks, applying keyword extraction and caching.
+ */
 class QueryProcessor(
     private val knowledgeGraphInst: BaseGraphStorage,
     private val entitiesVdb: BaseVectorStorage,
@@ -133,6 +136,13 @@ class QueryProcessor(
     private val hashingKv: BaseKVStorage?,
     private val globalConfig: Map<String, Any?>,
 ) {
+    /**
+     * Executes a knowledge-graph-aware query, optionally streaming responses, and returns the generated result.
+     * @param query raw user query
+     * @param queryParam tuning parameters for the query/search pipeline
+     * @param systemPrompt optional system prompt override
+     * @param chunksVdb optional chunk vector store (used for mix mode)
+     */
     suspend fun kgQuery(
         query: String,
         queryParam: QueryParam,

@@ -11,6 +11,9 @@ import lightrag.operate.naiveQuery // Added missing import
 
 private val logger = KotlinLogging.logger {}
 
+/**
+ * Routes query requests to the appropriate query processor based on mode (KG-aware, naive, or bypass).
+ */
 class QueryService(
     private val storageManager: StorageManager,
     private val chatModel: ChatModel,

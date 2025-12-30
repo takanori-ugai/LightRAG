@@ -9,7 +9,9 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+/** Tests for in-memory graph storage operations including CRUD, batching, and edge semantics. */
 class InMemoryGraphStorageTest {
+    /** Verifies undirected edge storage and deduplication in edge listings. */
     @Test
     fun `upsert edge stores undirected relation and deduplicates getAllEdges`() {
         runBlocking {
@@ -49,6 +51,7 @@ class InMemoryGraphStorageTest {
             embeddingFunc = TestEmbeddings.mockEmbeddingModel(),
         )
 
+    /** Covers basic graph CRUD: node insertion, edge creation, and reverse edge lookup. */
     @Test
     fun `test basic graph operations`() {
         runBlocking {
@@ -106,6 +109,7 @@ class InMemoryGraphStorageTest {
         }
     }
 
+    /** Confirms deleting a node removes all connected edges and adjacency results. */
     @Test
     fun `delete node removes all connected edges`() {
         runBlocking {
@@ -132,6 +136,7 @@ class InMemoryGraphStorageTest {
         }
     }
 
+    /** Exercises degree calculations and connectivity metrics for a small graph. */
     @Test
     fun `test advanced graph operations`() {
         runBlocking {
@@ -198,6 +203,7 @@ class InMemoryGraphStorageTest {
         }
     }
 
+    /** Ensures removing edges clears both directions without deleting nodes. */
     @Test
     fun `removeEdges clears both directions without deleting nodes`() {
         runBlocking {
@@ -221,6 +227,7 @@ class InMemoryGraphStorageTest {
         }
     }
 
+    /** Validates batch retrieval helpers for nodes, edges, and degrees. */
     @Test
     fun `test graph batch operations`() {
         runBlocking {
@@ -271,6 +278,7 @@ class InMemoryGraphStorageTest {
         }
     }
 
+    /** Checks label popularity and search utilities reflect degree counts and query filters. */
     @Test
     fun `popular and search labels reflect degrees and query matching`() {
         runBlocking {
@@ -295,6 +303,7 @@ class InMemoryGraphStorageTest {
         }
     }
 
+    /** Placeholder behavior: knowledge graph export should yield an empty graph structure. */
     @Test
     fun `knowledge graph placeholder returns empty graph`() {
         runBlocking {
@@ -311,6 +320,7 @@ class InMemoryGraphStorageTest {
         }
     }
 
+    /** Confirms graph operations tolerate special characters in node identifiers. */
     @Test
     fun `test graph special characters`() {
         runBlocking {

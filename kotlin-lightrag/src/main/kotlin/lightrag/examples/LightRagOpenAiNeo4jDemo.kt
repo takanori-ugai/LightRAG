@@ -62,6 +62,11 @@ private fun loggingModule(koin: org.koin.core.Koin) =
         }
     }
 
+/**
+ * Initializes Neo4j-backed storages and drops any existing data so the demo starts fresh.
+ * @param storageManager storage manager with configured Neo4j backends
+ * @return true if initialization succeeds, false otherwise
+ */
 private suspend fun initializeNeo4j(storageManager: StorageManager): Boolean {
     println("Initializing Neo4j Graph Storage...")
     return try {
@@ -80,6 +85,10 @@ private suspend fun initializeNeo4j(storageManager: StorageManager): Boolean {
     }
 }
 
+/**
+ * Loads demo content from `book.txt` if available or uses a fallback snippet.
+ * @return the text content used for ingestion
+ */
 private fun loadNeo4jContent(): String {
     val bookFile = java.io.File("book.txt")
     return if (bookFile.exists()) {
@@ -95,6 +104,11 @@ private fun loadNeo4jContent(): String {
     }
 }
 
+/**
+ * Inserts the provided content into LightRAG while handling common ingestion errors.
+ * @param rag LightRAG instance to ingest the text
+ * @param content text to insert
+ */
 private suspend fun insertContent(
     rag: LightRAG,
     content: String,

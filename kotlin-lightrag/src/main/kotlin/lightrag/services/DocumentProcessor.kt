@@ -11,6 +11,10 @@ import lightrag.utils.computeMd5
 
 private val logger = KotlinLogging.logger {}
 
+/**
+ * Orchestrates ingest-time processing steps: chunking documents, persisting chunks, and merging entities/relations.
+ * Uses the injected tokenizer/decoder and storages provided by [StorageManager].
+ */
 class DocumentProcessor(
     private val storageManager: StorageManager,
     private val globalConfig: Map<String, Any?>,
@@ -22,6 +26,9 @@ class DocumentProcessor(
         private const val DEFAULT_CHUNK_OVERLAP_TOKEN_SIZE = 100
     }
 
+    /**
+     * Processes all pending documents by chunking them, storing chunks, and updating the graph/vector stores.
+     */
     suspend fun pipelineProcessEnqueueDocuments() {
         val pendingDocs = storageManager.docStatusStorage.getDocsByStatus(DocStatus.PENDING)
         if (pendingDocs.isEmpty()) return

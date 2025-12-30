@@ -23,7 +23,9 @@ import java.io.File
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 
+/** Integration-style tests covering document ingestion and deduplication. */
 class LightRAGInsertTest {
+    /** Ensures a single document insert processes, populates graph nodes/edges, and marks status processed. */
     @Test
     fun testInsertSingleDocument() {
         runBlocking {
@@ -52,6 +54,7 @@ class LightRAGInsertTest {
         }
     }
 
+    /** Verifies inserting duplicate content does not create additional processed records or pending docs. */
     @Test
     fun testDuplicateDocumentInsertion() {
         runBlocking {

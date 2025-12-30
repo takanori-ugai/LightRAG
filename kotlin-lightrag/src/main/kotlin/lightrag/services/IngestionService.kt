@@ -7,6 +7,9 @@ import java.time.Instant
 
 private val logger = KotlinLogging.logger {}
 
+/**
+ * Handles ingesting documents into LightRAG by tracking status and delegating processing to [DocumentProcessor].
+ */
 class IngestionService(
     private val storageManager: StorageManager,
     private val globalConfig: Map<String, Any?>,

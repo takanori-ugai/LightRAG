@@ -161,41 +161,54 @@ class OpenAiDualChatModel(
     private val streamingChatModel: StreamingChatModel,
 ) : ChatModel,
     StreamingChatModel {
-    // ChatModel implementations
+    /** Delegates a chat request to the non-streaming OpenAI chat model. */
     override fun chat(request: ChatRequest): ChatResponse = chatModel.chat(request)
 
+    /** Delegates a chat request to the non-streaming OpenAI chat model (eager execution). */
     override fun doChat(request: ChatRequest): ChatResponse = chatModel.doChat(request)
 
+    /** Returns default request parameters from the non-streaming OpenAI chat model. */
     override fun defaultRequestParameters(): ChatRequestParameters = chatModel.defaultRequestParameters()
 
+    /** Exposes listeners attached to the underlying non-streaming chat model. */
     override fun listeners(): List<ChatModelListener> = chatModel.listeners()
 
+    /** Exposes the provider backing the non-streaming chat model. */
     override fun provider(): ModelProvider = chatModel.provider()
 
+    /** Sends a simple message through the non-streaming chat model. */
     override fun chat(message: String): String = chatModel.chat(message)
 
+    /** Sends multiple messages through the non-streaming chat model. */
     override fun chat(vararg messages: ChatMessage): ChatResponse = chatModel.chat(*messages)
 
+    /** Sends a list of messages through the non-streaming chat model. */
     override fun chat(messages: List<ChatMessage>): ChatResponse = chatModel.chat(messages)
 
+    /** Reports supported capabilities of the non-streaming chat model. */
     override fun supportedCapabilities(): Set<Capability> = chatModel.supportedCapabilities()
 
     // StreamingChatModel implementations
+
+    /** Delegates a streaming chat request to the streaming OpenAI chat model. */
     override fun chat(
         request: ChatRequest,
         handler: StreamingChatResponseHandler,
     ) = streamingChatModel.chat(request, handler)
 
+    /** Delegates an eager streaming chat request to the streaming OpenAI chat model. */
     override fun doChat(
         request: ChatRequest,
         handler: StreamingChatResponseHandler,
     ) = streamingChatModel.doChat(request, handler)
 
+    /** Streams a single message through the streaming OpenAI chat model. */
     override fun chat(
         message: String,
         handler: StreamingChatResponseHandler,
     ) = streamingChatModel.chat(message, handler)
 
+    /** Streams a list of messages through the streaming OpenAI chat model. */
     override fun chat(
         messages: List<ChatMessage>,
         handler: StreamingChatResponseHandler,
