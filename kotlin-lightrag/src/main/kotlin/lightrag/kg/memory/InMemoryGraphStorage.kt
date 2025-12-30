@@ -357,9 +357,5 @@ class InMemoryGraphStorage(
             is JsonObject -> {
                 this.mapValues { it.value.toAny() }
             }
-
-            else -> {
-                null
-            }
         }
 }

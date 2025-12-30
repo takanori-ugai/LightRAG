@@ -100,8 +100,11 @@ private suspend fun getVectorContext(
 
         logger.info { "Naive query: ${validChunks.size} chunks (chunk_top_k:$searchTopK cosine:$cosineThreshold)" }
         return validChunks
-    } catch (e: Exception) {
-        logger.error(e) { "Error in _getVectorContext" }
+    } catch (e: IllegalStateException) {
+        logger.error(e) { "Illegal state in _getVectorContext" }
+        return emptyList()
+    } catch (e: IllegalArgumentException) {
+        logger.error(e) { "Invalid input in _getVectorContext" }
         return emptyList()
     }
 }
@@ -553,8 +556,11 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
                 logger.trace { "UserPrompt: $userQuery" }
                 val chatResponse = model.chat(listOf(SystemMessage(sysPrompt), UserMessage(userQuery)))
                 chatResponse.aiMessage()?.text() ?: ""
-            } catch (e: Exception) {
-                logger.error(e) { "Error generating response in naiveQuery" }
+            } catch (e: IllegalStateException) {
+                logger.error(e) { "Illegal state generating response in naiveQuery" }
+                "Error generating response."
+            } catch (e: IllegalArgumentException) {
+                logger.error(e) { "Invalid input generating response in naiveQuery" }
                 "Error generating response."
             }
 

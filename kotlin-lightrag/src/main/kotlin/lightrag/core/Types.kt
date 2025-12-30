@@ -24,9 +24,13 @@ data class QueryResult(
         get() =
             rawData
                 ?.get("data")
-                ?.let { it as? Map<String, Any?> }
+                ?.let { it as? Map<*, *> }
                 ?.get("references")
-                ?.let { it as? List<Map<String, String>> }
+                ?.let { refs ->
+                    (refs as? List<*>)?.mapNotNull { item ->
+                        (item as? Map<*, *>)?.entries?.associate { (k, v) -> k.toString() to v.toString() }
+                    }
+                }
                 ?: emptyList()
 
     /**
@@ -36,7 +40,9 @@ data class QueryResult(
         get() =
             rawData
                 ?.get("metadata")
-                ?.let { it as? Map<String, Any?> }
+                ?.let { it as? Map<*, *> }
+                ?.entries
+                ?.associate { (k, v) -> k.toString() to v }
                 ?: emptyMap()
 }
 
@@ -55,9 +61,13 @@ data class QueryContextResult(
     val referenceList: List<Map<String, String>>
         get() =
             rawData["data"]
-                ?.let { it as? Map<String, Any?> }
+                ?.let { it as? Map<*, *> }
                 ?.get("references")
-                ?.let { it as? List<Map<String, String>> }
+                ?.let { refs ->
+                    (refs as? List<*>)?.mapNotNull { item ->
+                        (item as? Map<*, *>)?.entries?.associate { (k, v) -> k.toString() to v.toString() }
+                    }
+                }
                 ?: emptyList()
 }
 

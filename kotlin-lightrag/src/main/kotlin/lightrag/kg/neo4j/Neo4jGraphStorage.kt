@@ -10,7 +10,6 @@ import lightrag.core.types.KnowledgeGraph
 import org.neo4j.driver.AuthTokens
 import org.neo4j.driver.Driver
 import org.neo4j.driver.GraphDatabase
-import org.neo4j.driver.Logging
 import org.neo4j.driver.Result
 import org.neo4j.driver.Session
 import org.neo4j.driver.SessionConfig
@@ -64,16 +63,13 @@ class Neo4jGraphStorage(
         // Read env and override the arg if present
         val neo4jWorkspace = System.getenv("NEO4J_WORKSPACE")
         val originalWorkspace = globalConfig["workspace"] as? String
-        var ws = originalWorkspace
-        if (!neo4jWorkspace.isNullOrBlank()) {
-            ws = neo4jWorkspace
-        }
-
-        // Default to 'base' when both arg and env are empty
-        if (ws.isNullOrBlank()) {
-            ws = "base"
-        }
-        workspace = ws ?: "base"
+        val resolvedWorkspace =
+            when {
+                !neo4jWorkspace.isNullOrBlank() -> neo4jWorkspace
+                originalWorkspace.isNullOrBlank() -> "base"
+                else -> originalWorkspace
+            }
+        workspace = resolvedWorkspace
 
         if (!neo4jWorkspace.isNullOrBlank()) {
             logger.info {
@@ -265,11 +261,9 @@ class Neo4jGraphStorage(
         }
 
         val authToken =
-            if (username != null && password != null) {
-                AuthTokens.basic(username, password)
-            } else {
-                AuthTokens.none()
-            }
+            password?.let {
+                AuthTokens.basic(username, it)
+            } ?: AuthTokens.none()
 
         // Configuration mapping
         val maxConnectionPoolSize =
@@ -293,7 +287,6 @@ class Neo4jGraphStorage(
                 .withMaxConnectionPoolSize(maxConnectionPoolSize)
                 .withConnectionTimeout(connectionTimeout, TimeUnit.MILLISECONDS)
                 .withMaxConnectionLifetime(maxConnectionLifetime, TimeUnit.MILLISECONDS)
-                .withLogging(Logging.slf4j())
                 .build()
 
         driver = GraphDatabase.driver(uri, authToken, config)

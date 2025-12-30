@@ -50,7 +50,11 @@ fun main() =
         try {
             storageManager.initialize()
             storageManager.drop()
-        } catch (e: Exception) {
+        } catch (e: IllegalStateException) {
+            println("Error initializing Neo4j storage: ${e.message}")
+            println("Please ensure Neo4j is running and configured correctly in application.conf")
+            return@runBlocking
+        } catch (e: IllegalArgumentException) {
             println("Error initializing Neo4j storage: ${e.message}")
             println("Please ensure Neo4j is running and configured correctly in application.conf")
             return@runBlocking
@@ -75,7 +79,9 @@ fun main() =
         println("Inserting content...")
         try {
             rag.insert(content)
-        } catch (e: Exception) {
+        } catch (e: IllegalStateException) {
+            println("Error inserting content: ${e.message}")
+        } catch (e: IllegalArgumentException) {
             println("Error inserting content: ${e.message}")
         }
 
@@ -99,7 +105,9 @@ fun main() =
                         ),
                     )
                 println(result?.content)
-            } catch (e: Exception) {
+            } catch (e: IllegalStateException) {
+                println("Error querying mode $mode: ${e.message}")
+            } catch (e: IllegalArgumentException) {
                 println("Error querying mode $mode: ${e.message}")
             }
         }

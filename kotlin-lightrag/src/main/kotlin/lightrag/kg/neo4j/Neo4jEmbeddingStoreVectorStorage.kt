@@ -14,7 +14,6 @@ import lightrag.core.types.BaseVectorStorage
 import org.neo4j.driver.AuthTokens
 import org.neo4j.driver.Driver
 import org.neo4j.driver.GraphDatabase
-import org.neo4j.driver.Logging
 import org.neo4j.driver.Result
 import org.neo4j.driver.Session
 import org.neo4j.driver.SessionConfig
@@ -143,10 +142,16 @@ class Neo4jEmbeddingStoreVectorStorage(
         return try {
             val vector = embeddingFunc.embed("dimension probe").content().vector()
             vector.size
-        } catch (e: Exception) {
+        } catch (e: IllegalStateException) {
             val fallbackDimension = 1536
             logger.warn(e) {
                 "Unable to infer embedding dimension for Neo4jEmbeddingStore; defaulting to $fallbackDimension"
+            }
+            fallbackDimension
+        } catch (e: IllegalArgumentException) {
+            val fallbackDimension = 1536
+            logger.warn(e) {
+                "Invalid input inferring embedding dimension for Neo4jEmbeddingStore; defaulting to $fallbackDimension"
             }
             fallbackDimension
         }
@@ -180,7 +185,6 @@ class Neo4jEmbeddingStoreVectorStorage(
                 .withMaxConnectionPoolSize(maxPool)
                 .withConnectionTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                 .withMaxConnectionLifetime(maxLifetimeMs, TimeUnit.MILLISECONDS)
-                .withLogging(Logging.slf4j())
                 .build()
 
         driver = GraphDatabase.driver(uri, auth, driverConfig)
@@ -418,8 +422,11 @@ class Neo4jEmbeddingStoreVectorStorage(
         try {
             val response = embeddingFunc.embed(text)
             response.content().vector().toList()
-        } catch (e: Exception) {
-            logger.error(e) { "Error embedding text for Neo4jEmbeddingStoreVectorStorage" }
+        } catch (e: IllegalStateException) {
+            logger.error(e) { "Illegal state embedding text for Neo4jEmbeddingStoreVectorStorage" }
+            emptyList()
+        } catch (e: IllegalArgumentException) {
+            logger.error(e) { "Invalid input embedding text for Neo4jEmbeddingStoreVectorStorage" }
             emptyList()
         }
 }

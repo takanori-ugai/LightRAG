@@ -158,7 +158,6 @@ class Neo4jDocStatusStorage(
                 .withMaxConnectionPoolSize(maxPool)
                 .withConnectionTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                 .withMaxConnectionLifetime(maxLifetimeMs, TimeUnit.MILLISECONDS)
-                .withLogging(Logging.slf4j())
                 .build()
 
         driver = GraphDatabase.driver(uri, auth, config)
@@ -189,7 +188,10 @@ class Neo4jDocStatusStorage(
                     val rawJson = record["data_json"].asString(null)
                     if (!rawJson.isNullOrBlank()) {
                         val parsed = json.decodeFromString<JsonObject>(rawJson)
-                        val map = parsed.toAny() as? Map<String, Any> ?: emptyMap()
+                        val map =
+                            (parsed.toAny() as? Map<*, *>)?.entries?.associate { (k, v) ->
+                                k.toString() to (v as Any)
+                            } ?: emptyMap()
                         docs[id] = mapToStatus(map, docs[id])
                     }
                 }
@@ -439,10 +441,6 @@ class Neo4jDocStatusStorage(
 
             is JsonObject -> {
                 this.mapValues { it.value.toAny() }
-            }
-
-            else -> {
-                null
             }
         }
 }

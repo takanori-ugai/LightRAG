@@ -8,12 +8,10 @@ import lightrag.di.AppConfig
 import lightrag.di.LightRagConfig
 import lightrag.di.appModule
 import lightrag.llm.LLMFactory
-import lightrag.services.StorageManager
 import org.koin.core.context.loadKoinModules
 import org.koin.core.context.startKoin
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
-import org.koin.java.KoinJavaComponent.get
 import java.io.File
 
 /**
@@ -23,16 +21,17 @@ import java.io.File
  */
 fun main() =
     runBlocking {
-        startKoin {
-            allowOverride(true)
-            modules(appModule)
-        }
+        val koin =
+            startKoin {
+                allowOverride(true)
+                modules(appModule)
+            }.koin
 
         // Override ChatModel/EmbeddingModel/AppConfig to use Ollama instead of OpenAI.
         val ollamaModule =
             module {
                 single<dev.langchain4j.model.chat.ChatModel> {
-                    val cfg = get<LightRagConfig>()
+                    val cfg = koin.get<LightRagConfig>()
                     LLMFactory.createChatModel(
                         binding = "ollama",
                         modelName = cfg.ollama.chatModelName,
@@ -41,7 +40,7 @@ fun main() =
                 }
 
                 single<EmbeddingModel> {
-                    val cfg = get<LightRagConfig>()
+                    val cfg = koin.get<LightRagConfig>()
                     LLMFactory.createEmbeddingModel(
                         binding = "ollama",
                         modelName = cfg.ollama.embeddingModelName,
@@ -50,7 +49,7 @@ fun main() =
                 }
 
                 single<AppConfig> {
-                    val cfg = get<LightRagConfig>()
+                    val cfg = koin.get<LightRagConfig>()
                     AppConfig(
                         workingDir = cfg.storage.workingDir,
                         graphStorageName = cfg.storage.graphStorageName,
@@ -71,14 +70,14 @@ fun main() =
                         llmModelName = cfg.ollama.chatModelName,
                         embeddingBinding = "ollama",
                         embeddingModelName = cfg.ollama.embeddingModelName,
-                        chatModel = get(),
-                        embeddingModel = get(),
+                        chatModel = koin.get(),
+                        embeddingModel = koin.get(),
                     )
                 }
 
                 // Refresh globalConfig after overriding AppConfig/chat/embedding.
                 single<Map<String, Any?>>(named("globalConfig")) {
-                    val appConfig = get<AppConfig>()
+                    val appConfig = koin.get<AppConfig>()
                     val overrides = appConfig.addonConfig.overrides
                     val chunkTokenSize = overrides.chunkTokenSize ?: 1200
                     val chunkOverlapTokenSize = overrides.chunkOverlapTokenSize ?: 100
@@ -99,8 +98,7 @@ fun main() =
             }
         loadKoinModules(ollamaModule)
 
-        val rag: LightRAG = get(LightRAG::class.java)
-        val storageManager: StorageManager = get(StorageManager::class.java)
+        val rag: LightRAG = koin.get<LightRAG>()
 
         val workingDir = "./ollama-demo"
         val workingDirFile = File(workingDir)
@@ -129,9 +127,8 @@ fun main() =
         }
 
         // Test embedding function - get embedding model from Koin
-        val embeddingModel: EmbeddingModel = get(EmbeddingModel::class.java)
+        val embeddingModel: EmbeddingModel = koin.get()
         val testText = "This is a test string for embedding."
-        @Suppress("TooGenericExceptionCaught")
         try {
             val embeddingResponse = embeddingModel.embed(testText)
             val embedding = embeddingResponse.content()
@@ -141,7 +138,9 @@ fun main() =
             println("========================")
             println("Test text: $testText")
             println("Detected embedding dimension: $embeddingDim\n\n")
-        } catch (e: Exception) {
+        } catch (e: IllegalStateException) {
+            println("Error testing embedding: ${e.message}")
+        } catch (e: IllegalArgumentException) {
             println("Error testing embedding: ${e.message}")
         }
 
@@ -168,7 +167,6 @@ fun main() =
             println("\n=====================")
             println("Query mode: $mode")
             println("=====================")
-            @Suppress("TooGenericExceptionCaught")
             try {
                 val result =
                     rag.query(
@@ -180,7 +178,9 @@ fun main() =
                         ),
                     )
                 println(result?.content)
-            } catch (e: Exception) {
+            } catch (e: IllegalStateException) {
+                println("Error querying mode $mode: ${e.message}")
+            } catch (e: IllegalArgumentException) {
                 println("Error querying mode $mode: ${e.message}")
             }
         }

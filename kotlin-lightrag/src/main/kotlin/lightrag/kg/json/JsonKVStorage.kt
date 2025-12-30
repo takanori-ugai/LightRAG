@@ -4,6 +4,7 @@ import dev.langchain4j.model.embedding.EmbeddingModel
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -59,11 +60,13 @@ class JsonKVStorage(
                                     json.decodeFromString<Map<String, Map<String, Any?>>>(content)
                                 legacy.mapValues { (_, value) ->
                                     val dataMap =
-                                        (value["value"] as? Map<String, Any?>)
+                                        (value["value"] as? Map<*, *>)
+                                            ?.entries
+                                            ?.associate { (k, v) -> k.toString() to v }
                                             ?: value
                                     KVEntry(
                                         KVValue(
-                                            dataMap.filterValues { it != null } as Map<String, Any>,
+                                            dataMap.filterValues { it != null },
                                         ),
                                     )
                                 }
@@ -71,8 +74,10 @@ class JsonKVStorage(
                     mutex.withLock { data.putAll(loaded) }
                     logger.info { "Loaded ${loaded.size} records from ${file.absolutePath}" }
                 }
-            } catch (e: Exception) {
-                logger.error(e) { "Error loading KV storage from ${file.absolutePath}" }
+            } catch (e: java.io.IOException) {
+                logger.error(e) { "I/O error loading KV storage from ${file.absolutePath}" }
+            } catch (e: SerializationException) {
+                logger.error(e) { "Serialization error loading KV storage from ${file.absolutePath}" }
             }
         }
     }
@@ -86,8 +91,10 @@ class JsonKVStorage(
                 val content = json.encodeToString(data)
                 file.writeText(content)
                 logger.debug { "Saved ${data.size} records to ${file.absolutePath}" }
-            } catch (e: Exception) {
-                logger.error(e) { "Error saving KV storage to ${file.absolutePath}" }
+            } catch (e: java.io.IOException) {
+                logger.error(e) { "I/O error saving KV storage to ${file.absolutePath}" }
+            } catch (e: SerializationException) {
+                logger.error(e) { "Serialization error saving KV storage to ${file.absolutePath}" }
             }
         }
     }

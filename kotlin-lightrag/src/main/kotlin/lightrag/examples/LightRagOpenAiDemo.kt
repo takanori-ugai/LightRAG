@@ -5,9 +5,7 @@ import kotlinx.coroutines.runBlocking
 import lightrag.core.LightRAG
 import lightrag.core.QueryParam
 import lightrag.di.appModule
-import lightrag.services.StorageManager
 import org.koin.core.context.startKoin
-import org.koin.java.KoinJavaComponent.get
 import java.io.File
 
 /**
@@ -17,12 +15,12 @@ import java.io.File
  */
 fun main() =
     runBlocking {
-        startKoin {
-            modules(appModule)
-        }
+        val koin =
+            startKoin {
+                modules(appModule)
+            }.koin
 
-        val rag: LightRAG = get(LightRAG::class.java)
-        val storageManager: StorageManager = get(StorageManager::class.java)
+        val rag: LightRAG = koin.get<LightRAG>()
 
         val workingDir = "./dickens"
         val workingDirFile = File(workingDir)
@@ -51,9 +49,8 @@ fun main() =
         }
 
         // Test embedding function
-        val embeddingModel: EmbeddingModel = get(EmbeddingModel::class.java)
+        val embeddingModel: EmbeddingModel = koin.get()
         val testText = "This is a test string for embedding."
-        @Suppress("TooGenericExceptionCaught")
         try {
             val embeddingResponse = embeddingModel.embed(testText)
             val embedding = embeddingResponse.content()
@@ -63,7 +60,9 @@ fun main() =
             println("========================")
             println("Test text: $testText")
             println("Detected embedding dimension: $embeddingDim\n\n")
-        } catch (e: Exception) {
+        } catch (e: IllegalStateException) {
+            println("Error testing embedding: ${e.message}")
+        } catch (e: IllegalArgumentException) {
             println("Error testing embedding: ${e.message}")
         }
 
@@ -90,7 +89,6 @@ fun main() =
             println("\n=====================")
             println("Query mode: $mode")
             println("=====================")
-            @Suppress("TooGenericExceptionCaught")
             try {
                 val result =
                     rag.query(
@@ -102,7 +100,9 @@ fun main() =
                         ),
                     )
                 println(result?.content)
-            } catch (e: Exception) {
+            } catch (e: IllegalStateException) {
+                println("Error querying mode $mode: ${e.message}")
+            } catch (e: IllegalArgumentException) {
                 println("Error querying mode $mode: ${e.message}")
             }
         }

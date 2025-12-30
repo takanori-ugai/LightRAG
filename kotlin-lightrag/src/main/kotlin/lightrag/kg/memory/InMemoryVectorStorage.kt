@@ -3,7 +3,9 @@ package lightrag.kg.memory
 import dev.langchain4j.data.embedding.Embedding
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.store.embedding.CosineSimilarity
+import io.github.oshai.kotlinlogging.KLogger
 import io.github.oshai.kotlinlogging.KotlinLogging
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -18,6 +20,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import lightrag.core.types.BaseVectorStorage
 import java.io.File
+import java.io.IOException
 
 private val logger = KotlinLogging.logger {}
 
@@ -57,12 +60,6 @@ class InMemoryVectorStorage(
             prettyPrint = true
         }
 
-    private fun debug(msg: () -> String) {
-        if (logger.isDebugEnabled()) {
-            logger.debug(msg)
-        }
-    }
-
     /**
      * Initializes the storage by loading data from the JSON file.
      */
@@ -79,7 +76,10 @@ class InMemoryVectorStorage(
                 loadedData.forEach { (id, jsonObject) ->
                     val vec = (jsonObject["vector"] as? JsonArray)?.mapNotNull { it.jsonPrimitive.doubleOrNull?.toFloat() }
                     val metaObj = jsonObject["metadata"] as? JsonObject
-                    val rawMap = (metaObj?.toAny() as? Map<String, Any>) ?: emptyMap()
+                    val rawMap =
+                        (metaObj?.toAny() as? Map<*, *>)?.entries?.associate { (k, v) ->
+                            k.toString() to (v as Any)
+                        } ?: emptyMap()
                     if (vec != null) {
                         vectors[id] = vec
                     }
@@ -87,8 +87,10 @@ class InMemoryVectorStorage(
                 }
                 logger.info { "Loaded ${vectors.size} vectors for '$namespace' from ${file.absolutePath}" }
             }
-        } catch (e: Exception) {
-            logger.error(e) { "Error loading vector storage from ${file.absolutePath}" }
+        } catch (e: IOException) {
+            logger.error(e) { "I/O error loading vector storage from ${file.absolutePath}" }
+        } catch (e: SerializationException) {
+            logger.error(e) { "Serialization error loading vector storage from ${file.absolutePath}" }
         }
     }
 
@@ -114,9 +116,13 @@ class InMemoryVectorStorage(
                 )
             val content = json.encodeToString(jsonObject)
             file.writeText(content)
-            debug { "[$namespace/$workspace] Persisted ${vectors.size} vectors to ${file.absolutePath}" }
-        } catch (e: Exception) {
-            logger.error(e) { "Error saving vector storage to ${file.absolutePath}" }
+            if (logger.isDebugEnabled()) {
+                logger.debug { "[$namespace/$workspace] Persisted ${vectors.size} vectors to ${file.absolutePath}" }
+            }
+        } catch (e: IOException) {
+            logger.error(e) { "I/O error saving vector storage to ${file.absolutePath}" }
+        } catch (e: SerializationException) {
+            logger.error(e) { "Serialization error saving vector storage to ${file.absolutePath}" }
         }
     }
 
@@ -145,7 +151,7 @@ class InMemoryVectorStorage(
         topK: Int,
         queryEmbedding: List<Float>?,
     ): List<Map<String, Any>> {
-        val queryVec = queryEmbedding ?: embed(query)
+        val queryVec = queryEmbedding ?: embedText(embeddingFunc, query, logger)
         if (queryVec.isEmpty()) {
             logger.warn { "Query vector is empty for query: '$query'" }
             return emptyList()
@@ -156,8 +162,10 @@ class InMemoryVectorStorage(
             return emptyList()
         }
 
-        debug {
-            "[$namespace/$workspace] Query='$query', topK=$topK, vectors=${vectors.size}, metadata=${metadata.size}"
+        if (logger.isDebugEnabled()) {
+            logger.debug {
+                "[$namespace/$workspace] Query='$query', topK=$topK, vectors=${vectors.size}, metadata=${metadata.size}"
+            }
         }
 
         // Calculate cosine similarity for all vectors
@@ -186,7 +194,7 @@ class InMemoryVectorStorage(
                         )
                     Triple(id, similarity, meta)
                 }.filter {
-                    it.third != null && it.second >= cosineBetterThanThreshold
+                    it.second >= cosineBetterThanThreshold
                 }.sortedByDescending { it.second }
                 .take(topK)
 
@@ -197,7 +205,7 @@ class InMemoryVectorStorage(
         }
 
         return results.map { (id, score, meta) ->
-            val raw = meta?.raw ?: emptyMap()
+            val raw = meta.raw
             raw + mapOf("id" to id, "score" to score, "distance" to score)
         }
     }
@@ -211,9 +219,8 @@ class InMemoryVectorStorage(
         // We expect metadata to contain "content" field which needs to be embedded if not already vectors?
         // In Python LightRAG, upsert logic in vector storage often handles embedding if content is provided.
 
-        val embeddingModel = embeddingFunc as? EmbeddingModel
-        debug {
-            "[$namespace/$workspace] Upsert ${data.size} items. Has embedding model: ${embeddingModel != null}"
+        if (logger.isDebugEnabled()) {
+            logger.debug { "[$namespace/$workspace] Upsert ${data.size} items. Has embedding model: true" }
         }
 
         data.forEach { (id, metaMap) ->
@@ -221,8 +228,8 @@ class InMemoryVectorStorage(
             metadata[id] = meta
             val content = meta.content
 
-            if (content != null && embeddingModel != null) {
-                val vec = embed(content)
+            if (content != null) {
+                val vec = embedText(embeddingFunc, content, logger)
                 if (vec.isNotEmpty()) {
                     vectors[id] = vec
                 } else {
@@ -236,23 +243,8 @@ class InMemoryVectorStorage(
             }
         }
 
-        debug {
-            "[$namespace/$workspace] Upsert completed. Total vectors=${vectors.size}, metadata=${metadata.size}"
-        }
-    }
-
-    private fun embed(text: String): List<Float> {
-        val embeddingModel = embeddingFunc
-        return try {
-            val response = embeddingModel.embed(text)
-            val content = response.content()
-            when (content) {
-                is Embedding -> content.vector().toList()
-                else -> emptyList()
-            }
-        } catch (e: Exception) {
-            logger.error(e) { "Error embedding text: '$text'" }
-            emptyList()
+        if (logger.isDebugEnabled()) {
+            logger.debug { "[$namespace/$workspace] Upsert completed. Total vectors=${vectors.size}, metadata=${metadata.size}" }
         }
     }
 
@@ -319,67 +311,92 @@ class InMemoryVectorStorage(
             .mapNotNull { id ->
                 vectors[id]?.let { id to it }
             }.toMap()
+}
 
-    private fun mapToMetadata(meta: Map<String, Any>): Metadata {
-        val content = meta["content"] as? String
-
-        @Suppress("UNCHECKED_CAST")
-        val vector = (meta["vector"] as? List<*>)?.mapNotNull { (it as? Number)?.toFloat() }
-        val entityName = meta["entity_name"] as? String
-        val srcId = meta["src_id"] as? String
-        val tgtId = meta["tgt_id"] as? String
-        return Metadata(
-            content = content,
-            vector = vector,
-            entityName = entityName,
-            srcId = srcId,
-            tgtId = tgtId,
-            raw = meta,
-        )
+private fun embedText(
+    embeddingModel: EmbeddingModel,
+    text: String,
+    logger: KLogger,
+): List<Float> =
+    try {
+        val response = embeddingModel.embed(text)
+        response.content().vector().toList()
+    } catch (e: IllegalStateException) {
+        logger.error(e) { "Illegal state embedding text: '$text'" }
+        emptyList()
+    } catch (e: IllegalArgumentException) {
+        logger.error(e) { "Invalid input embedding text: '$text'" }
+        emptyList()
     }
 
-    private fun Any?.toJsonElement(): JsonElement =
-        when (this) {
-            null -> JsonNull
+private fun mapToMetadata(meta: Map<String, Any>): Metadata {
+    val content = meta["content"] as? String
 
-            is Boolean -> JsonPrimitive(this)
-
-            is Number -> JsonPrimitive(this.toString())
-
-            // Convert number to string for JsonPrimitive
-            is String -> JsonPrimitive(this)
-
-            is List<*> -> kotlinx.serialization.json.JsonArray(this.map { it.toJsonElement() })
-
-            is Map<*, *> -> JsonObject(this.entries.associate { it.key.toString() to it.value.toJsonElement() })
-
-            else -> JsonPrimitive(this.toString())
-        }
-
-    private fun JsonElement.toAny(): Any? =
-        when (this) {
-            is JsonNull -> {
-                null
-            }
-
-            is JsonPrimitive -> {
-                if (isString) {
-                    content
-                } else {
-                    booleanOrNull ?: longOrNull ?: doubleOrNull ?: content
-                }
-            }
-
-            is kotlinx.serialization.json.JsonArray -> {
-                this.map { it.toAny() }
-            }
-
-            is JsonObject -> {
-                this.mapValues { it.value.toAny() }
-            }
-
-            else -> {
-                null
-            }
-        }
+    @Suppress("UNCHECKED_CAST")
+    val vector = (meta["vector"] as? List<*>)?.mapNotNull { (it as? Number)?.toFloat() }
+    val entityName = meta["entity_name"] as? String
+    val srcId = meta["src_id"] as? String
+    val tgtId = meta["tgt_id"] as? String
+    return Metadata(
+        content = content,
+        vector = vector,
+        entityName = entityName,
+        srcId = srcId,
+        tgtId = tgtId,
+        raw = meta,
+    )
 }
+
+private fun Any?.toJsonElement(): JsonElement =
+    when (this) {
+        null -> {
+            JsonNull
+        }
+
+        is Boolean -> {
+            JsonPrimitive(this)
+        }
+
+        is Number -> {
+            JsonPrimitive(this.toString())
+        }
+
+        is String -> {
+            JsonPrimitive(this)
+        }
+
+        is List<*> -> {
+            JsonArray(this.map { it.toJsonElement() })
+        }
+
+        is Map<*, *> -> {
+            JsonObject(this.entries.associate { it.key.toString() to it.value.toJsonElement() })
+        }
+
+        else -> {
+            JsonPrimitive(this.toString())
+        }
+    }
+
+private fun JsonElement.toAny(): Any? =
+    when (this) {
+        is JsonNull -> {
+            null
+        }
+
+        is JsonPrimitive -> {
+            if (isString) {
+                content
+            } else {
+                booleanOrNull ?: longOrNull ?: doubleOrNull ?: content
+            }
+        }
+
+        is JsonArray -> {
+            this.map { it.toAny() }
+        }
+
+        is JsonObject -> {
+            this.mapValues { it.value.toAny() }
+        }
+    }

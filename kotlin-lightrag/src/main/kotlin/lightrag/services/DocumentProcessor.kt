@@ -99,7 +99,18 @@ class DocumentProcessor(
                 )
 
                 storageManager.docStatusStorage.upsert(mapOf(docId to mapOf("status" to DocStatus.PROCESSED.value)))
-            } catch (e: Exception) {
+            } catch (e: IllegalStateException) {
+                e.printStackTrace()
+                storageManager.docStatusStorage.upsert(
+                    mapOf(
+                        docId to
+                            mapOf(
+                                "status" to DocStatus.FAILED.value,
+                                "error_msg" to (e.message ?: "Unknown error"),
+                            ),
+                    ),
+                )
+            } catch (e: IllegalArgumentException) {
                 e.printStackTrace()
                 storageManager.docStatusStorage.upsert(
                     mapOf(

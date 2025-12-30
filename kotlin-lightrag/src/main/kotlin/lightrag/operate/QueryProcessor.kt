@@ -123,6 +123,7 @@ data class PerformKgSearchResult(
     val vectorChunks: List<Map<String, Any>>,
 )
 
+@Suppress("UnusedPrivateMember", "TooManyFunctions")
 class QueryProcessor(
     private val knowledgeGraphInst: BaseGraphStorage,
     private val entitiesVdb: BaseVectorStorage,
@@ -300,8 +301,11 @@ class QueryProcessor(
                     logger.trace { "UserQuery :$query" }
                     val chatResponse = chatModel.chat(listOf(SystemMessage(sysPrompt), UserMessage(query)))
                     chatResponse.aiMessage()?.text() ?: ""
-                } catch (e: Exception) {
-                    logger.error(e) { "Error generating response in kgQuery" }
+                } catch (e: IllegalStateException) {
+                    logger.error(e) { "Illegal state generating response in kgQuery" }
+                    "Error generating response."
+                } catch (e: IllegalArgumentException) {
+                    logger.error(e) { "Invalid argument generating response in kgQuery" }
                     "Error generating response."
                 }
 
@@ -363,22 +367,22 @@ class QueryProcessor(
         text: String,
         param: QueryParam,
     ): Pair<List<String>, List<String>> {
-        val model = chatModel
-        if (model == null) {
-            logger.error { "No ChatModel provided for keyword extraction" }
-            return emptyList<String>() to emptyList()
-        }
-
         val language = globalConfig["language"] as? String ?: "English"
         val examples = globalConfig["keyword_examples"] as? String ?: ""
 
-        val keywordExtractor = AiServices.create(KeywordExtractor::class.java, model)
+        val keywordExtractor = AiServices.create(KeywordExtractor::class.java, chatModel)
 
         return try {
             val keywordsResult = keywordExtractor.extract(text, language, examples)
             keywordsResult.highLevelKeywords to keywordsResult.lowLevelKeywords
-        } catch (e: Exception) {
-            logger.error(e) { "Failed to parse keywords from LLM response" }
+        } catch (e: dev.langchain4j.service.output.OutputParsingException) {
+            logger.warn(e) { "Failed to parse keywords from LLM response; defaulting to empty keywords" }
+            emptyList<String>() to emptyList()
+        } catch (e: IllegalStateException) {
+            logger.error(e) { "Failed to parse keywords from LLM response due to illegal state" }
+            emptyList<String>() to emptyList()
+        } catch (e: IllegalArgumentException) {
+            logger.error(e) { "Failed to parse keywords from LLM response due to invalid input" }
             emptyList<String>() to emptyList()
         }
     }
@@ -597,7 +601,7 @@ class QueryProcessor(
                         }
                         mutableEdgeProps["src_id"] = srcId
                         mutableEdgeProps["tgt_id"] = tgtId
-                        mutableEdgeProps["created_at"] = it["created_at"]?.toString() ?: ""
+                        mutableEdgeProps["created_at"] = it["created_at"] ?: ""
                         mutableEdgeProps
                     }
                 } else {
@@ -635,7 +639,7 @@ class QueryProcessor(
         for (pair in allEdges) {
             val edgeProps = edgeDataDict[pair]
             if (edgeProps != null) {
-                val weight = (edgeProps["weight"] as? String)?.toDoubleOrNull() ?: 1.0
+                val weight = edgeProps["weight"]?.toDoubleOrNull() ?: 1.0
                 val combined = mutableMapOf<String, Any>()
                 combined["src_tgt"] = pair
                 combined["rank"] = edgeDegreesDict[pair] ?: 0
@@ -713,7 +717,11 @@ class QueryProcessor(
             return emptyList()
         }
 
-        val allChunkIds = entitiesWithChunks.flatMap { it["chunks"] as List<String> }.distinct()
+        val allChunkIds =
+            entitiesWithChunks
+                .flatMap { entry ->
+                    (entry["chunks"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                }.distinct()
 
         return textChunksDb.getByIds(allChunkIds)
     }
@@ -755,7 +763,11 @@ class QueryProcessor(
             return emptyList()
         }
 
-        val allChunkIds = relationsWithChunks.flatMap { it["chunks"] as List<String> }.distinct()
+        val allChunkIds =
+            relationsWithChunks
+                .flatMap { entry ->
+                    (entry["chunks"] as? List<*>)?.mapNotNull { it as? String } ?: emptyList()
+                }.distinct()
 
         return textChunksDb.getByIds(allChunkIds)
     }

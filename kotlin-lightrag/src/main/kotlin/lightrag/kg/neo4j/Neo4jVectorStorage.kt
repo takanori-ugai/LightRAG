@@ -12,7 +12,6 @@ import lightrag.kg.memory.Metadata
 import org.neo4j.driver.AuthTokens
 import org.neo4j.driver.Driver
 import org.neo4j.driver.GraphDatabase
-import org.neo4j.driver.Logging
 import org.neo4j.driver.Result
 import org.neo4j.driver.Session
 import org.neo4j.driver.SessionConfig
@@ -159,7 +158,6 @@ class Neo4jVectorStorage(
                 .withMaxConnectionPoolSize(maxPool)
                 .withConnectionTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                 .withMaxConnectionLifetime(maxLifetimeMs, TimeUnit.MILLISECONDS)
-                .withLogging(Logging.slf4j())
                 .build()
 
         driver = GraphDatabase.driver(uri, auth, config)
@@ -280,7 +278,7 @@ class Neo4jVectorStorage(
                         )
                     Triple(id, similarity, meta)
                 }.filter {
-                    it.third != null && it.second >= cosineBetterThanThreshold
+                    it.second >= cosineBetterThanThreshold
                 }.sortedByDescending { it.second }
                 .take(topK)
 
@@ -291,7 +289,7 @@ class Neo4jVectorStorage(
         }
 
         return results.map { (id, score, meta) ->
-            val raw = meta?.raw ?: emptyMap()
+            val raw = meta.raw
             raw + mapOf("id" to id, "score" to score, "distance" to score)
         }
     }
@@ -422,8 +420,11 @@ class Neo4jVectorStorage(
             val response = embeddingFunc.embed(text)
             val content = response.content()
             content.vector().toList()
-        } catch (e: Exception) {
-            logger.error(e) { "Error embedding text for Neo4jVectorStorage" }
+        } catch (e: IllegalStateException) {
+            logger.error(e) { "Illegal state embedding text for Neo4jVectorStorage" }
+            emptyList()
+        } catch (e: IllegalArgumentException) {
+            logger.error(e) { "Invalid input embedding text for Neo4jVectorStorage" }
             emptyList()
         }
 

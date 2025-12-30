@@ -94,7 +94,7 @@ fun chunkingByTokenSize(
                     }
                     // In Python code it raises exception, here we can log and maybe truncate or skip?
                     // Python raises ChunkTokenLimitExceededError.
-                    throw RuntimeException("Chunk token limit exceeded: ${chunkTokens.size} > $chunkTokenSize")
+                    throw IllegalArgumentException("Chunk token limit exceeded: ${chunkTokens.size} > $chunkTokenSize")
                 }
                 newChunks.add(chunkTokens.size to chunk)
             }
@@ -180,8 +180,10 @@ suspend fun extractEntities(
             chunkEdges.forEach { (key, list) ->
                 edges.computeIfAbsent(key) { mutableListOf() }.addAll(list)
             }
-        } catch (e: Exception) {
-            logger.error(e) { "Error extracting entities for chunk $chunkKey" }
+        } catch (e: IllegalStateException) {
+            logger.error(e) { "Illegal state while extracting entities for chunk $chunkKey" }
+        } catch (e: IllegalArgumentException) {
+            logger.error(e) { "Invalid input while extracting entities for chunk $chunkKey" }
         }
     }
 
