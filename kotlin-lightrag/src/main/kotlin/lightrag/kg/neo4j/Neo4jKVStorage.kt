@@ -14,8 +14,12 @@ import lightrag.core.types.BaseKVStorage
 import org.neo4j.driver.AuthTokens
 import org.neo4j.driver.Driver
 import org.neo4j.driver.GraphDatabase
+import org.neo4j.driver.Result
+import org.neo4j.driver.Value
+import org.neo4j.driver.Session
 import org.neo4j.driver.SessionConfig
 import org.neo4j.driver.Values
+import org.neo4j.driver.Logging
 import java.util.concurrent.TimeUnit
 
 private val logger = KotlinLogging.logger {}
@@ -82,6 +86,46 @@ class Neo4jKVStorage(
         return database?.let { SessionConfig.forDatabase(it) } ?: SessionConfig.defaultConfig()
     }
 
+    private fun databaseForLog(): String = System.getenv("NEO4J_DATABASE") ?: parseNeo4jConfig()?.database ?: "default"
+
+    private fun logQuery(
+        query: String,
+        params: Map<String, Any?>,
+    ) {
+        if (logger.isDebugEnabled()) {
+            logger.debug { "[$namespace/$workspace][${databaseForLog()}] CYPHER: $query params=$params" }
+        }
+    }
+
+    private fun Session.runLogged(
+        query: String,
+        params: Any? = null,
+    ): Result =
+        when (params) {
+            null -> {
+                logQuery(query, emptyMap())
+                run(query)
+            }
+
+            is Value -> {
+                logQuery(query, params.asMap())
+                run(query, params)
+            }
+
+            is Map<*, *> -> {
+                @Suppress("UNCHECKED_CAST")
+                val castParams = params as Map<String, Any?>
+                logQuery(query, castParams)
+                run(query, castParams)
+            }
+
+            else -> {
+                val wrapped = mapOf("param" to params)
+                logQuery(query, wrapped)
+                run(query, wrapped)
+            }
+        }
+
     /**
      * Initializes the storage by creating a Neo4j driver and creating a constraint on the label.
      */
@@ -113,13 +157,14 @@ class Neo4jKVStorage(
                 .withMaxConnectionPoolSize(maxPool)
                 .withConnectionTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                 .withMaxConnectionLifetime(maxLifetimeMs, TimeUnit.MILLISECONDS)
+                .withLogging(Logging.slf4j())
                 .build()
 
         driver = GraphDatabase.driver(uri, auth, config)
 
         withContext(Dispatchers.IO) {
             driver?.session(sessionConfig())?.use { session ->
-                session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (n:$label) REQUIRE n.id IS UNIQUE").consume()
+                session.runLogged("CREATE CONSTRAINT IF NOT EXISTS FOR (n:$label) REQUIRE n.id IS UNIQUE").consume()
             }
         }
 
@@ -137,7 +182,7 @@ class Neo4jKVStorage(
         val sessionCfg = sessionConfig()
         withContext(Dispatchers.IO) {
             driver?.session(sessionCfg)?.use { session ->
-                val result = session.run("MATCH (n:$label) RETURN n.id AS id, n.data_json AS data_json")
+                val result = session.runLogged("MATCH (n:$label) RETURN n.id AS id, n.data_json AS data_json")
                 result.list().forEach { record ->
                     val id = record["id"].asString()
                     val rawJson = record["data_json"].asString(null)
@@ -204,7 +249,7 @@ class Neo4jKVStorage(
                             (row["data"] ?: emptyMap<String, Any>()).toJsonElement(),
                         )
                     session
-                        .run(
+                        .runLogged(
                             "MERGE (n:$label {id: \$id}) SET n.data_json = \$data_json",
                             Values.parameters("id", row["id"], "data_json", jsonStr),
                         ).consume()
@@ -225,7 +270,7 @@ class Neo4jKVStorage(
             driver?.session(sessionCfg)?.use { session ->
                 val cypher = "MATCH (n:$label) WHERE n.id IN " + "$" + "ids DETACH DELETE n"
                 session
-                    .run(
+                    .runLogged(
                         cypher,
                         Values.parameters("ids", ids),
                     ).consume()
@@ -242,7 +287,7 @@ class Neo4jKVStorage(
         val sessionCfg = sessionConfig()
         withContext(Dispatchers.IO) {
             driver?.session(sessionCfg)?.use { session ->
-                session.run("MATCH (n:$label) DETACH DELETE n").consume()
+                session.runLogged("MATCH (n:$label) DETACH DELETE n").consume()
             }
         }
         return mapOf("status" to "success", "message" to "Neo4j KV data dropped for $label")

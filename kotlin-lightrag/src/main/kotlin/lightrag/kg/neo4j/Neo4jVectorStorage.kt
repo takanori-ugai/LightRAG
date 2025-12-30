@@ -12,7 +12,11 @@ import lightrag.kg.memory.Metadata
 import org.neo4j.driver.AuthTokens
 import org.neo4j.driver.Driver
 import org.neo4j.driver.GraphDatabase
+import org.neo4j.driver.Result
+import org.neo4j.driver.Value
+import org.neo4j.driver.Session
 import org.neo4j.driver.SessionConfig
+import org.neo4j.driver.Logging
 import java.util.concurrent.TimeUnit
 
 private val logger = KotlinLogging.logger {}
@@ -84,6 +88,46 @@ class Neo4jVectorStorage(
         return database?.let { SessionConfig.forDatabase(it) } ?: SessionConfig.defaultConfig()
     }
 
+    private fun databaseForLog(): String = System.getenv("NEO4J_DATABASE") ?: parseNeo4jConfig()?.database ?: "default"
+
+    private fun logQuery(
+        query: String,
+        params: Map<String, Any?>,
+    ) {
+        if (logger.isDebugEnabled()) {
+            logger.debug { "[$namespace/$workspace][${databaseForLog()}] CYPHER: $query params=$params" }
+        }
+    }
+
+    private fun Session.runLogged(
+        query: String,
+        params: Any? = null,
+    ): Result =
+        when (params) {
+            null -> {
+                logQuery(query, emptyMap())
+                run(query)
+            }
+
+            is Value -> {
+                logQuery(query, params.asMap())
+                run(query, params)
+            }
+
+            is Map<*, *> -> {
+                @Suppress("UNCHECKED_CAST")
+                val castParams = params as Map<String, Any?>
+                logQuery(query, castParams)
+                run(query, castParams)
+            }
+
+            else -> {
+                val wrapped = mapOf("param" to params)
+                logQuery(query, wrapped)
+                run(query, wrapped)
+            }
+        }
+
     /**
      * Initializes the storage by creating a Neo4j driver and creating a constraint on the label.
      */
@@ -115,6 +159,7 @@ class Neo4jVectorStorage(
                 .withMaxConnectionPoolSize(maxPool)
                 .withConnectionTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                 .withMaxConnectionLifetime(maxLifetimeMs, TimeUnit.MILLISECONDS)
+                .withLogging(Logging.slf4j())
                 .build()
 
         driver = GraphDatabase.driver(uri, auth, config)
@@ -122,7 +167,7 @@ class Neo4jVectorStorage(
         withContext(Dispatchers.IO) {
             driver?.session(sessionConfig())?.use { session ->
                 session
-                    .run(
+                    .runLogged(
                         "CREATE CONSTRAINT IF NOT EXISTS FOR (n:$label) REQUIRE n.id IS UNIQUE",
                     ).consume()
             }
@@ -143,7 +188,7 @@ class Neo4jVectorStorage(
         withContext(Dispatchers.IO) {
             driver?.session(sessionCfg)?.use { session ->
                 val result =
-                    session.run("MATCH (n:$label) RETURN n.id AS id, n.vector AS vector, n.metadata AS metadata")
+                    session.runLogged("MATCH (n:$label) RETURN n.id AS id, n.vector AS vector, n.metadata AS metadata")
                 while (result.hasNext()) {
                     val record = result.next()
                     val id = record["id"].asString()
@@ -177,7 +222,7 @@ class Neo4jVectorStorage(
     override suspend fun drop(): Map<String, String> {
         withContext(Dispatchers.IO) {
             driver?.session(sessionConfig())?.use { session ->
-                session.run("MATCH (n:$label) DETACH DELETE n").consume()
+                session.runLogged("MATCH (n:$label) DETACH DELETE n").consume()
             }
         }
         vectors.clear()
@@ -320,7 +365,7 @@ class Neo4jVectorStorage(
         withContext(Dispatchers.IO) {
             driver?.session(sessionConfig())?.use { session ->
                 session
-                    .run(
+                    .runLogged(
                         "MATCH (n:$label) WHERE n.id IN \$ids DETACH DELETE n",
                         mapOf("ids" to ids),
                     ).consume()
@@ -365,7 +410,7 @@ class Neo4jVectorStorage(
             )
         driver?.session(sessionConfig())?.use { session ->
             session
-                .run(
+                .runLogged(
                     "MERGE (n:$label {id: \$id}) SET n.vector = \$vector, n.metadata = \$metadata",
                     params,
                 ).consume()

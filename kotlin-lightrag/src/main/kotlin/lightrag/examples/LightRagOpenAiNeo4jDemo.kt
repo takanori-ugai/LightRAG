@@ -3,10 +3,13 @@ package lightrag.examples
 import kotlinx.coroutines.runBlocking
 import lightrag.core.LightRAG
 import lightrag.core.QueryParam
+import lightrag.di.LightRagConfig
 import lightrag.di.appModule
+import lightrag.llm.LLMFactory
 import lightrag.services.StorageManager
+import org.koin.core.context.loadKoinModules
 import org.koin.core.context.startKoin
-import org.koin.java.KoinJavaComponent.get
+import org.koin.dsl.module
 import java.io.File
 
 /**
@@ -16,12 +19,29 @@ import java.io.File
  */
 fun main() =
     runBlocking {
-        startKoin {
+        val koin = startKoin {
+            allowOverride(true)
             modules(appModule)
-        }
+        }.koin
 
-        val rag: LightRAG = get(LightRAG::class.java)
-        val storageManager: StorageManager = get(StorageManager::class.java)
+        // Enable HTTP request/response logging for the OpenAI chat model in this demo.
+        val loggingModule =
+            module {
+                single<dev.langchain4j.model.chat.ChatModel> {
+                    val cfg = koin.get<LightRagConfig>()
+                    LLMFactory.createChatModel(
+                        binding = "openai",
+                        modelName = cfg.openai.chatModelName,
+                        apiKey = cfg.openai.apiKey,
+                        logRequests = true,
+                        logResponses = true,
+                    )
+                }
+            }
+        loadKoinModules(loggingModule)
+
+        val rag: LightRAG = koin.get<LightRAG>()
+        val storageManager: StorageManager = koin.get<StorageManager>()
 
         // All configurations are loaded via Koin from application.conf
         // Initialize Neo4j Storage (Create indexes etc.)

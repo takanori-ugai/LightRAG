@@ -10,8 +10,13 @@ import lightrag.core.types.KnowledgeGraph
 import org.neo4j.driver.AuthTokens
 import org.neo4j.driver.Driver
 import org.neo4j.driver.GraphDatabase
+import org.neo4j.driver.Result
+import org.neo4j.driver.Value
 import org.neo4j.driver.Session
 import org.neo4j.driver.SessionConfig
+import org.neo4j.driver.Transaction
+import org.neo4j.driver.TransactionContext
+import org.neo4j.driver.Logging
 import org.neo4j.driver.exceptions.ClientException
 import org.neo4j.driver.exceptions.Neo4jException
 import org.neo4j.driver.exceptions.ServiceUnavailableException
@@ -94,6 +99,93 @@ class Neo4jGraphStorage(
             logger.debug { "[$workspace][${databaseForLog()}] CYPHER: $query params=$params" }
         }
     }
+
+    private fun Session.runLogged(
+        query: String,
+        params: Any? = null,
+    ): Result =
+        when (params) {
+            null -> {
+                logQuery(query, emptyMap())
+                run(query)
+            }
+
+            is Value -> {
+                logQuery(query, params.asMap())
+                run(query, params)
+            }
+
+            is Map<*, *> -> {
+                @Suppress("UNCHECKED_CAST")
+                val castParams = params as Map<String, Any?>
+                logQuery(query, castParams)
+                run(query, castParams)
+            }
+
+            else -> {
+                val wrapped = mapOf("param" to params)
+                logQuery(query, wrapped)
+                run(query, wrapped)
+            }
+        }
+
+    private fun Transaction.runLogged(
+        query: String,
+        params: Any? = null,
+    ): Result =
+        when (params) {
+            null -> {
+                logQuery(query, emptyMap())
+                run(query)
+            }
+
+            is Value -> {
+                logQuery(query, params.asMap())
+                run(query, params)
+            }
+
+            is Map<*, *> -> {
+                @Suppress("UNCHECKED_CAST")
+                val castParams = params as Map<String, Any?>
+                logQuery(query, castParams)
+                run(query, castParams)
+            }
+
+            else -> {
+                val wrapped = mapOf("param" to params)
+                logQuery(query, wrapped)
+                run(query, wrapped)
+            }
+        }
+
+    private fun TransactionContext.runLogged(
+        query: String,
+        params: Any? = null,
+    ): Result =
+        when (params) {
+            null -> {
+                logQuery(query, emptyMap())
+                run(query)
+            }
+
+            is Value -> {
+                logQuery(query, params.asMap())
+                run(query, params)
+            }
+
+            is Map<*, *> -> {
+                @Suppress("UNCHECKED_CAST")
+                val castParams = params as Map<String, Any?>
+                logQuery(query, castParams)
+                run(query, castParams)
+            }
+
+            else -> {
+                val wrapped = mapOf("param" to params)
+                logQuery(query, wrapped)
+                run(query, wrapped)
+            }
+        }
 
     private fun isDebugEnabled(): Boolean {
         val flagFromConfig = (globalConfig["neo4j"] as? Map<*, *>)?.get("debug")?.toString()
@@ -201,6 +293,7 @@ class Neo4jGraphStorage(
                 .withMaxConnectionPoolSize(maxConnectionPoolSize)
                 .withConnectionTimeout(connectionTimeout, TimeUnit.MILLISECONDS)
                 .withMaxConnectionLifetime(maxConnectionLifetime, TimeUnit.MILLISECONDS)
+                .withLogging(Logging.slf4j())
                 .build()
 
         driver = GraphDatabase.driver(uri, authToken, config)
@@ -209,7 +302,7 @@ class Neo4jGraphStorage(
             val sessionCfg = sessionConfig()
             try {
                 driver!!.session(sessionCfg).use { neoSession: Session ->
-                    neoSession.run("MATCH (n) RETURN n LIMIT 0").consume()
+                    neoSession.runLogged("MATCH (n) RETURN n LIMIT 0").consume()
                 }
                 logger.info { "[$workspace] Connected to ${databaseForLog()} at $uri" }
             } catch (e: ServiceUnavailableException) {
@@ -230,7 +323,7 @@ class Neo4jGraphStorage(
             try {
                 driver!!.session(sessionCfg).use { neoSession: Session ->
                     neoSession
-                        .run(
+                        .runLogged(
                             "CREATE INDEX IF NOT EXISTS FOR (n:`$workspaceLabel`) ON (n.entity_id)",
                         ).consume()
                     logger.info {
@@ -257,7 +350,7 @@ class Neo4jGraphStorage(
         try {
             driver.session(sessionConfig()).use { neoSession: Session ->
                 val checkIndexQuery = "SHOW FULLTEXT INDEXES"
-                val result = neoSession.run(checkIndexQuery)
+                val result = neoSession.runLogged(checkIndexQuery)
                 val indexes = result.list().map { it.asMap() }
 
                 var existingIndex: Map<String, Any>? = null
@@ -274,7 +367,7 @@ class Neo4jGraphStorage(
                 if (legacyIndex != null && existingIndex == null) {
                     logger.info { "[$workspace] Found legacy index '$legacyIndexName'. Migrating to '$indexName'." }
                     try {
-                        neoSession.run("DROP INDEX $legacyIndexName IF EXISTS").consume()
+                        neoSession.runLogged("DROP INDEX $legacyIndexName IF EXISTS").consume()
                         logger.info { "[$workspace] Dropped legacy index '$legacyIndexName'" }
                     } catch (e: Neo4jException) {
                         logger.warn { "[$workspace] Failed to drop legacy index: ${e.message}" }
@@ -306,7 +399,7 @@ class Neo4jGraphStorage(
                 if (needsRecreation || needsCreation) {
                     if (needsRecreation) {
                         try {
-                            neoSession.run("DROP INDEX $indexName IF EXISTS").consume()
+                            neoSession.runLogged("DROP INDEX $indexName IF EXISTS").consume()
                             logger.info { "[$workspace] Dropped existing index '$indexName'" }
                         } catch (e: Neo4jException) {
                             logger.warn { "[$workspace] Failed to drop existing index: ${e.message}" }
@@ -328,7 +421,7 @@ class Neo4jGraphStorage(
                                 }
                             }
                             """.trimIndent()
-                        neoSession.run(createIndexQuery).consume()
+                        neoSession.runLogged(createIndexQuery).consume()
                         logger.info {
                             "[$workspace] Successfully created full-text index '$indexName' with CJK analyzer."
                         }
@@ -342,7 +435,7 @@ class Neo4jGraphStorage(
                             CREATE FULLTEXT INDEX $indexName
                             FOR (n:`$workspaceLabel`) ON EACH [n.entity_id]
                             """.trimIndent()
-                        neoSession.run(createIndexQuery).consume()
+                        neoSession.runLogged(createIndexQuery).consume()
                         logger.info {
                             "[$workspace] Successfully created full-text index '$indexName' with standard analyzer."
                         }
@@ -390,7 +483,7 @@ class Neo4jGraphStorage(
             try {
                 driver!!.session(sessionConfig()).use { neoSession: Session ->
                     val query = "MATCH (n:`$workspaceLabel`) DETACH DELETE n"
-                    neoSession.run(query).consume()
+                    neoSession.runLogged(query).consume()
                 }
                 mapOf("status" to "success", "message" to "workspace '$workspaceLabel' data dropped")
             } catch (e: Neo4jException) {
@@ -412,8 +505,7 @@ class Neo4jGraphStorage(
                 val query =
                     "MATCH (n:`$workspaceLabel` {entity_id: \$entity_id}) RETURN count(n) > 0 AS node_exists"
                 val params = mapOf("entity_id" to nodeId)
-                logQuery(query, params)
-                val result = neoSession.run(query, params)
+                val result = neoSession.runLogged(query, params)
                 if (result.hasNext()) {
                     result.single().get("node_exists").asBoolean()
                 } else {
@@ -445,8 +537,7 @@ class Neo4jGraphStorage(
                         "source_entity_id" to sourceNodeId,
                         "target_entity_id" to targetNodeId,
                     )
-                logQuery(query, params)
-                val result = neoSession.run(query, params)
+                val result = neoSession.runLogged(query, params)
                 if (result.hasNext()) {
                     result.single().get("edgeExists").asBoolean()
                 } else {
@@ -471,8 +562,7 @@ class Neo4jGraphStorage(
                     RETURN COUNT(r) AS degree
                     """.trimIndent()
                 val params = mapOf("entity_id" to nodeId)
-                logQuery(query, params)
-                val result = neoSession.run(query, params)
+                val result = neoSession.runLogged(query, params)
                 if (result.hasNext()) {
                     result.single().get("degree").asInt()
                 } else {
@@ -507,8 +597,7 @@ class Neo4jGraphStorage(
             driver!!.session(sessionConfig()).use { neoSession: Session ->
                 val query = "MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id}) RETURN n"
                 val params = mapOf("entity_id" to nodeId)
-                logQuery(query, params)
-                val result = neoSession.run(query, params)
+                val result = neoSession.runLogged(query, params)
                 if (result.hasNext()) {
                     val record = result.next()
                     val node = record.get("n").asNode()
@@ -550,8 +639,7 @@ class Neo4jGraphStorage(
                         "source_entity_id" to sourceNodeId,
                         "target_entity_id" to targetNodeId,
                     )
-                logQuery(query, params)
-                val result = neoSession.run(query, params)
+                val result = neoSession.runLogged(query, params)
 
                 if (result.hasNext()) {
                     val record = result.next()
@@ -593,8 +681,7 @@ class Neo4jGraphStorage(
                     RETURN n, r, connected
                     """.trimIndent()
                 val params = mapOf("entity_id" to sourceNodeId)
-                logQuery(query, params)
-                val result = neoSession.run(query, params)
+                val result = neoSession.runLogged(query, params)
                 val edges = mutableListOf<Pair<String, String>>()
                 while (result.hasNext()) {
                     val record = result.next()
@@ -628,19 +715,20 @@ class Neo4jGraphStorage(
         val entityType = properties["entity_type"] ?: "UNKNOWN"
         require(properties.containsKey("entity_id")) { "Neo4j: node properties must contain an 'entity_id' field" }
 
-        driver!!.session(sessionConfig()).use { neoSession: Session ->
-            neoSession.executeWrite { tx ->
-                val query =
-                    """
-                    MERGE (n:`$workspaceLabel` {entity_id: ${'$'}entity_id})
-                    SET n += ${'$'}properties
-                    SET n:`$entityType`
-                    """.trimIndent()
-                tx.run(query, mapOf("entity_id" to nodeId, "properties" to properties)).consume()
+            driver!!.session(sessionConfig()).use { neoSession: Session ->
+                neoSession.executeWrite { tx ->
+                    val query =
+                        """
+                        MERGE (n:`$workspaceLabel` {entity_id: ${'$'}entity_id})
+                        SET n += ${'$'}properties
+                        SET n:`$entityType`
+                        """.trimIndent()
+                    tx.runLogged(query, mapOf("entity_id" to nodeId, "properties" to properties)).consume()
+                    Unit
+                }
             }
+            Unit
         }
-        Unit
-    }
 
     /**
      * Upserts an edge.
@@ -666,7 +754,7 @@ class Neo4jGraphStorage(
                     RETURN r
                     """.trimIndent()
                 tx
-                    .run(
+                    .runLogged(
                         query,
                         mapOf(
                             "source_entity_id" to sourceNodeId,
@@ -674,6 +762,7 @@ class Neo4jGraphStorage(
                             "properties" to edgeData,
                         ),
                     ).consume()
+                Unit
             }
         }
         Unit
@@ -693,7 +782,8 @@ class Neo4jGraphStorage(
                         MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id})
                         DETACH DELETE n
                         """.trimIndent()
-                    tx.run(query, mapOf("entity_id" to nodeId)).consume()
+                    tx.runLogged(query, mapOf("entity_id" to nodeId)).consume()
+                    Unit
                 }
             }
             Unit
@@ -718,16 +808,17 @@ class Neo4jGraphStorage(
                 neoSession.executeWrite { tx ->
                     val query =
                         """
-                        MATCH (source:`$workspaceLabel` {entity_id: ${'$'}source_entity_id})-[r]-(target:`$workspaceLabel` {entity_id: ${'$'}target_entity_id})
-                        DELETE r
-                        """.trimIndent()
-                    edges.forEach { (src, tgt) ->
-                        tx.run(query, mapOf("source_entity_id" to src, "target_entity_id" to tgt)).consume()
-                    }
+                    MATCH (source:`$workspaceLabel` {entity_id: ${'$'}source_entity_id})-[r]-(target:`$workspaceLabel` {entity_id: ${'$'}target_entity_id})
+                    DELETE r
+                    """.trimIndent()
+                edges.forEach { (src, tgt) ->
+                    tx.runLogged(query, mapOf("source_entity_id" to src, "target_entity_id" to tgt)).consume()
                 }
+                Unit
             }
-            Unit
         }
+        Unit
+    }
 
     /**
      * Gets all labels.
@@ -744,7 +835,7 @@ class Neo4jGraphStorage(
                     RETURN DISTINCT n.entity_id AS label
                     ORDER BY label
                     """.trimIndent()
-                val result = neoSession.run(query)
+                val result = neoSession.runLogged(query)
                 result.list().map { it.get("label").asString() }
             }
         }
@@ -773,7 +864,7 @@ class Neo4jGraphStorage(
                 if (nodeLabel == "*") {
                     // Wildcard case
                     val countQuery = "MATCH (n:`$workspaceLabel`) RETURN count(n) as total"
-                    val countResult = neoSession.run(countQuery).single()
+                    val countResult = neoSession.runLogged(countQuery).single()
                     val total = countResult.get("total").asInt()
 
                     if (total > effectiveMaxNodes) {
@@ -816,7 +907,7 @@ class Neo4jGraphStorage(
         withContext(Dispatchers.IO) {
             driver!!.session(sessionConfig()).use { neoSession: Session ->
                 val query = "MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id}) RETURN n"
-                val result = neoSession.run(query, mapOf("entity_id" to nodeLabel))
+                val result = neoSession.runLogged(query, mapOf("entity_id" to nodeLabel))
                 if (result.hasNext()) {
                     val node = result.next().get("n").asNode()
                     val props = node.asMap().toMutableMap()
@@ -892,7 +983,7 @@ class Neo4jGraphStorage(
                 WITH r, b
                 RETURN r, b
                 """.trimIndent()
-            val result = neoSession.run(query, mapOf("entity_id" to currentEntityId))
+            val result = neoSession.runLogged(query, mapOf("entity_id" to currentEntityId))
             val records = result.list()
 
             for (record in records) {
@@ -947,10 +1038,9 @@ class Neo4jGraphStorage(
 
             driver!!.session(sessionConfig()).use { neoSession: Session ->
                 val countQuery = "MATCH (n:`$workspaceLabel`) RETURN count(n) as total"
-                logQuery(countQuery, emptyMap())
                 val total =
                     neoSession
-                        .run(countQuery)
+                        .runLogged(countQuery)
                         .single()
                         .get("total")
                         .asInt()
@@ -976,8 +1066,7 @@ class Neo4jGraphStorage(
                     """.trimIndent()
 
                 val params = mapOf("max_nodes" to maxNodes)
-                logQuery(pyQuery, params)
-                val result = neoSession.run(pyQuery, params)
+                val result = neoSession.runLogged(pyQuery, params)
                 if (result.hasNext()) {
                     val record = result.single()
                     val nodeInfos = record.get("node_info").asList { it.asMap() }
@@ -1035,7 +1124,7 @@ class Neo4jGraphStorage(
             val workspaceLabel = getWorkspaceLabel()
             driver!!.session(sessionConfig()).use { neoSession: Session ->
                 val query = "MATCH (n:`$workspaceLabel`) RETURN n"
-                val result = neoSession.run(query)
+                val result = neoSession.runLogged(query)
                 result.list().map { record ->
                     val node = record.get("n").asNode()
                     val map = node.asMap().toMutableMap()
@@ -1058,7 +1147,7 @@ class Neo4jGraphStorage(
                     MATCH (a:`$workspaceLabel`)-[r]-(b:`$workspaceLabel`)
                     RETURN DISTINCT a.entity_id AS source, b.entity_id AS target, properties(r) AS properties
                     """.trimIndent()
-                val result = neoSession.run(query)
+                val result = neoSession.runLogged(query)
                 result.list().map { record ->
                     val props = record.get("properties").asMap().toMutableMap()
                     props["source"] = record.get("source").asString()
@@ -1087,7 +1176,7 @@ class Neo4jGraphStorage(
                     LIMIT ${'$'}limit
                     RETURN label
                     """.trimIndent()
-                val result = neoSession.run(query, mapOf("limit" to limit))
+                val result = neoSession.runLogged(query, mapOf("limit" to limit))
                 result.list().map { it.get("label").asString() }
             }
         }
@@ -1162,8 +1251,7 @@ class Neo4jGraphStorage(
                         params["search_query"] = "$queryStrip*"
                     }
 
-                    logQuery(cypherQuery, params)
-                    val result = neoSession.run(cypherQuery, params)
+                    val result = neoSession.runLogged(cypherQuery, params)
                     result.list().map { it.get("label").asString() }
                 } catch (e: Neo4jException) {
                     // Fallback
@@ -1211,8 +1299,7 @@ class Neo4jGraphStorage(
                         fallbackParams["query_lower"] = queryLower
                     }
 
-                    logQuery(fallbackQuery, fallbackParams)
-                    val result = neoSession.run(fallbackQuery, fallbackParams)
+                    val result = neoSession.runLogged(fallbackQuery, fallbackParams)
                     result.list().map { it.get("label").asString() }
                 }
             }

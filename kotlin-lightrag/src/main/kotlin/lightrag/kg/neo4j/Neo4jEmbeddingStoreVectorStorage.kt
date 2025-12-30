@@ -14,7 +14,11 @@ import lightrag.core.types.BaseVectorStorage
 import org.neo4j.driver.AuthTokens
 import org.neo4j.driver.Driver
 import org.neo4j.driver.GraphDatabase
+import org.neo4j.driver.Result
+import org.neo4j.driver.Value
+import org.neo4j.driver.Session
 import org.neo4j.driver.SessionConfig
+import org.neo4j.driver.Logging
 import java.util.concurrent.TimeUnit
 
 private val logger = KotlinLogging.logger {}
@@ -87,6 +91,46 @@ class Neo4jEmbeddingStoreVectorStorage(
         return database?.let { SessionConfig.forDatabase(it) } ?: SessionConfig.defaultConfig()
     }
 
+    private fun databaseForLog(): String = System.getenv("NEO4J_DATABASE") ?: parseNeo4jConfig()?.database ?: "default"
+
+    private fun logQuery(
+        query: String,
+        params: Map<String, Any?>,
+    ) {
+        if (logger.isDebugEnabled()) {
+            logger.debug { "[$namespace/$workspace][${databaseForLog()}] CYPHER: $query params=$params" }
+        }
+    }
+
+    private fun Session.runLogged(
+        query: String,
+        params: Any? = null,
+    ): Result =
+        when (params) {
+            null -> {
+                logQuery(query, emptyMap())
+                run(query)
+            }
+
+            is Value -> {
+                logQuery(query, params.asMap())
+                run(query, params)
+            }
+
+            is Map<*, *> -> {
+                @Suppress("UNCHECKED_CAST")
+                val castParams = params as Map<String, Any?>
+                logQuery(query, castParams)
+                run(query, castParams)
+            }
+
+            else -> {
+                val wrapped = mapOf("param" to params)
+                logQuery(query, wrapped)
+                run(query, wrapped)
+            }
+        }
+
     private fun resolveDimension(): Int {
         val configured =
             System.getenv("NEO4J_EMBEDDING_DIMENSION")?.toIntOrNull()
@@ -136,6 +180,7 @@ class Neo4jEmbeddingStoreVectorStorage(
                 .withMaxConnectionPoolSize(maxPool)
                 .withConnectionTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                 .withMaxConnectionLifetime(maxLifetimeMs, TimeUnit.MILLISECONDS)
+                .withLogging(Logging.slf4j())
                 .build()
 
         driver = GraphDatabase.driver(uri, auth, driverConfig)
@@ -282,7 +327,7 @@ class Neo4jEmbeddingStoreVectorStorage(
         return withContext(Dispatchers.IO) {
             driver?.session(sessionCfg)?.use { session ->
                 val result =
-                    session.run(
+                    session.runLogged(
                         "MATCH (n:${labelName()}) WHERE n.$idProp IN \$ids RETURN properties(n) AS props, n.$embeddingProp AS embedding",
                         mapOf("ids" to ids),
                     )
@@ -316,7 +361,7 @@ class Neo4jEmbeddingStoreVectorStorage(
         return withContext(Dispatchers.IO) {
             driver?.session(sessionCfg)?.use { session ->
                 val result =
-                    session.run(
+                    session.runLogged(
                         "MATCH (n:${labelName()}) WHERE n.$idProp IN \$ids RETURN n.$idProp AS id, n.$embeddingProp AS embedding",
                         mapOf("ids" to ids),
                     )
@@ -358,7 +403,7 @@ class Neo4jEmbeddingStoreVectorStorage(
         return withContext(Dispatchers.IO) {
             driver?.session(sessionCfg)?.use { session ->
                 val result =
-                    session.run(
+                    session.runLogged(
                         "MATCH (n:${labelName()}) WHERE n.$metaKey = \$value RETURN n.$idProp AS id",
                         mapOf("value" to value),
                     )

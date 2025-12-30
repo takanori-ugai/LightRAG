@@ -1,9 +1,10 @@
 <configuration scan="true" scanPeriod="30 seconds">
     <property name="ROOT_LOG_LEVEL" value="${ROOT_LOG_LEVEL:-INFO}" />
-    <property name="LIGHTRAG_LOG_LEVEL" value="${LIGHTRAG_LOG_LEVEL:-TRACE}" />
-    <property name="NEO4J_LOG_LEVEL" value="${NEO4J_LOG_LEVEL:-DEBUG}" />
-    <property name="LANGCHAIN4J_LOG_LEVEL" value="${LANGCHAIN4J_LOG_LEVEL:-DEBUG}" />
-    <property name="LANGCHAIN4J_HTTP_LOG_LEVEL" value="${LANGCHAIN4J_HTTP_LOG_LEVEL:-DEBUG}" />
+    <property name="LIGHTRAG_LOG_LEVEL" value="${LIGHTRAG_LOG_LEVEL:-DEBUG}" />
+    <property name="NEO4J_LOG_LEVEL" value="${NEO4J_LOG_LEVEL:-TRACE}" />
+    <property name="NEO4J_DRIVER_LOG_LEVEL" value="${NEO4J_DRIVER_LOG_LEVEL:-TRACE}" />
+    <property name="LANGCHAIN4J_LOG_LEVEL" value="${LANGCHAIN4J_LOG_LEVEL:-WARN}" />
+    <property name="LANGCHAIN4J_HTTP_LOG_LEVEL" value="${LANGCHAIN4J_HTTP_LOG_LEVEL:-INFO}" />
     <property name="OPENAI4J_LOG_LEVEL" value="${OPENAI4J_LOG_LEVEL:-TRACE}" />
     <property name="VECTOR_MEMORY_LOG_LEVEL" value="${VECTOR_MEMORY_LOG_LEVEL:-DEBUG}" />
 
@@ -18,6 +19,11 @@
     </logger>
 
     <logger name="lightrag.kg.neo4j" level="${NEO4J_LOG_LEVEL}" additivity="false">
+        <appender-ref ref="STDOUT" />
+    </logger>
+
+    <!-- Neo4j Java Driver logs -->
+    <logger name="org.neo4j.driver" level="${NEO4J_DRIVER_LOG_LEVEL}" additivity="false">
         <appender-ref ref="STDOUT" />
     </logger>
 
