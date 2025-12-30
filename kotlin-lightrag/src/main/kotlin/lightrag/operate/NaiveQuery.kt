@@ -152,12 +152,12 @@ fun generateReferenceListFromChunks(chunks: List<Map<String, Any?>>): Pair<List<
  * @return A list of processed chunks.
  */
 fun processChunksUnified(
-    @Suppress("UNUSED_PARAMETER") query: String,
+    query: String,
     // Not directly used in this simplified version for reranking, but kept for signature
     uniqueChunks: List<Map<String, Any?>>,
-    @Suppress("UNUSED_PARAMETER") queryParam: QueryParam,
-    @Suppress("UNUSED_PARAMETER") globalConfig: Map<String, Any?>,
-    @Suppress("UNUSED_PARAMETER") sourceType: String,
+    queryParam: QueryParam,
+    globalConfig: Map<String, Any?>,
+    sourceType: String,
     // e.g., "vector", "entity", "relation"
     chunkTokenLimit: Int,
     tokenizer: ((String) -> List<Int>),
@@ -234,7 +234,6 @@ fun convertToJsonFormat(
     chunks: List<Map<String, Any?>>,
     references: List<Map<String, String>>,
     queryMode: String,
-    @Suppress("UNUSED_PARAMETER") relationIdToOriginal: Map<Pair<String, String>, Any?> = emptyMap(),
 ): Map<String, Any?> {
     val dataMap =
         mutableMapOf<String, Any?>(
@@ -317,9 +316,9 @@ private suspend fun saveToCache(
 private suspend fun handleCache(
     hashingKv: BaseKVStorage?,
     argsHash: String,
-    @Suppress("UNUSED_PARAMETER") prompt: String,
-    @Suppress("UNUSED_PARAMETER") mode: String,
-    @Suppress("UNUSED_PARAMETER") cacheType: String,
+    prompt: String,
+    mode: String,
+    cacheType: String,
 ): Pair<String, Long>? { // Returns content and timestamp
     if (hashingKv == null) return null
 
@@ -339,7 +338,6 @@ private suspend fun handleCache(
  * @param text The text to remove the tags from.
  * @return The text without the tags.
  */
-@Suppress("UNUSED")
 fun removeThinkTags(text: String): String {
     // This is a simplified placeholder. In Python, it would remove specific XML-like tags.
     // Assuming for now that the LLM is not generating these tags in Kotlin or they are removed differently.

@@ -113,8 +113,7 @@ class Neo4jGraphStorage(
             }
 
             is Map<*, *> -> {
-                @Suppress("UNCHECKED_CAST")
-                val castParams = params as Map<String, Any?>
+                val castParams = params.entries.associate { it.key.toString() to it.value }
                 logQuery(query, castParams)
                 run(query, castParams)
             }
@@ -142,8 +141,7 @@ class Neo4jGraphStorage(
             }
 
             is Map<*, *> -> {
-                @Suppress("UNCHECKED_CAST")
-                val castParams = params as Map<String, Any?>
+                val castParams = params.entries.associate { it.key.toString() to it.value }
                 logQuery(query, castParams)
                 run(query, castParams)
             }
@@ -171,8 +169,7 @@ class Neo4jGraphStorage(
             }
 
             is Map<*, *> -> {
-                @Suppress("UNCHECKED_CAST")
-                val castParams = params as Map<String, Any?>
+                val castParams = params.entries.associate { it.key.toString() to it.value }
                 logQuery(query, castParams)
                 run(query, castParams)
             }
@@ -632,8 +629,7 @@ class Neo4jGraphStorage(
                     val node = record.get("n").asNode()
                     val nodeMap = node.asMap().toMutableMap()
                     if (nodeMap.containsKey("labels")) {
-                        @Suppress("UNCHECKED_CAST")
-                        val labels = nodeMap["labels"] as? List<String>
+                        val labels = nodeMap["labels"] as? List<*>
                         if (labels != null) {
                             nodeMap["labels"] = labels.filter { it != workspaceLabel }
                         }
@@ -912,7 +908,6 @@ class Neo4jGraphStorage(
             robustFallback(nodeLabel, maxDepth, effectiveMaxNodes)
         }
 
-    @Suppress("LoopWithTooManyJumpStatements", "ReturnCount")
     private suspend fun robustFallback(
         nodeLabel: String,
         maxDepth: Int,
@@ -993,7 +988,6 @@ class Neo4jGraphStorage(
         visitedNodes: Set<String>,
     ): Boolean = visitedNodes.contains(entityId) || depth > maxDepth
 
-    @Suppress("LoopWithTooManyJumpStatements")
     private fun processNeighbors(
         currentEntityId: String,
         currentDepth: Int,

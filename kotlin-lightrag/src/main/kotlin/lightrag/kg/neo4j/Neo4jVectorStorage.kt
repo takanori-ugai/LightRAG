@@ -114,8 +114,7 @@ class Neo4jVectorStorage(
             }
 
             is Map<*, *> -> {
-                @Suppress("UNCHECKED_CAST")
-                val castParams = params as Map<String, Any?>
+                val castParams = params.entries.associate { (k, v) -> k.toString() to v }
                 logQuery(query, castParams)
                 run(query, castParams)
             }
@@ -431,7 +430,6 @@ class Neo4jVectorStorage(
     private fun mapToMetadata(meta: Map<String, Any>): Metadata {
         val content = meta["content"] as? String
 
-        @Suppress("UNCHECKED_CAST")
         val vector = (meta["vector"] as? List<*>)?.mapNotNull { (it as? Number)?.toFloat() }
         val entityName = meta["entity_name"] as? String
         val srcId = meta["src_id"] as? String

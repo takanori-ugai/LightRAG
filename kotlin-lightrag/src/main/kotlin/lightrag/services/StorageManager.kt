@@ -206,9 +206,14 @@ class StorageManager(
             }
 
             else -> {
+                val graphGlobalConfig =
+                    globalConfig
+                        .filterValues { it != null }
+                        .mapValues { it.value as Any }
                 InMemoryGraphStorage(
                     namespace = "chunk_entity_relation_graph",
                     workspace = "default",
+                    globalConfig = graphGlobalConfig,
                     embeddingFunc = embeddingModel,
                 )
             }

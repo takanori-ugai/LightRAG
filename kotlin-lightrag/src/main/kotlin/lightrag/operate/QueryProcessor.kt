@@ -7,6 +7,7 @@ import dev.langchain4j.model.chat.StreamingChatModel
 import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import dev.langchain4j.service.AiServices
+import dev.langchain4j.service.output.OutputParsingException
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -123,7 +124,6 @@ data class PerformKgSearchResult(
     val vectorChunks: List<Map<String, Any>>,
 )
 
-@Suppress("UnusedPrivateMember", "TooManyFunctions")
 class QueryProcessor(
     private val knowledgeGraphInst: BaseGraphStorage,
     private val entitiesVdb: BaseVectorStorage,
@@ -132,8 +132,6 @@ class QueryProcessor(
     private val chatModel: ChatModel,
     private val hashingKv: BaseKVStorage?,
     private val globalConfig: Map<String, Any?>,
-    private val tokenizer: (String) -> List<Int>,
-    private val decoder: (List<Int>) -> String,
 ) {
     suspend fun kgQuery(
         query: String,
@@ -389,14 +387,10 @@ class QueryProcessor(
         if (queryParam.hlKeywords.isNotEmpty() || queryParam.llKeywords.isNotEmpty()) {
             return queryParam.hlKeywords to queryParam.llKeywords
         }
-        return extractKeywordsOnly(query, queryParam)
+        return extractKeywordsOnly(query)
     }
 
-    @Suppress("UNUSED_PARAMETER")
-    private suspend fun extractKeywordsOnly(
-        text: String,
-        param: QueryParam,
-    ): Pair<List<String>, List<String>> {
+    private suspend fun extractKeywordsOnly(text: String): Pair<List<String>, List<String>> {
         val language = globalConfig["language"] as? String ?: "English"
         val examples = globalConfig["keyword_examples"] as? String ?: ""
 
@@ -405,7 +399,7 @@ class QueryProcessor(
         return try {
             val keywordsResult = keywordExtractor.extract(text, language, examples)
             keywordsResult.highLevelKeywords to keywordsResult.lowLevelKeywords
-        } catch (e: dev.langchain4j.service.output.OutputParsingException) {
+        } catch (e: OutputParsingException) {
             logger.warn(e) { "Failed to parse keywords from LLM response; defaulting to empty keywords" }
             emptyList<String>() to emptyList()
         } catch (e: IllegalStateException) {
@@ -426,8 +420,8 @@ class QueryProcessor(
         val entities = searchResult.finalEntities
         val relations = searchResult.finalRelations
 
-        val entityChunks = findRelatedTextUnitFromEntities(entities, queryParam, query, chunksVdb)
-        val relationChunks = findRelatedTextUnitFromRelations(relations, queryParam, entityChunks, query, chunksVdb)
+        val entityChunks = findRelatedTextUnitFromEntities(entities)
+        val relationChunks = findRelatedTextUnitFromRelations(relations, entityChunks)
         var allChunks = (entityChunks + relationChunks).distinctBy { it["id"] }
         if (allChunks.isEmpty() && searchResult.vectorChunks.isNotEmpty()) {
             allChunks = searchResult.vectorChunks
@@ -480,7 +474,6 @@ class QueryProcessor(
                 "[${index + 1}] $filePath"
             }.joinToString("\n")
 
-    @Suppress("UNUSED_PARAMETER")
     private suspend fun performKgSearch(
         query: String,
         queryParam: QueryParam,
@@ -565,7 +558,7 @@ class QueryProcessor(
                 }
             }
 
-        val useRelations = findMostRelatedEdgesFromEntities(nodeDatas, queryParam)
+        val useRelations = findMostRelatedEdgesFromEntities(nodeDatas)
         logger.info { "Local query: ${nodeDatas.size} entities, ${useRelations.size} relations" }
         return GetNodeDataResult(nodeDatas, useRelations)
     }
@@ -616,16 +609,12 @@ class QueryProcessor(
                 }
             }
 
-        val useEntities = findMostRelatedEntitiesFromRelationships(edgeDatas, queryParam)
+        val useEntities = findMostRelatedEntitiesFromRelationships(edgeDatas)
         logger.info { "Global query: ${useEntities.size} entities, ${edgeDatas.size} relations" }
         return GetEdgeDataResult(edgeDatas, useEntities)
     }
 
-    @Suppress("UNUSED_PARAMETER")
-    private suspend fun findMostRelatedEdgesFromEntities(
-        nodeDatas: List<Map<String, Any>>,
-        queryParam: QueryParam,
-    ): List<Map<String, Any>> {
+    private suspend fun findMostRelatedEdgesFromEntities(nodeDatas: List<Map<String, Any>>): List<Map<String, Any>> {
         val nodeNames = nodeDatas.mapNotNull { it["entity_name"] as? String }
         val batchEdgesDict = knowledgeGraphInst.getNodesEdgesBatch(nodeNames)
 
@@ -665,11 +654,7 @@ class QueryProcessor(
         )
     }
 
-    @Suppress("UNUSED_PARAMETER")
-    private suspend fun findMostRelatedEntitiesFromRelationships(
-        edgeDatas: List<Map<String, Any>>,
-        queryParam: QueryParam,
-    ): List<Map<String, Any>> {
+    private suspend fun findMostRelatedEntitiesFromRelationships(edgeDatas: List<Map<String, Any>>): List<Map<String, Any>> {
         val entityNames = mutableSetOf<String>()
         for (edge in edgeDatas) {
             (edge["src_id"] as? String)?.let { entityNames.add(it) }
@@ -691,13 +676,7 @@ class QueryProcessor(
         return nodeDatas
     }
 
-    @Suppress("UNUSED_PARAMETER")
-    private suspend fun findRelatedTextUnitFromEntities(
-        nodeDatas: List<Map<String, Any>>,
-        queryParam: QueryParam,
-        query: String? = null,
-        chunksVdb: BaseVectorStorage? = null,
-    ): List<Map<String, Any>> {
+    private suspend fun findRelatedTextUnitFromEntities(nodeDatas: List<Map<String, Any>>): List<Map<String, Any>> {
         logger.debug { "Finding text chunks from ${nodeDatas.size} entities" }
         if (nodeDatas.isEmpty()) {
             return emptyList()
@@ -733,13 +712,9 @@ class QueryProcessor(
         return textChunksDb.getByIds(allChunkIds)
     }
 
-    @Suppress("UNUSED_PARAMETER")
     private suspend fun findRelatedTextUnitFromRelations(
         edgeDatas: List<Map<String, Any>>,
-        queryParam: QueryParam,
         entityChunks: List<Map<String, Any>> = emptyList(),
-        query: String? = null,
-        chunksVdb: BaseVectorStorage? = null,
     ): List<Map<String, Any>> {
         logger.debug { "Finding text chunks from ${edgeDatas.size} relations" }
         if (edgeDatas.isEmpty()) {

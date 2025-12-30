@@ -19,7 +19,6 @@ import lightrag.core.types.DocStatusStorage
 import org.neo4j.driver.AuthTokens
 import org.neo4j.driver.Driver
 import org.neo4j.driver.GraphDatabase
-import org.neo4j.driver.Logging
 import org.neo4j.driver.Result
 import org.neo4j.driver.Session
 import org.neo4j.driver.SessionConfig
@@ -89,40 +88,31 @@ class Neo4jDocStatusStorage(
 
     private fun databaseForLog(): String = System.getenv("NEO4J_DATABASE") ?: parseNeo4jConfig()?.database ?: "default"
 
-    private fun logQuery(
-        query: String,
-        params: Map<String, Any?>,
-    ) {
-        if (logger.isDebugEnabled()) {
-            logger.debug { "[$namespace/$workspace][${databaseForLog()}] CYPHER: $query params=$params" }
-        }
-    }
-
     private fun Session.runLogged(
         query: String,
         params: Any? = null,
     ): Result =
         when (params) {
             null -> {
-                logQuery(query, emptyMap())
+                logger.debug { "[$namespace/$workspace][${databaseForLog()}] CYPHER: $query" }
                 run(query)
             }
 
             is Value -> {
-                logQuery(query, params.asMap())
-                run(query, params)
+                val mapped = params.asMap()
+                logger.debug { "[$namespace/$workspace][${databaseForLog()}] CYPHER: $query params=$mapped" }
+                run(query, mapped)
             }
 
             is Map<*, *> -> {
-                @Suppress("UNCHECKED_CAST")
-                val castParams = params as Map<String, Any?>
-                logQuery(query, castParams)
+                val castParams = params.entries.associate { (k, v) -> k.toString() to v }
+                logger.debug { "[$namespace/$workspace][${databaseForLog()}] CYPHER: $query params=$castParams" }
                 run(query, castParams)
             }
 
             else -> {
                 val wrapped = mapOf("param" to params)
-                logQuery(query, wrapped)
+                logger.debug { "[$namespace/$workspace][${databaseForLog()}] CYPHER: $query params=$wrapped" }
                 run(query, wrapped)
             }
         }

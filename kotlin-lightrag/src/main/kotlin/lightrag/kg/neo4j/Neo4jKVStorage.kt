@@ -313,8 +313,7 @@ private object Neo4jKVHelpers {
             }
 
             is Map<*, *> -> {
-                @Suppress("UNCHECKED_CAST")
-                val castParams = params as Map<String, Any?>
+                val castParams = params.entries.associate { (k, v) -> k.toString() to v }
                 logQuery(context, query, castParams)
                 session.run(query, castParams)
             }

@@ -117,8 +117,7 @@ class Neo4jEmbeddingStoreVectorStorage(
             }
 
             is Map<*, *> -> {
-                @Suppress("UNCHECKED_CAST")
-                val castParams = params as Map<String, Any?>
+                val castParams = params.entries.associate { (k, v) -> k.toString() to v }
                 logQuery(query, castParams)
                 run(query, castParams)
             }

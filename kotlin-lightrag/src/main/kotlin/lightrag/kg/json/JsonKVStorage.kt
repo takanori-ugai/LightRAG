@@ -8,6 +8,16 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import lightrag.core.types.BaseKVStorage
 import lightrag.kg.json.KVEntry
 import java.io.File
@@ -55,18 +65,17 @@ class JsonKVStorage(
                                 logger.warn(ex) {
                                     "Falling back to legacy KV format for ${file.absolutePath}"
                                 }
-                                @Suppress("UNCHECKED_CAST")
-                                val legacy =
-                                    json.decodeFromString<Map<String, Map<String, Any?>>>(content)
+                                val legacy = json.decodeFromString<JsonObject>(content)
                                 legacy.mapValues { (_, value) ->
+                                    val payload = value.jsonObject
                                     val dataMap =
-                                        (value["value"] as? Map<*, *>)
-                                            ?.entries
-                                            ?.associate { (k, v) -> k.toString() to v }
-                                            ?: value
+                                        (payload["value"]?.jsonObject ?: payload)
+                                            .mapValues { entry -> entry.value.toLegacyValue() }
+                                            .filterValues { it != null }
+                                            .mapValues { it.value as Any }
                                     KVEntry(
                                         KVValue(
-                                            dataMap.filterValues { it != null },
+                                            dataMap,
                                         ),
                                     )
                                 }
@@ -183,3 +192,26 @@ class JsonKVStorage(
             data.isEmpty()
         }
 }
+
+private fun JsonElement.toLegacyValue(): Any? =
+    when (this) {
+        is JsonNull -> {
+            null
+        }
+
+        is JsonPrimitive -> {
+            if (isString) {
+                content
+            } else {
+                booleanOrNull ?: longOrNull ?: doubleOrNull ?: content
+            }
+        }
+
+        is kotlinx.serialization.json.JsonArray -> {
+            this.map { it.toLegacyValue() }
+        }
+
+        is JsonObject -> {
+            this.mapValues { it.value.toLegacyValue() }
+        }
+    }

@@ -10,9 +10,8 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
-import kotlinx.serialization.json.doubleOrNull
-import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import lightrag.core.types.BaseGraphStorage
 import lightrag.core.types.KnowledgeGraph
 import java.io.File
@@ -45,7 +44,6 @@ class InMemoryGraphStorage(
     /**
      * Initializes the storage by loading data from the JSON file.
      */
-    @Suppress("UNCHECKED_CAST")
     override suspend fun initialize() {
         if (!workingDir.exists()) {
             workingDir.mkdirs()
@@ -57,20 +55,19 @@ class InMemoryGraphStorage(
             val parsed = json.decodeFromString<JsonObject>(content)
 
             val loadedNodes =
-                (parsed["nodes"] as? JsonObject)?.entries?.associate { (k, v) ->
-                    k to ((v.toAny() as? Map<String, String>) ?: emptyMap())
-                } ?: emptyMap()
+                parsed["nodes"]
+                    ?.jsonObject
+                    ?.mapValues { (_, value) ->
+                        value.jsonObject.mapValues { entry -> entry.value.jsonPrimitive.content }
+                    } ?: emptyMap()
             val loadedEdges =
-                (parsed["edges"] as? JsonObject)
-                    ?.entries
-                    ?.associate { (src, tgtObj) ->
-                        val tgtMap =
-                            (tgtObj as? JsonObject)
-                                ?.entries
-                                ?.associate { (tgt, data) ->
-                                    tgt to ((data.toAny() as? Map<String, String>) ?: emptyMap())
-                                }?.toMutableMap() ?: mutableMapOf()
-                        src to tgtMap
+                parsed["edges"]
+                    ?.jsonObject
+                    ?.mapValues { (_, targets) ->
+                        targets.jsonObject
+                            .mapValues { (_, data) ->
+                                data.jsonObject.mapValues { entry -> entry.value.jsonPrimitive.content }
+                            }.toMutableMap()
                     }?.toMutableMap() ?: mutableMapOf()
             nodes.putAll(loadedNodes)
             edges.putAll(loadedEdges)
@@ -334,28 +331,5 @@ class InMemoryGraphStorage(
             is Map<*, *> -> JsonObject(this.entries.associate { it.key.toString() to it.value.toJsonElement() })
 
             else -> JsonPrimitive(this.toString())
-        }
-
-    private fun JsonElement.toAny(): Any? =
-        when (this) {
-            is JsonNull -> {
-                null
-            }
-
-            is JsonPrimitive -> {
-                if (isString) {
-                    content
-                } else {
-                    booleanOrNull ?: longOrNull ?: doubleOrNull ?: content
-                }
-            }
-
-            is JsonArray -> {
-                this.map { it.toAny() }
-            }
-
-            is JsonObject -> {
-                this.mapValues { it.value.toAny() }
-            }
         }
 }

@@ -1,5 +1,6 @@
 package lightrag.api.routers
 
+import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
@@ -11,6 +12,8 @@ import io.ktor.server.routing.routing
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import lightrag.core.LightRAG
+
+private val logger = KotlinLogging.logger {}
 
 /**
  * Represents the response containing a list of graph labels.
@@ -105,8 +108,8 @@ data class EntityMergeRequest(
  *
  * @param rag The LightRAG instance to be used for graph operations.
  */
-@Suppress("UnusedParameter")
 fun Application.configureGraphRoutes(rag: LightRAG) {
+    logger.info { "Configuring graph routes for LightRAG storage manager ${rag.storageManager}" }
     routing {
         route("/graph") {
             get("/label/list") {

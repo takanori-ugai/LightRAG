@@ -28,8 +28,6 @@ class QueryService(
             chatModel = chatModel,
             hashingKv = hashingKv,
             globalConfig = globalConfig,
-            tokenizer = tokenizer,
-            decoder = decoder,
         )
 
     /**

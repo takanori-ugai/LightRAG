@@ -1,5 +1,6 @@
 package lightrag.api.routers
 
+import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
@@ -13,6 +14,8 @@ import io.ktor.server.routing.routing
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import lightrag.core.LightRAG
+
+private val logger = KotlinLogging.logger {}
 
 /**
  * Represents the response for the Ollama version endpoint.
@@ -118,8 +121,8 @@ data class OllamaMessage(
  *
  * @param rag The LightRAG instance (unused in the current mock implementation).
  */
-@Suppress("UnusedParameter")
 fun Application.configureOllamaRoutes(rag: LightRAG) {
+    logger.info { "Configuring Ollama-compatible routes with LightRAG storage manager ${rag.storageManager}" }
     routing {
         route("/api") {
             // Ollama API is prefixed with /api in python code as well when included in main app
