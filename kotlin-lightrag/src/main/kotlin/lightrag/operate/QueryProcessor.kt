@@ -141,17 +141,44 @@ class QueryProcessor(
         systemPrompt: String? = null,
         chunksVdb: BaseVectorStorage? = null,
     ): QueryResult? {
-        if (query.isBlank()) {
-            return QueryResult(content = Prompts.FAIL_RESPONSE)
-        }
-
-        // `chatModel` is guaranteed to be non-null by the constructor, so this check is redundant
-        // if (chatModel == null) {
-        // logger.error { "No ChatModel provided for kgQuery" }
-        // return null
-        // }
+        val earlyResult = handleEmptyQuery(query)
+        if (earlyResult != null) return earlyResult
 
         val (hlKeywords, llKeywords) = getKeywordsFromQuery(query, queryParam)
+        val keywordResult = applyKeywordsToQueryParam(query, queryParam, hlKeywords, llKeywords)
+        if (keywordResult != null) return keywordResult
+
+        val contextResult = getContextStrForQuery(query, queryParam, chunksVdb)
+        val sysPrompt = buildSystemPrompt(systemPrompt, queryParam, contextResult.contextStr)
+        if (queryParam.onlyNeedContext) return QueryResult(content = contextResult.contextStr, rawData = contextResult.rawData)
+        if (queryParam.onlyNeedPrompt) return QueryResult(content = "$sysPrompt\n\n---\n\n$query", rawData = contextResult.rawData)
+
+        val cacheKeys = buildCacheKeys(queryParam, query)
+        val cached = readCachedResponse(cacheKeys.argsHash, contextResult.rawData)
+        if (cached != null) return cached
+
+        val response =
+            if (queryParam.stream) {
+                handleStreamingResponse(query, queryParam, sysPrompt, cacheKeys)
+            } else {
+                handleNonStreamingResponse(query, queryParam, sysPrompt, cacheKeys)
+            }
+        return response?.copy(rawData = contextResult.rawData) ?: response
+    }
+
+    private fun handleEmptyQuery(query: String): QueryResult? =
+        if (query.isBlank()) {
+            QueryResult(content = Prompts.FAIL_RESPONSE)
+        } else {
+            null
+        }
+
+    private fun applyKeywordsToQueryParam(
+        query: String,
+        queryParam: QueryParam,
+        hlKeywords: List<String>,
+        llKeywords: List<String>,
+    ): QueryResult? {
         queryParam.hlKeywords = hlKeywords
         queryParam.llKeywords = llKeywords
 
@@ -169,32 +196,32 @@ class QueryProcessor(
                 return QueryResult(content = Prompts.FAIL_RESPONSE)
             }
         }
+        return null
+    }
 
-        val contextResult =
-            getContextStrForQuery(
-                query,
-                queryParam,
-                chunksVdb,
-            )
-        val contextStr = contextResult.contextStr
-
+    private fun buildSystemPrompt(
+        systemPrompt: String?,
+        queryParam: QueryParam,
+        contextStr: String,
+    ): String {
         val sysPromptTemplate = systemPrompt ?: Prompts.RAG_RESPONSE
         val userPromptStr = queryParam.userPrompt?.let { "\n\n$it" } ?: "n/a"
+        return sysPromptTemplate
+            .replace("{response_type}", queryParam.responseType ?: "Multiple Paragraphs")
+            .replace("{user_prompt}", userPromptStr)
+            .replace("{context_data}", contextStr)
+    }
 
-        val sysPrompt =
-            sysPromptTemplate
-                .replace("{response_type}", queryParam.responseType ?: "Multiple Paragraphs")
-                .replace("{user_prompt}", userPromptStr)
-                .replace("{context_data}", contextStr)
+    private data class CacheKeys(
+        val argsHash: String,
+        val hlKeywordsStr: String,
+        val llKeywordsStr: String,
+    )
 
-        if (queryParam.onlyNeedContext) {
-            return QueryResult(content = contextStr, rawData = contextResult.rawData)
-        }
-
-        if (queryParam.onlyNeedPrompt) {
-            return QueryResult(content = "$sysPrompt\n\n---\n\n$query", rawData = contextResult.rawData)
-        }
-
+    private fun buildCacheKeys(
+        queryParam: QueryParam,
+        query: String,
+    ): CacheKeys {
         val hlKeywordsStr = queryParam.hlKeywords.joinToString(", ")
         val llKeywordsStr = queryParam.llKeywords.joinToString(", ")
         val cacheSeed =
@@ -213,143 +240,146 @@ class QueryProcessor(
                 queryParam.enableRerank.toString(),
             ).joinToString("|")
         val argsHash = "kg_query_cache_${computeMd5(cacheSeed)}"
+        return CacheKeys(argsHash, hlKeywordsStr, llKeywordsStr)
+    }
 
-        if (hashingKv != null && globalConfig["enable_llm_cache"] as? Boolean == true) {
-            val cached = hashingKv.getById(argsHash)
-            val cachedContent = cached?.get("content") as? String
-            if (!cachedContent.isNullOrEmpty()) {
-                logger.info { " == LLM cache == Query cache hit, using cached response as query result" }
-                return QueryResult(content = cachedContent, rawData = contextResult.rawData)
-            }
+    private suspend fun readCachedResponse(
+        argsHash: String,
+        rawData: Map<String, Any?>?,
+    ): QueryResult? {
+        if (hashingKv == null || globalConfig["enable_llm_cache"] as? Boolean != true) return null
+        val cachedContent = hashingKv.getById(argsHash)?.get("content") as? String
+        return cachedContent?.let {
+            logger.info { " == LLM cache == Query cache hit, using cached response as query result" }
+            QueryResult(content = it, rawData = rawData)
+        }
+    }
+
+    private suspend fun handleStreamingResponse(
+        query: String,
+        queryParam: QueryParam,
+        sysPrompt: String,
+        cacheKeys: CacheKeys,
+    ): QueryResult? {
+        val streamingModel = chatModel as? StreamingChatModel
+        if (streamingModel == null) {
+            logger.error { "Streaming is requested but the model does not support it." }
+            return null
         }
 
-        if (queryParam.stream) {
-            val streamingModel = chatModel as? StreamingChatModel
-            if (streamingModel == null) {
-                logger.error { "Streaming is requested but the model does not support it." }
-                return null
-            }
+        logger.trace { "SysPrompt :$sysPrompt" }
+        logger.trace { "UserQuery :$query" }
+        val responseIterator =
+            flow {
+                val fullResponse = StringBuilder()
+                val blockingQueue = java.util.concurrent.LinkedBlockingQueue<String>()
+                val finalResponse = java.util.concurrent.CompletableFuture<ChatResponse>()
 
-            logger.trace { "SysPrompt :$sysPrompt" }
-            logger.trace { "UserQuery :$query" }
-            val responseIterator =
-                flow {
-                    val fullResponse = StringBuilder()
-                    val blockingQueue = java.util.concurrent.LinkedBlockingQueue<String>()
-                    val finalResponse = java.util.concurrent.CompletableFuture<ChatResponse>()
+                streamingModel.chat(
+                    listOf(SystemMessage(sysPrompt), UserMessage(query)),
+                    object : StreamingChatResponseHandler {
+                        override fun onPartialResponse(partialResponse: String) {
+                            blockingQueue.put(partialResponse)
+                            fullResponse.append(partialResponse)
+                        }
 
-                    streamingModel.chat(
-                        listOf(SystemMessage(sysPrompt), UserMessage(query)),
-                        object : StreamingChatResponseHandler {
-                            override fun onPartialResponse(partialResponse: String) {
-                                blockingQueue.put(partialResponse)
-                                fullResponse.append(partialResponse)
-                            }
+                        override fun onCompleteResponse(response: ChatResponse) {
+                            blockingQueue.put("___END___")
+                            finalResponse.complete(response)
+                        }
 
-                            override fun onCompleteResponse(response: ChatResponse) {
-                                blockingQueue.put("___END___")
-                                finalResponse.complete(response)
-                            }
-
-                            override fun onError(error: Throwable) {
-                                blockingQueue.put("___END___")
-                                finalResponse.completeExceptionally(error)
-                            }
-                        },
-                    )
-
-                    while (true) {
-                        val token = blockingQueue.take()
-                        if (token == "___END___") break
-                        emit(token)
-                    }
-                    finalResponse.get() // wait for completion
-
-                    if (hashingKv != null && globalConfig["enable_llm_cache"] as? Boolean == true) {
-                        val queryParamDict =
-                            QueryParamCache(
-                                mode = queryParam.mode,
-                                responseType = queryParam.responseType,
-                                topK = queryParam.topK,
-                                chunkTopK = queryParam.chunkTopK,
-                                maxEntityTokens = queryParam.maxEntityTokens,
-                                maxRelationTokens = queryParam.maxRelationTokens,
-                                maxTotalTokens = queryParam.maxTotalTokens,
-                                hlKeywords = hlKeywordsStr,
-                                llKeywords = llKeywordsStr,
-                                userPrompt = queryParam.userPrompt ?: "",
-                                enableRerank = queryParam.enableRerank,
-                            )
-                        saveToCache(
-                            hashingKv,
-                            CacheData(
-                                argsHash = argsHash,
-                                content = fullResponse.toString(),
-                                prompt = query,
-                                mode = queryParam.mode,
-                                cacheType = "query",
-                                queryParam = queryParamDict,
-                            ),
-                        )
-                    }
-                }
-            return QueryResult(responseIterator = responseIterator, rawData = contextResult.rawData, isStreaming = true)
-        } else {
-            val responseText =
-                try {
-                    logger.trace { "SysPrompt :$sysPrompt" }
-                    logger.trace { "UserQuery :$query" }
-                    val chatResponse = chatModel.chat(listOf(SystemMessage(sysPrompt), UserMessage(query)))
-                    chatResponse.aiMessage()?.text() ?: ""
-                } catch (e: IllegalStateException) {
-                    logger.error(e) { "Illegal state generating response in kgQuery" }
-                    "Error generating response."
-                } catch (e: IllegalArgumentException) {
-                    logger.error(e) { "Invalid argument generating response in kgQuery" }
-                    "Error generating response."
-                }
-
-            if (hashingKv != null && globalConfig["enable_llm_cache"] as? Boolean == true) {
-                val queryParamDict =
-                    QueryParamCache(
-                        mode = queryParam.mode,
-                        responseType = queryParam.responseType,
-                        topK = queryParam.topK,
-                        chunkTopK = queryParam.chunkTopK,
-                        maxEntityTokens = queryParam.maxEntityTokens,
-                        maxRelationTokens = queryParam.maxRelationTokens,
-                        maxTotalTokens = queryParam.maxTotalTokens,
-                        hlKeywords = hlKeywordsStr,
-                        llKeywords = llKeywordsStr,
-                        userPrompt = queryParam.userPrompt ?: "",
-                        enableRerank = queryParam.enableRerank,
-                    )
-                saveToCache(
-                    hashingKv,
-                    CacheData(
-                        argsHash = argsHash,
-                        content = responseText,
-                        prompt = query,
-                        mode = queryParam.mode,
-                        cacheType = "query",
-                        queryParam = queryParamDict,
-                    ),
+                        override fun onError(error: Throwable) {
+                            blockingQueue.put("___END___")
+                            finalResponse.completeExceptionally(error)
+                        }
+                    },
                 )
+
+                while (true) {
+                    val token = blockingQueue.take()
+                    if (token == "___END___") break
+                    emit(token)
+                }
+                finalResponse.get()
+
+                saveQueryCache(cacheKeys, fullResponse.toString(), query, queryParam)
             }
-            var responseContent = responseText
-            if (responseContent.length > sysPrompt.length) {
-                responseContent =
-                    responseContent
-                        .replace(sysPrompt, "")
-                        .replace("user", "")
-                        .replace("model", "")
-                        .replace(query, "")
-                        .replace("<system>", "")
-                        .replace("</system>", "")
-                        .trim()
+        return QueryResult(responseIterator = responseIterator, isStreaming = true)
+    }
+
+    private suspend fun handleNonStreamingResponse(
+        query: String,
+        queryParam: QueryParam,
+        sysPrompt: String,
+        cacheKeys: CacheKeys,
+    ): QueryResult {
+        val responseText =
+            try {
+                logger.trace { "SysPrompt :$sysPrompt" }
+                logger.trace { "UserQuery :$query" }
+                val chatResponse = chatModel.chat(listOf(SystemMessage(sysPrompt), UserMessage(query)))
+                chatResponse.aiMessage()?.text() ?: ""
+            } catch (e: IllegalStateException) {
+                logger.error(e) { "Illegal state generating response in kgQuery" }
+                "Error generating response."
+            } catch (e: IllegalArgumentException) {
+                logger.error(e) { "Invalid argument generating response in kgQuery" }
+                "Error generating response."
             }
-            return QueryResult(content = responseContent, rawData = contextResult.rawData)
-        }
+
+        saveQueryCache(cacheKeys, responseText, query, queryParam)
+        val trimmed = trimResponse(sysPrompt, query, responseText)
+        return QueryResult(content = trimmed)
+    }
+
+    private fun trimResponse(
+        sysPrompt: String,
+        query: String,
+        responseText: String,
+    ): String {
+        if (responseText.length <= sysPrompt.length) return responseText
+        return responseText
+            .replace(sysPrompt, "")
+            .replace("user", "")
+            .replace("model", "")
+            .replace(query, "")
+            .replace("<system>", "")
+            .replace("</system>", "")
+            .trim()
+    }
+
+    private suspend fun saveQueryCache(
+        cacheKeys: CacheKeys,
+        content: String,
+        query: String,
+        queryParam: QueryParam,
+    ) {
+        if (hashingKv == null || globalConfig["enable_llm_cache"] as? Boolean != true) return
+        val queryParamDict =
+            QueryParamCache(
+                mode = queryParam.mode,
+                responseType = queryParam.responseType,
+                topK = queryParam.topK,
+                chunkTopK = queryParam.chunkTopK,
+                maxEntityTokens = queryParam.maxEntityTokens,
+                maxRelationTokens = queryParam.maxRelationTokens,
+                maxTotalTokens = queryParam.maxTotalTokens,
+                hlKeywords = cacheKeys.hlKeywordsStr,
+                llKeywords = cacheKeys.llKeywordsStr,
+                userPrompt = queryParam.userPrompt ?: "",
+                enableRerank = queryParam.enableRerank,
+            )
+        saveToCache(
+            hashingKv,
+            CacheData(
+                argsHash = cacheKeys.argsHash,
+                content = content,
+                prompt = query,
+                mode = queryParam.mode,
+                cacheType = "query",
+                queryParam = queryParamDict,
+            ),
+        )
     }
 
     private suspend fun getKeywordsFromQuery(
@@ -392,86 +422,63 @@ class QueryProcessor(
         queryParam: QueryParam,
         chunksVdb: BaseVectorStorage?,
     ): ContextResult {
-        val searchResult =
-            performKgSearch(
-                query,
-                queryParam,
-                chunksVdb,
-            )
-
+        val searchResult = performKgSearch(query, queryParam, chunksVdb)
         val entities = searchResult.finalEntities
         val relations = searchResult.finalRelations
 
-        val entityChunks =
-            findRelatedTextUnitFromEntities(
-                entities,
-                queryParam,
-                query,
-                chunksVdb,
-            )
-        val relationChunks =
-            findRelatedTextUnitFromRelations(
-                relations,
-                queryParam,
-                entityChunks,
-                query,
-                chunksVdb,
-            )
-        val allChunks = (entityChunks + relationChunks).distinctBy { it["id"] }
+        val entityChunks = findRelatedTextUnitFromEntities(entities, queryParam, query, chunksVdb)
+        val relationChunks = findRelatedTextUnitFromRelations(relations, queryParam, entityChunks, query, chunksVdb)
+        var allChunks = (entityChunks + relationChunks).distinctBy { it["id"] }
+        if (allChunks.isEmpty() && searchResult.vectorChunks.isNotEmpty()) {
+            allChunks = searchResult.vectorChunks
+        }
 
-        val contextBuilder = StringBuilder()
-        contextBuilder.append(Prompts.KG_QUERY_CONTEXT)
-
-        val entitiesStr =
-            entities.joinToString("\n") { entity ->
-                """{ "entity_name": "${entity["entity_name"]}", "content": "${
-                    JsonUtils.escape((entity["content"] ?: "").toString())
-                }" }"""
-            }
-
-        val relationsStr =
-            relations.take(queryParam.topK).joinToString("\n") { relation ->
-                """{ "src_id": "${relation["src_id"]}", "tgt_id": "${relation["tgt_id"]}", "content": "${
-                    JsonUtils.escape((relation["description"] ?: "").toString())
-                }" }"""
-            }
-
-        val textChunksStr =
-            allChunks
-                .mapIndexed {
-                    index,
-                    chunk,
-                    ->
-                    val content = chunk["content"]?.toString() ?: ""
-                    """{ "reference_id": "${index + 1}", "content": "${JsonUtils.escape(content)}" }"""
-                }.joinToString("\n")
-
-        val referenceListStr =
-            allChunks
-                .mapIndexed {
-                    index,
-                    chunk,
-                    ->
-                    val filePath = chunk["file_path"] ?: "unknown_source"
-                    "[${index + 1}] $filePath"
-                }.joinToString("\n")
+        val entitiesStr = buildEntitiesStr(entities)
+        val relationsStr = buildRelationsStr(relations, queryParam.topK)
+        val textChunksStr = buildTextChunksStr(allChunks)
+        val referenceListStr = buildReferenceListStr(allChunks)
 
         val contextContent =
-            contextBuilder
-                .toString()
+            Prompts.KG_QUERY_CONTEXT
                 .replace("{entities_str}", entitiesStr)
                 .replace("{relations_str}", relationsStr)
                 .replace("{text_chunks_str}", textChunksStr)
                 .replace("{reference_list_str}", referenceListStr)
 
-        val rawData =
-            mapOf(
-                "entities" to entities,
-                "relations" to relations,
-                "chunks" to allChunks,
-            )
+        val rawData = mapOf("entities" to entities, "relations" to relations, "chunks" to allChunks)
         return ContextResult(contextStr = contextContent, rawData = rawData)
     }
+
+    private fun buildEntitiesStr(entities: List<Map<String, Any>>): String =
+        entities.joinToString("\n") { entity ->
+            """{ "entity_name": "${entity["entity_name"]}", "content": "${
+                JsonUtils.escape((entity["content"] ?: "").toString())
+            }" }"""
+        }
+
+    private fun buildRelationsStr(
+        relations: List<Map<String, Any>>,
+        topK: Int,
+    ): String =
+        relations.take(topK).joinToString("\n") { relation ->
+            """{ "src_id": "${relation["src_id"]}", "tgt_id": "${relation["tgt_id"]}", "content": "${
+                JsonUtils.escape((relation["description"] ?: "").toString())
+            }" }"""
+        }
+
+    private fun buildTextChunksStr(allChunks: List<Map<String, Any>>): String =
+        allChunks
+            .mapIndexed { index, chunk ->
+                val content = chunk["content"]?.toString() ?: ""
+                """{ "reference_id": "${index + 1}", "content": "${JsonUtils.escape(content)}" }"""
+            }.joinToString("\n")
+
+    private fun buildReferenceListStr(allChunks: List<Map<String, Any>>): String =
+        allChunks
+            .mapIndexed { index, chunk ->
+                val filePath = chunk["file_path"] ?: "unknown_source"
+                "[${index + 1}] $filePath"
+            }.joinToString("\n")
 
     @Suppress("UNUSED_PARAMETER")
     private suspend fun performKgSearch(

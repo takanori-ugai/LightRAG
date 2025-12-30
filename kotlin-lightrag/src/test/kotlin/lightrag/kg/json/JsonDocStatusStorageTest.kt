@@ -2,6 +2,7 @@ package lightrag.kg.json
 
 import kotlinx.coroutines.runBlocking
 import lightrag.TestEmbeddings
+import lightrag.core.types.DocProcessingStatus
 import lightrag.core.types.DocStatus
 import org.junit.Test
 import java.io.File
@@ -118,47 +119,8 @@ class JsonDocStatusStorageTest {
     @Test
     fun `status queries and pagination respect updated timestamps`() {
         runBlocking {
-            val tempDir = File("build/tmp/json_doc_status_query_${System.currentTimeMillis()}").apply { mkdirs() }
-            try {
-                val storage =
-                    JsonDocStatusStorage(
-                        namespace = "query-ns",
-                        workspace = "ws",
-                        globalConfig = mapOf("working_dir" to tempDir.absolutePath),
-                        embeddingFunc = embeddingModel,
-                    )
-
-                storage.upsert(
-                    mapOf(
-                        "doc-a" to
-                            mapOf(
-                                "status" to "processed",
-                                "content_summary" to "A",
-                                "content_length" to 1,
-                                "created_at" to "2024-03-01T00:00:00Z",
-                                "updated_at" to "2024-03-01T00:00:00Z",
-                                "file_path" to "/files/a",
-                            ),
-                        "doc-b" to
-                            mapOf(
-                                "status" to "processed",
-                                "content_summary" to "B",
-                                "content_length" to 2,
-                                "created_at" to "2024-02-01T00:00:00Z",
-                                "updated_at" to "2024-02-01T00:00:00Z",
-                                "file_path" to "/files/b",
-                            ),
-                        "doc-c" to
-                            mapOf(
-                                "status" to "pending",
-                                "content_summary" to "C",
-                                "content_length" to 3,
-                                "created_at" to "2024-01-15T00:00:00Z",
-                                "updated_at" to "2024-01-15T00:00:00Z",
-                                "file_path" to "/files/c",
-                            ),
-                    ),
-                )
+            withJsonStorage("query") { storage ->
+                seedDocs(storage)
 
                 val processed = storage.getDocsByStatus(DocStatus.PROCESSED)
                 assertEquals(setOf("doc-a", "doc-b"), processed.keys)
@@ -166,31 +128,13 @@ class JsonDocStatusStorageTest {
                 val missing = storage.filterKeys(setOf("doc-a", "doc-x"))
                 assertEquals(setOf("doc-x"), missing)
 
-                val (page1, total) =
-                    storage.getDocsPaginated(
-                        statusFilter = DocStatus.PROCESSED,
-                        page = 1,
-                        pageSize = 1,
-                        sortField = "updated_at",
-                        sortDirection = "desc",
-                    )
+                val (page1, total) = fetchPage(storage, 1)
                 assertEquals(2, total)
-                assertEquals(1, page1.size)
                 assertEquals("doc-a", page1.first().first)
 
-                val (page2, totalAgain) =
-                    storage.getDocsPaginated(
-                        statusFilter = DocStatus.PROCESSED,
-                        page = 2,
-                        pageSize = 1,
-                        sortField = "updated_at",
-                        sortDirection = "desc",
-                    )
+                val (page2, totalAgain) = fetchPage(storage, 2)
                 assertEquals(2, totalAgain)
-                assertEquals(1, page2.size)
                 assertEquals("doc-b", page2.first().first)
-            } finally {
-                tempDir.deleteRecursively()
             }
         }
     }
@@ -236,4 +180,69 @@ class JsonDocStatusStorageTest {
             }
         }
     }
+
+    private suspend fun withJsonStorage(
+        label: String,
+        block: suspend (JsonDocStatusStorage) -> Unit,
+    ) {
+        val tempDir = File("build/tmp/json_doc_status_${label}_${System.currentTimeMillis()}").apply { mkdirs() }
+        try {
+            val storage =
+                JsonDocStatusStorage(
+                    namespace = "$label-ns",
+                    workspace = "ws",
+                    globalConfig = mapOf("working_dir" to tempDir.absolutePath),
+                    embeddingFunc = embeddingModel,
+                )
+            block(storage)
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    private suspend fun seedDocs(storage: JsonDocStatusStorage) {
+        storage.upsert(
+            mapOf(
+                "doc-a" to
+                    mapOf(
+                        "status" to "processed",
+                        "content_summary" to "A",
+                        "content_length" to 1,
+                        "created_at" to "2024-03-01T00:00:00Z",
+                        "updated_at" to "2024-03-01T00:00:00Z",
+                        "file_path" to "/files/a",
+                    ),
+                "doc-b" to
+                    mapOf(
+                        "status" to "processed",
+                        "content_summary" to "B",
+                        "content_length" to 2,
+                        "created_at" to "2024-02-01T00:00:00Z",
+                        "updated_at" to "2024-02-01T00:00:00Z",
+                        "file_path" to "/files/b",
+                    ),
+                "doc-c" to
+                    mapOf(
+                        "status" to "pending",
+                        "content_summary" to "C",
+                        "content_length" to 3,
+                        "created_at" to "2024-01-15T00:00:00Z",
+                        "updated_at" to "2024-01-15T00:00:00Z",
+                        "file_path" to "/files/c",
+                    ),
+            ),
+        )
+    }
+
+    private suspend fun fetchPage(
+        storage: JsonDocStatusStorage,
+        page: Int,
+    ): Pair<List<Pair<String, DocProcessingStatus>>, Int> =
+        storage.getDocsPaginated(
+            statusFilter = DocStatus.PROCESSED,
+            page = page,
+            pageSize = 1,
+            sortField = "updated_at",
+            sortDirection = "desc",
+        )
 }

@@ -60,55 +60,76 @@ class IngestionService(
         trackId: String,
         filePaths: List<String>? = null,
     ): String {
+        val uniqueContent = collectUniqueContent(input, filePaths)
+        val uniqueNewDocIds = storageManager.docStatusStorage.filterKeys(uniqueContent.keys)
+
+        updateExistingDocs(uniqueContent, uniqueNewDocIds, trackId, filePaths)
+
+        val newDocs = buildNewDocs(uniqueContent, uniqueNewDocIds, trackId)
+        if (newDocs.isEmpty()) return trackId
+
+        saveNewDocuments(uniqueContent, uniqueNewDocIds, newDocs)
+
+        return trackId
+    }
+
+    private fun collectUniqueContent(
+        input: List<String>,
+        filePaths: List<String>?,
+    ): Map<String, Pair<String, String>> {
         val effectiveFilePaths =
             input.mapIndexed { index, _ ->
                 filePaths?.getOrNull(index)
                     ?: filePaths?.lastOrNull()
                     ?: "unknown_source"
             }
-
         val uniqueContent = mutableMapOf<String, Pair<String, String>>()
-
         for (i in input.indices) {
             val content = input[i]
             val path = effectiveFilePaths[i]
             val md5 = lightrag.utils.computeMd5(content)
             uniqueContent[md5] = content to path
         }
+        return uniqueContent
+    }
 
-        val newDocs = mutableMapOf<String, Map<String, Any>>()
-        val allNewDocIds = uniqueContent.keys
-        val missingDocIds = storageManager.docStatusStorage.filterKeys(allNewDocIds)
+    private suspend fun updateExistingDocs(
+        uniqueContent: Map<String, Pair<String, String>>,
+        uniqueNewDocIds: Set<String>,
+        trackId: String,
+        filePaths: List<String>?,
+    ) {
+        val existingDocIds = uniqueContent.keys - uniqueNewDocIds
+        if (filePaths == null || existingDocIds.isEmpty()) return
 
-        val uniqueNewDocIds = missingDocIds
-
-        // If the content already exists but a new file path is provided, update the stored path
-        val existingDocIds = allNewDocIds - uniqueNewDocIds
-        if (filePaths != null && existingDocIds.isNotEmpty()) {
-            val updates = mutableMapOf<String, Map<String, Any>>()
-            existingDocIds.forEach { docId ->
-                val (_, path) = uniqueContent[docId] ?: return@forEach
-                updates[docId] =
-                    mapOf(
-                        "status" to DocStatus.PENDING.value,
-                        "track_id" to trackId,
-                        "file_path" to path,
-                        "updated_at" to Instant.now().toString(),
-                    )
-            }
-            if (updates.isNotEmpty()) {
-                storageManager.docStatusStorage.upsert(updates)
-                storageManager.fullDocs.upsert(
-                    updates.mapValues { (docId, _) ->
-                        val (_, path) = uniqueContent[docId]!!
-                        mapOf(
-                            "file_path" to path,
-                        )
-                    },
+        val updates = mutableMapOf<String, Map<String, Any>>()
+        existingDocIds.forEach { docId ->
+            val (_, path) = uniqueContent[docId] ?: return@forEach
+            updates[docId] =
+                mapOf(
+                    "status" to DocStatus.PENDING.value,
+                    "track_id" to trackId,
+                    "file_path" to path,
+                    "updated_at" to Instant.now().toString(),
                 )
-            }
         }
+        if (updates.isEmpty()) return
 
+        storageManager.docStatusStorage.upsert(updates)
+        storageManager.fullDocs.upsert(
+            updates.mapValues { (docId, _) ->
+                val (_, path) = uniqueContent[docId]!!
+                mapOf("file_path" to path)
+            },
+        )
+    }
+
+    private fun buildNewDocs(
+        uniqueContent: Map<String, Pair<String, String>>,
+        uniqueNewDocIds: Set<String>,
+        trackId: String,
+    ): MutableMap<String, Map<String, Any>> {
+        val newDocs = mutableMapOf<String, Map<String, Any>>()
         uniqueNewDocIds.forEach { docId ->
             val (content, path) = uniqueContent[docId]!!
             newDocs[docId] =
@@ -122,11 +143,14 @@ class IngestionService(
                     "track_id" to trackId,
                 )
         }
+        return newDocs
+    }
 
-        if (newDocs.isEmpty()) {
-            return trackId
-        }
-
+    private suspend fun saveNewDocuments(
+        uniqueContent: Map<String, Pair<String, String>>,
+        uniqueNewDocIds: Set<String>,
+        newDocs: Map<String, Map<String, Any>>,
+    ) {
         val fullDocsData =
             uniqueNewDocIds.associateWith { docId ->
                 val (content, path) = uniqueContent[docId]!!
@@ -135,8 +159,6 @@ class IngestionService(
         storageManager.fullDocs.upsert(fullDocsData)
 
         storageManager.docStatusStorage.upsert(newDocs)
-
-        return trackId
     }
 
     /**
