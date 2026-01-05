@@ -128,9 +128,9 @@ uv sync --extra api
 source .venv/bin/activate  # 激活虚拟环境 (Linux/macOS)
 # Windows 系统: .venv\Scripts\activate
 
-# 或使用 pip 和虚拟环境
+### 或使用 pip 和虚拟环境
 # python -m venv .venv
-# source .venv/bin/activate  # Windows: .venv\Scripts\activate
+### source .venv/bin/activate  # Windows: .venv\Scripts\activate
 # pip install -e ".[api]"
 
 # 构建前端代码
@@ -255,7 +255,8 @@ async def initialize_rag():
         llm_model_func=gpt_4o_mini_complete,
     )
     # IMPORTANT: Both initialization calls are required!
-    await rag.initialize_storages()  # Initialize storage backends    return rag
+    await rag.initialize_storages()  # Initialize storage backends
+    return rag
 
 async def main():
     try:

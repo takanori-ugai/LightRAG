@@ -1,142 +1,124 @@
 package lightrag.examples
 
-import dev.langchain4j.model.openai.OpenAiChatModel
-import dev.langchain4j.model.openai.OpenAiEmbeddingModel
 import kotlinx.coroutines.runBlocking
 import lightrag.core.LightRAG
-import lightrag.core.QueryParam
-import java.io.File
-import java.net.URI
-import java.time.Duration
+import lightrag.di.LightRagConfig
+import lightrag.di.appModule
+import lightrag.llm.LLMFactory
+import lightrag.services.StorageManager
+import org.koin.core.context.loadKoinModules
+import org.koin.core.context.startKoin
+import org.koin.dsl.module
 
+/**
+ * The main function for the LightRAG OpenAI Neo4j demo.
+ * This function demonstrates how to use LightRAG with OpenAI models and a Neo4j-backed graph storage.
+ * It initializes the models and storage, inserts a document, and queries it using different modes.
+ */
 fun main() =
     runBlocking {
-        // Check OpenAI environment variable
-        val apiKey = System.getenv("OPENAI_API_KEY")
-        if (apiKey.isNullOrBlank()) {
-            println("Error: OPENAI_API_KEY environment variable is not set.")
-            return@runBlocking
-        }
+        val koin =
+            startKoin {
+                allowOverride(true)
+                modules(appModule)
+            }.koin
+        loadKoinModules(loggingModule(koin))
 
-        // Neo4j Configuration
-        // User requested default: http://localhost:7474
-        val defaultUri = "http://localhost:7474"
-        val defaultUser = "neo4j"
-        val defaultPass = "neo4j"
+        val rag: LightRAG = koin.get()
+        val storageManager: StorageManager = koin.get()
 
-        var neo4jUri = System.getenv("NEO4J_URI") ?: defaultUri
-        val neo4jUser = System.getenv("NEO4J_USERNAME") ?: defaultUser
-        val neo4jPass = System.getenv("NEO4J_PASSWORD") ?: defaultPass
+        if (!initializeNeo4j(storageManager)) return@runBlocking
 
-        println("Using Neo4j configuration:")
-        println("  Input URI: $neo4jUri")
-        println("  User: $neo4jUser")
+        insertContent(rag, loadNeo4jContent())
+        runDemoQueries(
+            rag,
+            "What are the top themes related with king of England?",
+            paramBuilder =
+                { mode ->
+                    lightrag.core.QueryParam(
+                        mode = mode,
+                        includeReferences = true,
+                        topK = 2,
+                        chunkTopK = 2,
+                    )
+                },
+        )
 
-        // Sanitize URI for Neo4j Driver (requires bolt/neo4j scheme, not http)
-        if (neo4jUri.startsWith("http")) {
-            println("Warning: The Neo4j Driver requires a binary protocol (bolt/neo4j), but an HTTP URI was provided.")
-            try {
-                val uriObj = URI(neo4jUri)
-                val host = uriObj.host ?: "localhost"
-                // If port is standard HTTP console (7474), switch to standard Bolt (7687)
-                val port = if (uriObj.port == 7474) 7687 else uriObj.port
-                val newUri = "bolt://$host:$port"
-                println("Converting '$neo4jUri' to '$newUri' for driver connection.")
-                neo4jUri = newUri
-            } catch (e: Exception) {
-                println("Error parsing URI '$neo4jUri': ${e.message}. Falling back to 'bolt://localhost:7687'.")
-                neo4jUri = "bolt://localhost:7687"
-            }
-        }
-
-        val workingDir = "./neo4j_test_dir"
-        val dir = File(workingDir)
-        if (!dir.exists()) {
-            dir.mkdirs()
-        }
-
-        // Configure OpenAI Models
-        val chatModel =
-            OpenAiChatModel.builder()
-                .apiKey(apiKey)
-                .modelName("gpt-4o-mini")
-                .timeout(Duration.ofSeconds(60))
-                .build()
-
-        val embeddingModel =
-            OpenAiEmbeddingModel.builder()
-                .apiKey(apiKey)
-                .modelName("text-embedding-3-large")
-                .dimensions(3072)
-                .build()
-
-        // Pass configuration to LightRAG via addonConfig
-        val neo4jConfig =
-            mapOf(
-                "uri" to neo4jUri,
-                "username" to neo4jUser,
-                "password" to neo4jPass,
-            )
-
-        val rag =
-            LightRAG(
-                workingDir = workingDir,
-                chatModel = chatModel,
-                embeddingModel = embeddingModel,
-                graphStorageName = "Neo4jGraphStorage",
-                addonConfig = mapOf("neo4j" to neo4jConfig),
-            )
-
-        // Initialize Neo4j Storage (Create indexes etc.)
-        println("Initializing Neo4j Graph Storage...")
-        try {
-            rag.chunkEntityRelationGraph.initialize()
-        } catch (e: Exception) {
-            println("Error initializing Neo4j storage: ${e.message}")
-            println("Please ensure Neo4j is running at $neo4jUri")
-            return@runBlocking
-        }
-
-        // Prepare content
-        val bookFile = File("book.txt")
-        val content =
-            if (bookFile.exists()) {
-                bookFile.readText()
-            } else {
-                println("Warning: book.txt not found. Using dummy content.")
-                """
-                Neo4j is a graph database management system developed by Neo4j, Inc.
-                It is an ACID-compliant transactional database with native graph storage and processing.
-                LightRAG is a retrieval-augmented generation system that can use Neo4j as a backend.
-                Kotlin is a cross-platform, statically typed, general-purpose programming language with type inference.
-                """.trimIndent()
-            }
-
-        // Insert
-        println("Inserting content...")
-        try {
-            rag.insert(content)
-        } catch (e: Exception) {
-            println("Error inserting content: ${e.message}")
-        }
-
-        // Query
-        val modes = listOf("naive", "local", "global", "hybrid")
-        val queryText = "What is Neo4j and how is it related to LightRAG?"
-
-        modes.forEach { mode ->
-            println("\n=====================")
-            println("Query mode: $mode")
-            println("=====================")
-            try {
-                val result = rag.query(queryText, QueryParam(mode = mode))
-                println(result)
-            } catch (e: Exception) {
-                println("Error querying mode $mode: ${e.message}")
-            }
-        }
-
-        // Finalize
-        rag.chunkEntityRelationGraph.finalize()
+        storageManager.persist()
         println("\nDone!")
     }
+
+private fun loggingModule(koin: org.koin.core.Koin) =
+    module {
+        single<dev.langchain4j.model.chat.ChatModel> {
+            val cfg = koin.get<LightRagConfig>()
+            LLMFactory.createChatModel(
+                binding = "openai",
+                modelName = cfg.openai.chatModelName,
+                apiKey = cfg.openai.apiKey,
+                logRequests = true,
+                logResponses = true,
+            )
+        }
+    }
+
+/**
+ * Initializes Neo4j-backed storages and drops any existing data so the demo starts fresh.
+ * @param storageManager storage manager with configured Neo4j backends
+ * @return true if initialization succeeds, false otherwise
+ */
+private suspend fun initializeNeo4j(storageManager: StorageManager): Boolean {
+    println("Initializing Neo4j Graph Storage...")
+    return try {
+        storageManager.initialize()
+        println("Dropping existing storage data...")
+        storageManager.drop()
+        true
+    } catch (e: IllegalStateException) {
+        println("Error initializing Neo4j storage: ${e.message}")
+        println("Please ensure Neo4j is running and configured correctly in application.conf")
+        false
+    } catch (e: IllegalArgumentException) {
+        println("Error initializing Neo4j storage: ${e.message}")
+        println("Please ensure Neo4j is running and configured correctly in application.conf")
+        false
+    }
+}
+
+/**
+ * Loads demo content from `book.txt` if available or uses a fallback snippet.
+ * @return the text content used for ingestion
+ */
+private fun loadNeo4jContent(): String {
+    val bookFile = java.io.File("book.txt")
+    return if (bookFile.exists()) {
+        bookFile.readText()
+    } else {
+        println("Warning: book.txt not found. Using dummy content.")
+        """
+        Neo4j is a graph database management system developed by Neo4j, Inc.
+        It is an ACID-compliant transactional database with native graph storage and processing.
+        LightRAG is a retrieval-augmented generation system that can use Neo4j as a backend.
+        Kotlin is a cross-platform, statically typed, general-purpose programming language with type inference.
+        """.trimIndent()
+    }
+}
+
+/**
+ * Inserts the provided content into LightRAG while handling common ingestion errors.
+ * @param rag LightRAG instance to ingest the text
+ * @param content text to insert
+ */
+private suspend fun insertContent(
+    rag: LightRAG,
+    content: String,
+) {
+    println("Inserting content...")
+    try {
+        rag.insert(content)
+    } catch (e: IllegalStateException) {
+        println("Error inserting content: ${e.message}")
+    } catch (e: IllegalArgumentException) {
+        println("Error inserting content: ${e.message}")
+    }
+}

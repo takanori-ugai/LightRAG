@@ -1,69 +1,49 @@
 package lightrag.utils
 
+/**
+ * A collection of prompts used throughout the LightRAG application.
+ */
 object Prompts {
-    const val DEFAULT_TUPLE_DELIMITER = "<|#|>"
-    const val DEFAULT_COMPLETION_DELIMITER = "<|COMPLETE|>"
-
+    /**
+     * The system prompt for entity extraction.
+     */
     const val ENTITY_EXTRACTION_SYSTEM_PROMPT = """---Role---
 You are a Knowledge Graph Specialist responsible for extracting entities and relationships from the input text.
 
 ---Instructions---
-1.  **Entity Extraction & Output:**
-    *   **Identification:** Identify clearly defined and meaningful entities in the input text.
-    *   **Entity Details:** For each identified entity, extract the following information:
-        *   `entity_name`: The name of the entity. If the entity name is case-insensitive, capitalize the first letter of each significant word (title case). Ensure **consistent naming** across the entire extraction process.
-        *   `entity_type`: Categorize the entity using one of the following types: `{entity_types}`. If none of the provided entity types apply, do not add new entity type and classify it as `Other`.
-        *   `entity_description`: Provide a concise yet comprehensive description of the entity's attributes and activities, based *solely* on the information present in the input text.
-    *   **Output Format - Entities:** Output a total of 4 fields for each entity, delimited by `{tuple_delimiter}`, on a single line. The first field *must* be the literal string `entity`.
-        *   Format: `entity{tuple_delimiter}entity_name{tuple_delimiter}entity_type{tuple_delimiter}entity_description`
+1.  **Entity and Relationship Extraction:**
+    *   Identify meaningful entities and the relationships between them from the input text.
+    *   Ensure consistent naming for entities across the entire extraction process.
 
-2.  **Relationship Extraction & Output:**
-    *   **Identification:** Identify direct, clearly stated, and meaningful relationships between previously extracted entities.
-    *   **N-ary Relationship Decomposition:** If a single statement describes a relationship involving more than two entities (an N-ary relationship), decompose it into multiple binary (two-entity) relationship pairs for separate description.
-        *   **Example:** For "Alice, Bob, and Carol collaborated on Project X," extract binary relationships such as "Alice collaborated with Project X," "Bob collaborated with Project X," and "Carol collaborated with Project X," or "Alice collaborated with Bob," based on the most reasonable binary interpretations.
-    *   **Relationship Details:** For each binary relationship, extract the following fields:
-        *   `source_entity`: The name of the source entity. Ensure **consistent naming** with entity extraction. Capitalize the first letter of each significant word (title case) if the name is case-insensitive.
-        *   `target_entity`: The name of the target entity. Ensure **consistent naming** with entity extraction. Capitalize the first letter of each significant word (title case) if the name is case-insensitive.
-        *   `relationship_keywords`: One or more high-level keywords summarizing the overarching nature, concepts, or themes of the relationship. Multiple keywords within this field must be separated by a comma `,`. **DO NOT use `{tuple_delimiter}` for separating multiple keywords within this field.**
-        *   `relationship_description`: A concise explanation of the nature of the relationship between the source and target entities, providing a clear rationale for their connection.
-    *   **Output Format - Relationships:** Output a total of 5 fields for each relationship, delimited by `{tuple_delimiter}`, on a single line. The first field *must* be the literal string `relation`.
-        *   Format: `relation{tuple_delimiter}source_entity{tuple_delimiter}target_entity{tuple_delimiter}relationship_keywords{tuple_delimiter}relationship_description`
+2.  **Output Format:**
+    *   Each extracted entity should be on a new line, starting with `entity<|#|>` followed by `name<|#|>type<|#|>description`.
+    *   Each extracted relationship should be on a new line, starting with `relation<|#|>` followed by `source<|#|>target<|#|>keywords<|#|>description`.
+    *   `name`: The name of the entity (string).
+    *   `type`: The type of the entity from the list: `{entity_types}` (string).
+    *   `description`: A concise description of the entity based on the text (string).
+    *   `source`: The name of the source entity (string).
+    *   `target`: The name of the target entity (string).
+    *   `keywords`: High-level keywords summarizing the relationship, separated by commas (string).
+    *   `description`: A concise explanation of the relationship (string).
 
-3.  **Delimiter Usage Protocol:**
-    *   The `{tuple_delimiter}` is a complete, atomic marker and **must not be filled with content**. It serves strictly as a field separator.
-    *   **Incorrect Example:** `entity{tuple_delimiter}Tokyo<|location|>Tokyo is the capital of Japan.`
-    *   **Correct Example:** `entity{tuple_delimiter}Tokyo{tuple_delimiter}location{tuple_delimiter}Tokyo is the capital of Japan.`
+3.  **Content Guidelines:**
+    *   All extracted information must be based solely on the provided input text.
+    *   Write all names and descriptions in the third person and in {language}.
+    *   Avoid using pronouns like `this article`, `I`, `you`.
+    *   Retain proper nouns in their original language.
 
-4.  **Relationship Direction & Duplication:**
-    *   Treat all relationships as **undirected** unless explicitly stated otherwise. Swapping the source and target entities for an undirected relationship does not constitute a new relationship.
-    *   Avoid outputting duplicate relationships.
-
-5.  **Output Order & Prioritization:**
-    *   Output all extracted entities first, followed by all extracted relationships.
-    *   Within the list of relationships, prioritize and output those relationships that are **most significant** to the core meaning of the input text first.
-
-6.  **Context & Objectivity:**
-    *   Ensure all entity names and descriptions are written in the **third person**.
-    *   Explicitly name the subject or object; **avoid using pronouns** such as `this article`, `this paper`, `our company`, `I`, `you`, and `he/she`.
-
-7.  **Language & Proper Nouns:**
-    *   The entire output (entity names, keywords, and descriptions) must be written in `{language}`.
-    *   Proper nouns (e.g., personal names, place names, organization names) should be retained in their original language if a proper, widely accepted translation is not available or would cause ambiguity.
-
-8.  **Completion Signal:** Output the literal string `{completion_delimiter}` only after all entities and relationships, following all criteria, have been completely extracted and outputted.
-
----Examples---
-{examples}
 """
 
+    /**
+     * The user prompt for entity extraction.
+     */
     const val ENTITY_EXTRACTION_USER_PROMPT = """---Task---
 Extract entities and relationships from the input text in Data to be Processed below.
 
 ---Instructions---
-1.  **Strict Adherence to Format:** Strictly adhere to all format requirements for entity and relationship lists, including output order, field delimiters, and proper noun handling, as specified in the system prompt.
-2.  **Output Content Only:** Output *only* the extracted list of entities and relationships. Do not include any introductory or concluding remarks, explanations, or additional text before or after the list.
-3.  **Completion Signal:** Output `{completion_delimiter}` as the final line after all relevant entities and relationships have been extracted and presented.
-4.  **Output Language:** Ensure the output language is {language}. Proper nouns (e.g., personal names, place names, organization names) must be kept in their original language and not translated.
+1.  **Strict Adherence to Format:** Produce extracted `entities` and `relations` as specified in the system prompt.
+2.  **Output Content Only:** Output *only* the extracted entities and relations in the specified format. Do not include any introductory or concluding remarks, explanations, or additional text before or after the extracted data.
+3.  **Output Language:** Ensure the output language is {language}.
 
 ---Data to be Processed---
 <Entity_types>
@@ -77,24 +57,9 @@ Extract entities and relationships from the input text in Data to be Processed b
 <Output>
 """
 
-    const val ENTITY_CONTINUE_EXTRACTION_USER_PROMPT = """---Task---
-Based on the last extraction task, identify and extract any **missed or incorrectly formatted** entities and relationships from the input text.
-
----Instructions---
-1.  **Strict Adherence to System Format:** Strictly adhere to all format requirements for entity and relationship lists, including output order, field delimiters, and proper noun handling, as specified in the system instructions.
-2.  **Focus on Corrections/Additions:**
-    *   **Do NOT** re-output entities and relationships that were **correctly and fully** extracted in the last task.
-    *   If an entity or relationship was **missed** in the last task, extract and output it now according to the system format.
-    *   If an entity or relationship was **truncated, had missing fields, or was otherwise incorrectly formatted** in the last task, re-output the *corrected and complete* version in the specified format.
-3.  **Output Format - Entities:** Output a total of 4 fields for each entity, delimited by `{tuple_delimiter}`, on a single line. The first field *must* be the literal string `entity`.
-4.  **Output Format - Relationships:** Output a total of 5 fields for each relationship, delimited by `{tuple_delimiter}`, on a single line. The first field *must* be the literal string `relation`.
-5.  **Output Content Only:** Output *only* the extracted list of entities and relationships. Do not include any introductory or concluding remarks, explanations, or additional text before or after the list.
-6.  **Completion Signal:** Output `{completion_delimiter}` as the final line after all relevant missing or corrected entities and relationships have been extracted and presented.
-7.  **Output Language:** Ensure the output language is {language}. Proper nouns (e.g., personal names, place names, organization names) must be kept in their original language and not translated.
-
-<Output>
-"""
-
+    /**
+     * Examples for entity extraction.
+     */
     val ENTITY_EXTRACTION_EXAMPLES =
         listOf(
             """<Entity_types>
@@ -112,18 +77,69 @@ It was a small transformation, barely perceptible, but one that Alex noted with 
 ```
 
 <Output>
-entity{tuple_delimiter}Alex{tuple_delimiter}person{tuple_delimiter}Alex is a character who experiences frustration and is observant of the dynamics among other characters.
-entity{tuple_delimiter}Taylor{tuple_delimiter}person{tuple_delimiter}Taylor is portrayed with authoritarian certainty and shows a moment of reverence towards a device, indicating a change in perspective.
-entity{tuple_delimiter}Jordan{tuple_delimiter}person{tuple_delimiter}Jordan shares a commitment to discovery and has a significant interaction with Taylor regarding a device.
-entity{tuple_delimiter}Cruz{tuple_delimiter}person{tuple_delimiter}Cruz is associated with a vision of control and order, influencing the dynamics among other characters.
-entity{tuple_delimiter}The Device{tuple_delimiter}equipment{tuple_delimiter}The Device is central to the story, with potential game-changing implications, and is revered by Taylor.
-relation{tuple_delimiter}Alex{tuple_delimiter}Taylor{tuple_delimiter}power dynamics, observation{tuple_delimiter}Alex observes Taylor's authoritarian behavior and notes changes in Taylor's attitude toward the device.
-relation{tuple_delimiter}Alex{tuple_delimiter}Jordan{tuple_delimiter}shared goals, rebellion{tuple_delimiter}Alex and Jordan share a commitment to discovery, which contrasts with Cruz's vision.)
-relation{tuple_delimiter}Taylor{tuple_delimiter}Jordan{tuple_delimiter}conflict resolution, mutual respect{tuple_delimiter}Taylor and Jordan interact directly regarding the device, leading to a moment of mutual respect and an uneasy truce.
-relation{tuple_delimiter}Jordan{tuple_delimiter}Cruz{tuple_delimiter}ideological conflict, rebellion{tuple_delimiter}Jordan's commitment to discovery is in rebellion against Cruz's vision of control and order.
-relation{tuple_delimiter}Taylor{tuple_delimiter}The Device{tuple_delimiter}reverence, technological significance{tuple_delimiter}Taylor shows reverence towards the device, indicating its importance and potential impact.
-{completion_delimiter}
-
+```json
+{
+  "entities": [
+    {
+      "name": "Alex",
+      "type": "person",
+      "description": "Alex is a character who experiences frustration and is observant of the dynamics among other characters."
+    },
+    {
+      "name": "Taylor",
+      "type": "person",
+      "description": "Taylor is portrayed with authoritarian certainty and shows a moment of reverence towards a device, indicating a change in perspective."
+    },
+    {
+      "name": "Jordan",
+      "type": "person",
+      "description": "Jordan shares a commitment to discovery and has a significant interaction with Taylor regarding a device."
+    },
+    {
+      "name": "Cruz",
+      "type": "person",
+      "description": "Cruz is associated with a vision of control and order, influencing the dynamics among other characters."
+    },
+    {
+      "name": "The Device",
+      "type": "equipment",
+      "description": "The Device is central to the story, with potential game-changing implications, and is revered by Taylor."
+    }
+  ],
+  "relations": [
+    {
+      "source": "Alex",
+      "target": "Taylor",
+      "keywords": "power dynamics, observation",
+      "description": "Alex observes Taylor's authoritarian behavior and notes changes in Taylor's attitude toward the device."
+    },
+    {
+      "source": "Alex",
+      "target": "Jordan",
+      "keywords": "shared goals, rebellion",
+      "description": "Alex and Jordan share a commitment to discovery, which contrasts with Cruz's vision."
+    },
+    {
+      "source": "Taylor",
+      "target": "Jordan",
+      "keywords": "conflict resolution, mutual respect",
+      "description": "Taylor and Jordan interact directly regarding the device, leading to a moment of mutual respect and an uneasy truce."
+    },
+    {
+      "source": "Jordan",
+      "target": "Cruz",
+      "keywords": "ideological conflict, rebellion",
+      "description": "Jordan's commitment to discovery is in rebellion against Cruz's vision of control and order."
+    },
+    {
+      "source": "Taylor",
+      "target": "The Device",
+      "keywords": "reverence, technological significance",
+      "description": "Taylor shows reverence towards the device, indicating its importance and potential impact."
+    }
+  ]
+}
+```
 """,
             """<Entity_types>
 ["Person","Creature","Organization","Location","Event","Concept","Method","Content","Data","Artifact","NaturalObject"]
@@ -140,20 +156,78 @@ Financial experts are closely watching the Federal Reserve's next move, as specu
 ```
 
 <Output>
-entity{tuple_delimiter}Global Tech Index{tuple_delimiter}category{tuple_delimiter}The Global Tech Index tracks the performance of major technology stocks and experienced a 3.4% decline today.
-entity{tuple_delimiter}Nexon Technologies{tuple_delimiter}organization{tuple_delimiter}Nexon Technologies is a tech company that saw its stock decline by 7.8% after disappointing earnings.
-entity{tuple_delimiter}Omega Energy{tuple_delimiter}organization{tuple_delimiter}Omega Energy is an energy company that gained 2.1% in stock value due to rising oil prices.
-entity{tuple_delimiter}Gold Futures{tuple_delimiter}product{tuple_delimiter}Gold futures rose by 1.5%, indicating increased investor interest in safe-haven assets.
-entity{tuple_delimiter}Crude Oil{tuple_delimiter}product{tuple_delimiter}Crude oil prices rose to ${'$'}87.60 per barrel due to supply constraints and strong demand.
-entity{tuple_delimiter}Market Selloff{tuple_delimiter}category{tuple_delimiter}Market selloff refers to the significant decline in stock values due to investor concerns over interest rates and regulations.
-entity{tuple_delimiter}Federal Reserve Policy Announcement{tuple_delimiter}category{tuple_delimiter}The Federal Reserve's upcoming policy announcement is expected to impact investor confidence and market stability.
-entity{tuple_delimiter}3.4% Decline{tuple_delimiter}category{tuple_delimiter}The Global Tech Index experienced a 3.4% decline in midday trading.
-relation{tuple_delimiter}Global Tech Index{tuple_delimiter}Market Selloff{tuple_delimiter}market performance, investor sentiment{tuple_delimiter}The decline in the Global Tech Index is part of the broader market selloff driven by investor concerns.
-relation{tuple_delimiter}Nexon Technologies{tuple_delimiter}Global Tech Index{tuple_delimiter}company impact, index movement{tuple_delimiter}Nexon Technologies' stock decline contributed to the overall drop in the Global Tech Index.
-relation{tuple_delimiter}Gold Futures{tuple_delimiter}Market Selloff{tuple_delimiter}market reaction, safe-haven investment{tuple_delimiter}Gold prices rose as investors sought safe-haven assets during the market selloff.
-relation{tuple_delimiter}Federal Reserve Policy Announcement{tuple_delimiter}Market Selloff{tuple_delimiter}interest rate impact, financial regulation{tuple_delimiter}Speculation over Federal Reserve policy changes contributed to market volatility and investor selloff.
-{completion_delimiter}
-
+```json
+{
+  "entities": [
+    {
+      "name": "Global Tech Index",
+      "type": "category",
+      "description": "The Global Tech Index tracks the performance of major technology stocks and experienced a 3.4% decline today."
+    },
+    {
+      "name": "Nexon Technologies",
+      "type": "organization",
+      "description": "Nexon Technologies is a tech company that saw its stock decline by 7.8% after disappointing earnings."
+    },
+    {
+      "name": "Omega Energy",
+      "type": "organization",
+      "description": "Omega Energy is an energy company that gained 2.1% in stock value due to rising oil prices."
+    },
+    {
+      "name": "Gold Futures",
+      "type": "product",
+      "description": "Gold futures rose by 1.5%, indicating increased investor interest in safe-haven assets."
+    },
+    {
+      "name": "Crude Oil",
+      "type": "product",
+      "description": "Crude oil prices rose to ${'$'}87.60 per barrel due to supply constraints and strong demand."
+    },
+    {
+      "name": "Market Selloff",
+      "type": "category",
+      "description": "Market selloff refers to the significant decline in stock values due to investor concerns over interest rates and regulations."
+    },
+    {
+      "name": "Federal Reserve Policy Announcement",
+      "type": "category",
+      "description": "The Federal Reserve's upcoming policy announcement is expected to impact investor confidence and market stability."
+    },
+    {
+      "name": "3.4% Decline",
+      "type": "category",
+      "description": "The Global Tech Index experienced a 3.4% decline in midday trading."
+    }
+  ],
+  "relations": [
+    {
+      "source": "Global Tech Index",
+      "target": "Market Selloff",
+      "keywords": "market performance, investor sentiment",
+      "description": "The decline in the Global Tech Index is part of the broader market selloff driven by investor concerns."
+    },
+    {
+      "source": "Nexon Technologies",
+      "target": "Global Tech Index",
+      "keywords": "company impact, index movement",
+      "description": "Nexon Technologies' stock decline contributed to the overall drop in the Global Tech Index."
+    },
+    {
+      "source": "Gold Futures",
+      "target": "Market Selloff",
+      "keywords": "market reaction, safe-haven investment",
+      "description": "Gold prices rose as investors sought safe-haven assets during the market selloff."
+    },
+    {
+      "source": "Federal Reserve Policy Announcement",
+      "target": "Market Selloff",
+      "keywords": "interest rate impact, financial regulation",
+      "description": "Speculation over Federal Reserve policy changes contributed to market volatility and investor selloff."
+    }
+  ]
+}
+```
 """,
             """<Entity_types>
 ["Person","Creature","Organization","Location","Event","Concept","Method","Content","Data","Artifact","NaturalObject"]
@@ -164,21 +238,74 @@ At the World Athletics Championship in Tokyo, Noah Carter broke the 100m sprint 
 ```
 
 <Output>
-entity{tuple_delimiter}World Athletics Championship{tuple_delimiter}event{tuple_delimiter}The World Athletics Championship is a global sports competition featuring top athletes in track and field.
-entity{tuple_delimiter}Tokyo{tuple_delimiter}location{tuple_delimiter}Tokyo is the host city of the World Athletics Championship.
-entity{tuple_delimiter}Noah Carter{tuple_delimiter}person{tuple_delimiter}Noah Carter is a sprinter who set a new record in the 100m sprint at the World Athletics Championship.
-entity{tuple_delimiter}100m Sprint Record{tuple_delimiter}category{tuple_delimiter}The 100m sprint record is a benchmark in athletics, recently broken by Noah Carter.
-entity{tuple_delimiter}Carbon-Fiber Spikes{tuple_delimiter}equipment{tuple_delimiter}Carbon-fiber spikes are advanced sprinting shoes that provide enhanced speed and traction.
-entity{tuple_delimiter}World Athletics Federation{tuple_delimiter}organization{tuple_delimiter}The World Athletics Federation is the governing body overseeing the World Athletics Championship and record validations.
-relation{tuple_delimiter}World Athletics Championship{tuple_delimiter}Tokyo{tuple_delimiter}event location, international competition{tuple_delimiter}The World Athletics Championship is being hosted in Tokyo.
-relation{tuple_delimiter}Noah Carter{tuple_delimiter}100m Sprint Record{tuple_delimiter}athlete achievement, record-breaking{tuple_delimiter}Noah Carter set a new 100m sprint record at the championship.
-relation{tuple_delimiter}Noah Carter{tuple_delimiter}Carbon-Fiber Spikes{tuple_delimiter}athletic equipment, performance boost{tuple_delimiter}Noah Carter used carbon-fiber spikes to enhance performance during the race.
-relation{tuple_delimiter}Noah Carter{tuple_delimiter}World Athletics Championship{tuple_delimiter}athlete participation, competition{tuple_delimiter}Noah Carter is competing at the World Athletics Championship.
-{completion_delimiter}
-
+```json
+{
+  "entities": [
+    {
+      "name": "World Athletics Championship",
+      "type": "event",
+      "description": "The World Athletics Championship is a global sports competition featuring top athletes in track and field."
+    },
+    {
+      "name": "Tokyo",
+      "type": "location",
+      "description": "Tokyo is the host city of the World Athletics Championship."
+    },
+    {
+      "name": "Noah Carter",
+      "type": "person",
+      "description": "Noah Carter is a sprinter who set a new record in the 100m sprint at the World Athletics Championship."
+    },
+    {
+      "name": "100m Sprint Record",
+      "type": "category",
+      "description": "The 100m sprint record is a benchmark in athletics, recently broken by Noah Carter."
+    },
+    {
+      "name": "Carbon-Fiber Spikes",
+      "type": "equipment",
+      "description": "Carbon-fiber spikes are advanced sprinting shoes that provide enhanced speed and traction."
+    },
+    {
+      "name": "World Athletics Federation",
+      "type": "organization",
+      "description": "The World Athletics Federation is the governing body overseeing the World Athletics Championship and record validations."
+    }
+  ],
+  "relations": [
+    {
+      "source": "World Athletics Championship",
+      "target": "Tokyo",
+      "keywords": "event location, international competition",
+      "description": "The World Athletics Championship is being hosted in Tokyo."
+    },
+    {
+      "source": "Noah Carter",
+      "target": "100m Sprint Record",
+      "keywords": "athlete achievement, record-breaking",
+      "description": "Noah Carter set a new 100m sprint record at the championship."
+    },
+    {
+      "source": "Noah Carter",
+      "target": "Carbon-Fiber Spikes",
+      "keywords": "athletic equipment, performance boost",
+      "description": "Noah Carter used carbon-fiber spikes to enhance performance during the race."
+    },
+    {
+      "source": "Noah Carter",
+      "target": "World Athletics Championship",
+      "keywords": "athlete participation, competition",
+      "description": "Noah Carter is competing at the World Athletics Championship."
+    }
+  ]
+}
+```
 """,
         )
 
+    /**
+     * The prompt for summarizing entity descriptions.
+     */
     const val SUMMARIZE_ENTITY_DESCRIPTIONS = """---Role---
 You are a Knowledge Graph Specialist, proficient in data curation and synthesis.
 
@@ -214,8 +341,14 @@ Description List:
 ---Output---
 """
 
+    /**
+     * The response to return when no context is found.
+     */
     const val FAIL_RESPONSE = "Sorry, I'm not able to provide an answer to that question.[no-context]"
 
+    /**
+     * The prompt for generating a RAG response.
+     */
     const val RAG_RESPONSE = """---Role---
 
 You are an expert AI assistant specializing in synthesizing information from a provided knowledge base. Your primary function is to answer user queries accurately by ONLY using the information within the provided **Context**.
@@ -270,6 +403,9 @@ Consider the conversation history if provided to maintain conversational flow an
 {context_data}
 """
 
+    /**
+     * The prompt for generating a naive RAG response.
+     */
     const val NAIVE_RAG_RESPONSE = """---Role---
 
 You are an expert AI assistant specializing in synthesizing information from a provided knowledge base. Your primary function is to answer user queries accurately by ONLY using the information within the provided **Context**.
@@ -324,6 +460,9 @@ Consider the conversation history if provided to maintain conversational flow an
 {content_data}
 """
 
+    /**
+     * The context for a knowledge graph query.
+     */
     const val KG_QUERY_CONTEXT = """
 Knowledge Graph Data (Entity):
 
@@ -351,6 +490,9 @@ Reference Document List (Each entry starts with a [reference_id] that correspond
 
 """
 
+    /**
+     * The context for a naive query.
+     */
     const val NAIVE_QUERY_CONTEXT = """
 Document Chunks (Each entry has a reference_id refer to the `Reference Document List`):
 
@@ -366,6 +508,9 @@ Reference Document List (Each entry starts with a [reference_id] that correspond
 
 """
 
+    /**
+     * The prompt for keywords extraction.
+     */
     const val KEYWORDS_EXTRACTION = """---Role---
 You are an expert keyword extractor, specializing in analyzing user queries for a Retrieval-Augmented Generation (RAG) system. Your purpose is to identify both high-level and low-level keywords in the user's query that will be used for effective document retrieval.
 
@@ -390,6 +535,9 @@ User Query: {query}
 ---Output---
 Output:"""
 
+    /**
+     * Examples for keywords extraction.
+     */
     val KEYWORDS_EXTRACTION_EXAMPLES =
         listOf(
             """Example 1:
@@ -401,7 +549,6 @@ Output:
   "high_level_keywords": ["International trade", "Global economic stability", "Economic impact"],
   "low_level_keywords": ["Trade agreements", "Tariffs", "Currency exchange", "Imports", "Exports"]
 }
-
 """,
             """Example 2:
 
@@ -412,7 +559,6 @@ Output:
   "high_level_keywords": ["Environmental consequences", "Deforestation", "Biodiversity loss"],
   "low_level_keywords": ["Species extinction", "Habitat destruction", "Carbon emissions", "Rainforest", "Ecosystem"]
 }
-
 """,
             """Example 3:
 
@@ -423,7 +569,6 @@ Output:
   "high_level_keywords": ["Education", "Poverty reduction", "Socioeconomic development"],
   "low_level_keywords": ["School access", "Literacy rates", "Job training", "Income inequality"]
 }
-
 """,
         )
 }

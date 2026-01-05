@@ -1,28 +1,34 @@
 package lightrag.core
 
-import dev.langchain4j.model.chat.ChatLanguageModel
-import dev.langchain4j.model.embedding.EmbeddingModel
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import lightrag.core.types.BaseGraphStorage
-import lightrag.core.types.BaseKVStorage
-import lightrag.core.types.BaseVectorStorage
-import lightrag.core.types.DocStatus
-import lightrag.core.types.DocStatusStorage
-import lightrag.kg.json.JsonDocStatusStorage
-import lightrag.kg.json.JsonKVStorage
-import lightrag.kg.memory.InMemoryGraphStorage
-import lightrag.kg.memory.InMemoryVectorStorage
-import lightrag.llm.LLMFactory
-import lightrag.operate.chunkingByTokenSize
-import lightrag.operate.extractEntities
-import lightrag.operate.kgQuery
-import lightrag.operate.mergeNodesAndEdges
-import lightrag.operate.naiveQuery
-import lightrag.utils.computeMd5
-import lightrag.utils.generateTrackId
-import java.time.Instant
+import lightrag.services.IngestionService
+import lightrag.services.QueryService
+import lightrag.services.StorageManager
 
+private val logger =
+    io.github.oshai.kotlinlogging.KotlinLogging
+        .logger {}
+
+/**
+ * Parameters for a query.
+ * @property mode The query mode.
+ * @property onlyNeedContext Whether to return only the context.
+ * @property onlyNeedPrompt Whether to return only the prompt.
+ * @property responseType The desired response type.
+ * @property stream Whether to stream the response.
+ * @property topK The number of top results to return.
+ * @property chunkTopK The number of top chunks to return.
+ * @property maxEntityTokens The maximum number of tokens for entities.
+ * @property maxRelationTokens The maximum number of tokens for relations.
+ * @property maxTotalTokens The maximum total number of tokens.
+ * @property hlKeywords Keywords to highlight.
+ * @property llKeywords Keywords to lowlight.
+ * @property conversationHistory The conversation history.
+ * @property userPrompt The user prompt.
+ * @property enableRerank Whether to enable reranking.
+ * @property includeReferences Whether to include references.
+ */
 @Serializable
 data class QueryParam(
     val mode: String = "global",
@@ -44,9 +50,9 @@ data class QueryParam(
     @SerialName("max_total_tokens")
     val maxTotalTokens: Int = 30000,
     @SerialName("hl_keywords")
-    val hlKeywords: List<String> = emptyList(),
+    var hlKeywords: List<String> = emptyList(),
     @SerialName("ll_keywords")
-    val llKeywords: List<String> = emptyList(),
+    var llKeywords: List<String> = emptyList(),
     @SerialName("conversation_history")
     val conversationHistory: List<Map<String, String>> = emptyList(),
     @SerialName("user_prompt")
@@ -58,369 +64,60 @@ data class QueryParam(
 )
 
 class LightRAG(
-    val workingDir: String = "./rag_storage",
-    // Allow injecting custom models, or configuring via binding strings
-    chatModel: ChatLanguageModel? = null,
-    embeddingModel: EmbeddingModel? = null,
-    llmBinding: String = "ollama",
-    llmModelName: String = "llama3",
-    embeddingBinding: String = "ollama",
-    embeddingModelName: String = "all-minilm",
-    graphStorageName: String = "InMemoryGraphStorage",
-    addonConfig: Map<String, Any> = emptyMap(),
+    private val ingestionService: IngestionService,
+    private val queryService: QueryService,
+    val storageManager: StorageManager,
 ) {
-    // Initialize LLM and Embedding models
-    private val model: ChatLanguageModel =
-        chatModel ?: LLMFactory.createChatModel(llmBinding, llmModelName)
+    /**
+     * Inserts a single document.
+     * @param input The document to insert.
+     * @param fileSource The source of the file.
+     * @return A track ID for the insertion.
+     */
+    suspend fun insert(
+        input: String,
+        fileSource: String? = null,
+    ): String = ingestionService.insert(input, fileSource)
 
-    private val embedding: EmbeddingModel =
-        embeddingModel ?: LLMFactory.createEmbeddingModel(embeddingBinding, embeddingModelName)
-
-    // Global config equivalent
-    val globalConfig: Map<String, Any> =
-        mapOf(
-            "llm_model_func" to model,
-            "embedding_func" to embedding,
-            "tokenizer" to { text: String -> text.split(Regex("\\s+")).map { it.hashCode() } },
-            // Placeholder tokenizer
-            "chunk_token_size" to 1200,
-            "chunk_overlap_token_size" to 100,
-            "entity_types" to listOf("Person", "Organization", "Location", "Event", "Concept"),
-            "language" to "English",
-            "working_dir" to workingDir,
-        ) + addonConfig
-
-    // Initialize Storages
-    val docStatusStorage: DocStatusStorage =
-        JsonDocStatusStorage(
-            namespace = "doc_status",
-            workspace = "default",
-            globalConfig = mapOf("working_dir" to workingDir),
-        )
-    val fullDocs: BaseKVStorage =
-        JsonKVStorage(
-            namespace = "full_docs",
-            workspace = "default",
-            globalConfig = mapOf("working_dir" to workingDir),
-        )
-    val textChunks: BaseKVStorage =
-        JsonKVStorage(
-            namespace = "text_chunks",
-            workspace = "default",
-            globalConfig = mapOf("working_dir" to workingDir),
-        )
-
-    // Additional storages to match Python implementation
-    val fullEntities: BaseKVStorage =
-        JsonKVStorage(
-            namespace = "full_entities",
-            workspace = "default",
-            globalConfig = mapOf("working_dir" to workingDir),
-        )
-    val fullRelations: BaseKVStorage =
-        JsonKVStorage(
-            namespace = "full_relations",
-            workspace = "default",
-            globalConfig = mapOf("working_dir" to workingDir),
-        )
-
-    // Vector Storages
-    val chunksVdb: BaseVectorStorage =
-        InMemoryVectorStorage(
-            namespace = "chunks_vdb",
-            workspace = "default",
-            embeddingFunc = embedding,
-            globalConfig = mapOf("working_dir" to workingDir),
-        )
-    val entitiesVdb: BaseVectorStorage =
-        InMemoryVectorStorage(
-            namespace = "entities_vdb",
-            workspace = "default",
-            embeddingFunc = embedding,
-            globalConfig = mapOf("working_dir" to workingDir),
-        )
-    val relationshipsVdb: BaseVectorStorage =
-        InMemoryVectorStorage(
-            namespace = "relationships_vdb",
-            workspace = "default",
-            embeddingFunc = embedding,
-            globalConfig = mapOf("working_dir" to workingDir),
-        )
-
-    // Graph Storage
-    val chunkEntityRelationGraph: BaseGraphStorage =
-        when (graphStorageName) {
-            "MongoGraphStorage" -> {
-                lightrag.kg.mongo.MongoGraphStorage(
-                    namespace = "chunk_entity_relation_graph",
-                    globalConfig = globalConfig,
-                    embeddingFunc = embedding,
-                )
-            }
-            "Neo4jGraphStorage" -> {
-                lightrag.kg.neo4j.Neo4jGraphStorage(
-                    namespace = "chunk_entity_relation_graph",
-                    globalConfig = globalConfig,
-                    embeddingFunc = embedding,
-                )
-            }
-            else ->
-                InMemoryGraphStorage(
-                    namespace = "chunk_entity_relation_graph",
-                    workspace = "default",
-                    globalConfig = mapOf("working_dir" to workingDir),
-                )
-        }
-
-    // Alias for backward compatibility if needed, but pointing to specific ones is better
-    val kvStorage: BaseKVStorage = textChunks // Default kvStorage points to textChunks
-    val vectorStorage: BaseVectorStorage = entitiesVdb // Default to entities?
-    val graphStorage: BaseGraphStorage = chunkEntityRelationGraph
-
-    private var initialized = false
-
-    suspend fun ensureInitialized() {
-        if (!initialized) {
-            docStatusStorage.initialize()
-            fullDocs.initialize()
-            textChunks.initialize()
-            fullEntities.initialize()
-            fullRelations.initialize()
-            chunksVdb.initialize()
-            entitiesVdb.initialize()
-            relationshipsVdb.initialize()
-            // chunkEntityRelationGraph might be initialized externally or lazy
-            chunkEntityRelationGraph.initialize()
-            initialized = true
-        }
-    }
-
-    suspend fun insert(input: String): String {
-        return insert(listOf(input))
-    }
-
-    suspend fun insert(input: List<String>): String {
-        ensureInitialized()
-        val trackId = generateTrackId("insert")
-        pipelineEnqueueDocuments(input, trackId)
-        pipelineProcessEnqueueDocuments()
-
-        // Save state after insertion
-        docStatusStorage.indexDoneCallback()
-        fullDocs.indexDoneCallback()
-        textChunks.indexDoneCallback()
-        chunksVdb.indexDoneCallback()
-        entitiesVdb.indexDoneCallback()
-        relationshipsVdb.indexDoneCallback()
-        // chunkEntityRelationGraph handles its own persistence (Neo4j, Mongo) or in-memory
-        chunkEntityRelationGraph.indexDoneCallback()
-
-        return trackId
-    }
-
-    private suspend fun pipelineEnqueueDocuments(
+    /**
+     * Inserts multiple documents.
+     * @param input The documents to insert.
+     * @param fileSources The sources of the files.
+     * @return A track ID for the insertion.
+     */
+    suspend fun insert(
         input: List<String>,
-        trackId: String,
-        filePaths: List<String>? = null,
-    ): String {
-        // 1. Validate and deduplicate
-        val effectiveFilePaths = filePaths ?: List(input.size) { "unknown_source" }
+        fileSources: List<String>? = null,
+    ): String = ingestionService.insert(input, fileSources)
 
-        val uniqueContent = mutableMapOf<String, Pair<String, String>>() // md5 -> (content, filePath)
-
-        for (i in input.indices) {
-            val content = input[i]
-            val path = effectiveFilePaths[i]
-            val md5 = computeMd5(content)
-            uniqueContent[md5] = content to path
-        }
-
-        // 2. Filter out already processed documents
-        val newDocs = mutableMapOf<String, Map<String, Any>>()
-        val allNewDocIds = uniqueContent.keys
-        val missingDocIds = docStatusStorage.filterKeys(allNewDocIds)
-
-        // filterKeys returns keys that are NOT in storage, so we should process them.
-        val uniqueNewDocIds = missingDocIds
-
-        uniqueNewDocIds.forEach { docId ->
-            val (content, path) = uniqueContent[docId]!!
-            // Use String values where possible to simplify serialization, cast Any if needed by storage
-            newDocs[docId] =
-                mapOf(
-                    "status" to DocStatus.PENDING.toString(),
-                    "content_summary" to (content.take(100) + "..."),
-                    "content_length" to content.length.toString(),
-                    "created_at" to Instant.now().toString(),
-                    "updated_at" to Instant.now().toString(),
-                    "file_path" to path,
-                    "track_id" to trackId,
-                )
-        }
-
-        if (newDocs.isEmpty()) {
-            return trackId
-        }
-
-        // 3. Store full doc content
-        val fullDocsData =
-            uniqueNewDocIds.associateWith { docId ->
-                val (content, path) = uniqueContent[docId]!!
-                mapOf("content" to content, "file_path" to path)
-            }
-        fullDocs.upsert(fullDocsData)
-
-        // 4. Store doc status
-        docStatusStorage.upsert(newDocs)
-
-        return trackId
+    /**
+     * Rebuilds the derived storage if it is empty.
+     */
+    suspend fun rebuildDerivedStorageIfEmpty() {
+        ingestionService.rebuildDerivedStorageIfEmpty()
     }
 
-    private suspend fun pipelineProcessEnqueueDocuments() {
-        // 1. Get pending documents
-        val pendingDocs = docStatusStorage.getDocsByStatus(DocStatus.PENDING)
-        if (pendingDocs.isEmpty()) return
-
-        val chunkTokenSize = globalConfig["chunk_token_size"] as? Int ?: 1200
-        val chunkOverlapTokenSize = globalConfig["chunk_overlap_token_size"] as? Int ?: 100
-
-        // 2. Process each document
-        pendingDocs.forEach { (docId, status) ->
-            try {
-                // Update status to PROCESSING
-                docStatusStorage.upsert(mapOf(docId to mapOf("status" to DocStatus.PROCESSING.toString())))
-
-                // Get content
-                val docData = fullDocs.getById(docId)
-                val content =
-                    docData?.get("content") as? String
-                        ?: throw IllegalStateException("Doc content missing for $docId")
-
-                // Chunking
-                // We use a reversible character-based "tokenizer" logic here for simplicity and robustness
-                // or just split by token size but keep strings.
-                // The chunkingByTokenSize function signature requires (String) -> List<Int> and (List<Int>) -> String
-                // We can implement a simple character-level tokenizer which is 100% safe.
-                val tokenizer: (String) -> List<Int> = { it.map { c -> c.code } }
-                val decoder: (List<Int>) -> String = { list -> list.map { it.toChar() }.joinToString("") }
-
-                val chunks =
-                    chunkingByTokenSize(
-                        tokenizer = tokenizer,
-                        decoder = decoder,
-                        content = content,
-                        chunkTokenSize = chunkTokenSize,
-                        chunkOverlapTokenSize = chunkOverlapTokenSize,
-                    )
-
-                // Prepare chunks for storage and extraction
-                val chunksData = mutableMapOf<String, Map<String, Any>>()
-                chunks.forEach { chunk ->
-                    val chunkId = computeMd5(chunk.content)
-                    chunksData[chunkId] =
-                        mapOf(
-                            "content" to chunk.content,
-                            "full_doc_id" to docId,
-                            "chunk_order_index" to chunk.chunkOrderIndex.toString(),
-                            "tokens" to chunk.tokens.toString(),
-                        )
-                }
-
-                // Upsert chunks to KV and VectorDB
-                textChunks.upsert(chunksData)
-                // In Python, chunks_vdb stores vectors. Here we need to embed.
-                // InMemoryVectorStorage handles embedding in upsert if embeddingFunc is present.
-                // But data needs to be structured correctly.
-                val chunksVdbData =
-                    chunksData.mapValues { (_, v) ->
-                        mapOf(
-                            "content" to v["content"]!!,
-                            "full_doc_id" to v["full_doc_id"]!!,
-                            "file_path" to status.filePath,
-                        )
-                    }
-                chunksVdb.upsert(chunksVdbData)
-
-                // Extract Entities and Relations
-                // Passing chunksData directly
-                val (nodes, edges) = extractEntities(chunksData, globalConfig)
-
-                // Merge and Upsert Graph
-                mergeNodesAndEdges(
-                    nodes = nodes,
-                    edges = edges,
-                    knowledgeGraphInst = chunkEntityRelationGraph,
-                    entitiesVdb = entitiesVdb,
-                    relationshipsVdb = relationshipsVdb,
-                    globalConfig = globalConfig,
-                )
-
-                // Update Status to PROCESSED
-                docStatusStorage.upsert(mapOf(docId to mapOf("status" to DocStatus.PROCESSED.value)))
-            } catch (e: Exception) {
-                e.printStackTrace()
-                docStatusStorage.upsert(
-                    mapOf(
-                        docId to
-                            mapOf(
-                                "status" to DocStatus.FAILED.value,
-                                "error_msg" to (e.message ?: "Unknown error"),
-                            ),
-                    ),
-                )
-            }
-        }
-    }
-
+    /**
+     * Queries the LightRAG system.
+     * @param query The query to execute.
+     * @param param The query parameters.
+     * @return The query result.
+     */
     suspend fun query(
         query: String,
         param: QueryParam,
-    ): String {
-        ensureInitialized()
-        return when (param.mode) {
-            "local", "global", "hybrid", "mix" -> {
-                kgQuery(
-                    query = query,
-                    knowledgeGraphInst = chunkEntityRelationGraph,
-                    entitiesVdb = entitiesVdb,
-                    relationshipsVdb = relationshipsVdb,
-                    textChunksDb = textChunks,
-                    queryParam = param,
-                    globalConfig = globalConfig,
-                    chunksVdb = chunksVdb,
-                ) ?: "No result generated."
-            }
-            "naive" -> {
-                naiveQuery(
-                    query = query,
-                    chunksVdb = chunksVdb,
-                    queryParam = param,
-                    globalConfig = globalConfig,
-                ) ?: "No result generated."
-            }
-            "bypass" -> {
-                // Direct LLM call
-                try {
-                    val messages = mutableListOf<dev.langchain4j.data.message.ChatMessage>()
-                    // If we have conversation history, we could add it here
-                    // For now, just user query
-                    messages.add(dev.langchain4j.data.message.UserMessage(query))
-                    model.generate(messages).content().text()
-                } catch (e: Exception) {
-                    "Error generating response: ${e.message}"
-                }
-            }
-            else -> throw IllegalArgumentException("Unknown mode: ${param.mode}")
-        }
-    }
+    ): QueryResult? = queryService.query(query, param)
 
-    suspend fun getProcessingStatus(): Map<String, Int> {
-        return docStatusStorage.getStatusCounts()
-    }
+    /**
+     * Gets the processing status of the documents.
+     * @return A map of the status counts.
+     */
+    suspend fun getProcessingStatus(): Map<String, Int> = ingestionService.getProcessingStatus()
 
-    suspend fun deleteByDocId(docId: String): Map<String, String> {
-        // Mock deletion logic using storage
-        docStatusStorage.delete(listOf(docId))
-        return mapOf("status" to "success", "doc_id" to docId)
-    }
+    /**
+     * Deletes a document by its ID.
+     * @param docId The ID of the document to delete.
+     * @return A map of the status.
+     */
+    suspend fun deleteByDocId(docId: String): Map<String, String> = ingestionService.deleteByDocId(docId)
 }
