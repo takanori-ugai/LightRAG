@@ -84,6 +84,18 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/DeleteDocResult'
+  /documents/drop:
+    delete:
+      summary: Drop all persisted storage
+      tags:
+        - Documents
+      responses:
+        '200':
+          description: Drop result by storage component
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DropStorageResponse'
   /query:
     post:
       summary: Query LightRAG
@@ -456,6 +468,12 @@ components:
       required:
         - status
         - doc_id
+    DropStorageResponse:
+      type: object
+      additionalProperties:
+        type: object
+        additionalProperties:
+          type: string
     QueryRequest:
       type: object
       properties:
@@ -464,21 +482,25 @@ components:
         mode:
           type: string
           enum: [mix, naive, local, global, hybrid, bypass]
-          default: mix
+          default: hybrid
         only_need_context:
           type: boolean
         response_type:
           type: string
+          default: "String"
         top_k:
           type: integer
+          default: 5
         high_level_keywords:
           type: array
           items:
             type: string
+          default: []
         low_level_keywords:
           type: array
           items:
             type: string
+          default: []
         max_token_for_text_unit:
           type: integer
       required:

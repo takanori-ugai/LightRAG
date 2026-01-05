@@ -124,6 +124,11 @@ fun Application.configureDocumentRoutes(rag: LightRAG) {
                 val result = request.docIds.map { rag.deleteByDocId(it) }
                 call.respond(result)
             }
+
+            delete("/drop") {
+                val result = rag.storageManager.drop()
+                call.respond(result)
+            }
         }
     }
 }

@@ -39,27 +39,58 @@ object AnyValueSerializer : KSerializer<Any> {
 
 private fun Any?.toJsonElement(): JsonElement =
     when (this) {
-        null -> JsonNull
-        is JsonElement -> this
-        is Boolean -> JsonPrimitive(this)
-        is Number -> JsonPrimitive(this)
-        is String -> JsonPrimitive(this)
-        is Iterable<*> -> JsonArray(this.map { it.toJsonElement() })
-        is Map<*, *> ->
+        null -> {
+            JsonNull
+        }
+
+        is JsonElement -> {
+            this
+        }
+
+        is Boolean -> {
+            JsonPrimitive(this)
+        }
+
+        is Number -> {
+            JsonPrimitive(this)
+        }
+
+        is String -> {
+            JsonPrimitive(this)
+        }
+
+        is Iterable<*> -> {
+            JsonArray(this.map { it.toJsonElement() })
+        }
+
+        is Map<*, *> -> {
             JsonObject(
                 this.entries.associate { (k, v) ->
                     k.toString() to v.toJsonElement()
                 },
             )
-        else -> JsonPrimitive(this.toString())
+        }
+
+        else -> {
+            JsonPrimitive(this.toString())
+        }
     }
 
 private fun JsonElement.toAny(): Any =
     when (this) {
-        is JsonNull -> "null"
+        is JsonNull -> {
+            "null"
+        }
+
         is JsonPrimitive -> {
             booleanOrNull ?: intOrNull ?: doubleOrNull ?: content
         }
-        is JsonArray -> this.map { it.toAny() }
-        is JsonObject -> this.mapValues { it.value.toAny() }
+
+        is JsonArray -> {
+            this.map { it.toAny() }
+        }
+
+        is JsonObject -> {
+            this.mapValues { it.value.toAny() }
+        }
     }

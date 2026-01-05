@@ -87,10 +87,6 @@ fun Application.module() {
         swaggerUI(path = "swagger", swaggerFile = "openapi/documentation.yaml")
         staticResources("/ui", "static")
         get("/app") { call.respondRedirect("/ui/index.html") }
-        post("/admin/drop") {
-            val result = storageManager.drop()
-            call.respond(result)
-        }
     }
 
     configureDocumentRoutes(rag)
