@@ -173,6 +173,7 @@ private fun validateChunkSizes(
     chunkOverlapTokenSize: Int,
 ) {
     require(chunkTokenSize > 0) { "chunkTokenSize must be positive" }
+    require(chunkOverlapTokenSize >= 0) { "chunkOverlapTokenSize must be non-negative" }
     require(chunkTokenSize > chunkOverlapTokenSize) {
         "chunkTokenSize ($chunkTokenSize) must be greater than chunkOverlapTokenSize ($chunkOverlapTokenSize)"
     }
@@ -294,7 +295,7 @@ suspend fun mergeNodesAndEdges(
     }
 }
 
-private fun ExtractedRelation.key(): String = listOf(source, target).sorted().joinToString("#")
+private fun ExtractedRelation.key(): String = "${source}#${target}"
 
 private suspend fun upsertNodeAndVectors(
     name: String,
