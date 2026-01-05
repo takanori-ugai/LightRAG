@@ -220,6 +220,8 @@ suspend fun extractEntities(
             logger.error(e) { "Illegal state while extracting entities for chunk $chunkKey" }
         } catch (e: IllegalArgumentException) {
             logger.error(e) { "Invalid input while extracting entities for chunk $chunkKey" }
+        } catch (e: Exception) {
+            logger.error(e) { "Unexpected error while extracting entities for chunk $chunkKey" }
         }
     }
 
@@ -343,7 +345,7 @@ private suspend fun upsertEdgeAndVectors(
     relationshipsVdb: BaseVectorStorage,
     fullRelations: BaseKVStorage?,
 ) {
-    val first = edgeList.first()
+    val first = edgeList.firstOrNull() ?: return
     val src = first.srcId
     val tgt = first.tgtId
     val longestDesc = edgeList.maxByOrNull { it.description.length }?.description.orEmpty()
