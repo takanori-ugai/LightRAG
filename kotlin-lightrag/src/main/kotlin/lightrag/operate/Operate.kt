@@ -77,26 +77,31 @@ fun chunkingByTokenSize(
     chunkOverlapTokenSize: Int = 100,
     chunkTokenSize: Int = 1200,
 ): List<ChunkingResult> {
-    val tokens = tokenizer(content)
-    val results = mutableListOf<ChunkingResult>()
+    validateChunkSizes(chunkTokenSize, chunkOverlapTokenSize)
 
-    if (splitByCharacter != null) {
-        val rawChunks = content.split(splitByCharacter)
-        val processed =
+    val processedChunks =
+        if (splitByCharacter != null) {
+            val rawChunks = content.split(splitByCharacter)
             splitByCharacterChunks(
-                rawChunks,
-                splitByCharacterOnly,
-                chunkTokenSize,
-                chunkOverlapTokenSize,
-                tokenizer,
-                decoder,
-                tokens,
+                rawChunks = rawChunks,
+                splitByCharacterOnly = splitByCharacterOnly,
+                chunkTokenSize = chunkTokenSize,
+                chunkOverlapTokenSize = chunkOverlapTokenSize,
+                tokenizer = tokenizer,
+                decoder = decoder,
             )
-        processed.forEachIndexed { index, (len, chunk) -> results.add(ChunkingResult(len, chunk.trim(), index)) }
-    } else {
-        results.addAll(sequentialChunks(tokens, chunkTokenSize, chunkOverlapTokenSize, decoder))
+        } else {
+            sequentialChunks(
+                tokens = tokenizer(content),
+                chunkTokenSize = chunkTokenSize,
+                chunkOverlapTokenSize = chunkOverlapTokenSize,
+                decoder = decoder,
+            ).map { it.tokens to it.content }
+        }
+
+    return processedChunks.mapIndexed { index, (length, chunk) ->
+        ChunkingResult(length, chunk.trim(), index)
     }
-    return results
 }
 
 private fun splitByCharacterChunks(
@@ -106,33 +111,28 @@ private fun splitByCharacterChunks(
     chunkOverlapTokenSize: Int,
     tokenizer: (String) -> List<Int>,
     decoder: (List<Int>) -> String,
-    fullTokens: List<Int>,
 ): List<Pair<Int, String>> {
     val newChunks = mutableListOf<Pair<Int, String>>()
-    if (splitByCharacterOnly) {
-        rawChunks.forEach { chunk ->
-            val chunkTokens = tokenizer(chunk)
-            if (chunkTokens.size > chunkTokenSize) {
+    val overlapStep = chunkTokenSize - chunkOverlapTokenSize
+
+    rawChunks.forEach { chunk ->
+        val chunkTokens = tokenizer(chunk)
+        when {
+            chunkTokens.size <= chunkTokenSize -> {
+                newChunks.add(chunkTokens.size to chunk)
+            }
+
+            splitByCharacterOnly -> {
                 logger.warn {
                     "Chunk split_by_character exceeds token limit: len=${chunkTokens.size} limit=$chunkTokenSize"
                 }
                 throw IllegalArgumentException("Chunk token limit exceeded: ${chunkTokens.size} > $chunkTokenSize")
             }
-            newChunks.add(chunkTokens.size to chunk)
-        }
-    } else {
-        rawChunks.forEach { chunk ->
-            val chunkTokens = tokenizer(chunk)
-            if (chunkTokens.size > chunkTokenSize) {
-                var start = 0
-                while (start < chunkTokens.size) {
-                    val end = minOf(start + chunkTokenSize, fullTokens.size)
-                    val chunkContent = decoder(fullTokens.subList(start, end))
-                    newChunks.add(minOf(chunkTokenSize, fullTokens.size - start) to chunkContent)
-                    start += (chunkTokenSize - chunkOverlapTokenSize)
-                }
-            } else {
-                newChunks.add(chunkTokens.size to chunk)
+
+            else -> {
+                newChunks.addAll(
+                    splitTokensWithOverlap(chunkTokens, chunkTokenSize, overlapStep, decoder),
+                )
             }
         }
     }
@@ -145,18 +145,37 @@ private fun sequentialChunks(
     chunkOverlapTokenSize: Int,
     decoder: (List<Int>) -> String,
 ): List<ChunkingResult> {
-    val results = mutableListOf<ChunkingResult>()
+    val overlapStep = chunkTokenSize - chunkOverlapTokenSize
+    return splitTokensWithOverlap(tokens, chunkTokenSize, overlapStep, decoder).mapIndexed { index, (length, chunk) ->
+        ChunkingResult(length, chunk.trim(), index)
+    }
+}
+
+private fun splitTokensWithOverlap(
+    tokens: List<Int>,
+    chunkTokenSize: Int,
+    overlapStep: Int,
+    decoder: (List<Int>) -> String,
+): List<Pair<Int, String>> {
+    val newChunks = mutableListOf<Pair<Int, String>>()
     var start = 0
-    var index = 0
     while (start < tokens.size) {
         val end = minOf(start + chunkTokenSize, tokens.size)
-        val chunkTokens = tokens.subList(start, end)
-        val chunkContent = decoder(chunkTokens)
-        results.add(ChunkingResult(chunkTokens.size, chunkContent.trim(), index))
-        start += (chunkTokenSize - chunkOverlapTokenSize)
-        index++
+        val slice = tokens.subList(start, end)
+        newChunks.add(slice.size to decoder(slice))
+        start += overlapStep
     }
-    return results
+    return newChunks
+}
+
+private fun validateChunkSizes(
+    chunkTokenSize: Int,
+    chunkOverlapTokenSize: Int,
+) {
+    require(chunkTokenSize > 0) { "chunkTokenSize must be positive" }
+    require(chunkTokenSize > chunkOverlapTokenSize) {
+        "chunkTokenSize ($chunkTokenSize) must be greater than chunkOverlapTokenSize ($chunkOverlapTokenSize)"
+    }
 }
 
 /**
@@ -222,23 +241,24 @@ fun processExtractionResult(
     val edges = mutableMapOf<String, MutableList<RelationExtractionResult>>()
 
     result.entities.forEach { entity ->
-        nodes.computeIfAbsent(entity.name) { mutableListOf() }.add(
-            EntityExtractionResult(entity.name, entity.type, entity.description, chunkKey),
-        )
+        nodes
+            .computeIfAbsent(entity.name) { mutableListOf() }
+            .add(EntityExtractionResult(entity.name, entity.type, entity.description, chunkKey))
     }
 
     result.relations.forEach { relation ->
-        val key = listOf(relation.source, relation.target).sorted().joinToString("#")
-        edges.computeIfAbsent(key) { mutableListOf() }.add(
-            RelationExtractionResult(
-                relation.source,
-                relation.target,
-                relation.description,
-                relation.keywords,
-                1.0,
-                chunkKey,
-            ),
-        )
+        edges
+            .computeIfAbsent(relation.key()) { mutableListOf() }
+            .add(
+                RelationExtractionResult(
+                    relation.source,
+                    relation.target,
+                    relation.description,
+                    relation.keywords,
+                    1.0,
+                    chunkKey,
+                ),
+            )
     }
 
     return nodes to edges
@@ -265,72 +285,96 @@ suspend fun mergeNodesAndEdges(
 ) {
     // 1. Process Nodes
     for ((name, entityList) in nodes) {
-        // Simple merge: take the longest description and majority type
-        // In real impl, use LLM to summarize descriptions
-        val longestDesc = entityList.maxByOrNull { it.description.length }?.description ?: ""
-        val typeCounts = entityList.groupingBy { it.entityType }.eachCount()
-        val majorityType = typeCounts.maxByOrNull { it.value }?.key ?: "Unknown"
-        val sourceIds = entityList.joinToString(Constants.GRAPH_FIELD_SEP) { it.sourceId }
-
-        val nodeData =
-            mapOf(
-                "entity_id" to name,
-                "entity_type" to majorityType,
-                "description" to longestDesc,
-                "source_id" to sourceIds,
-            )
-
-        knowledgeGraphInst.upsertNode(name, nodeData)
-        fullEntities?.upsert(mapOf(name to nodeData))
-
-        // Update VDB
-        val entityContent = "$name\n$longestDesc"
-        val vdbData =
-            mapOf(
-                computeMd5(name) to
-                    mapOf(
-                        "content" to entityContent,
-                        "entity_name" to name,
-                    ),
-            )
-        entitiesVdb.upsert(vdbData)
+        upsertNodeAndVectors(name, entityList, knowledgeGraphInst, entitiesVdb, fullEntities)
     }
 
     // 2. Process Edges
     for ((key, edgeList) in edges) {
-        // Simple merge
-        val first = edgeList.first()
-        val src = first.srcId
-        val tgt = first.tgtId
-        val longestDesc = edgeList.maxByOrNull { it.description.length }?.description ?: ""
-        val allKeywords = edgeList.joinToString(", ") { it.keywords }
-        val weight = edgeList.sumOf { it.weight }
-        val sourceIds = edgeList.joinToString(Constants.GRAPH_FIELD_SEP) { it.sourceId }
-
-        val edgeData =
-            mapOf(
-                "weight" to weight.toString(),
-                "description" to longestDesc,
-                "keywords" to allKeywords,
-                "source_id" to sourceIds,
-                "src_id" to src,
-                "tgt_id" to tgt,
-            )
-
-        knowledgeGraphInst.upsertEdge(src, tgt, edgeData)
-        fullRelations?.upsert(mapOf(key to edgeData))
-
-        // Update VDB
-        val relContent = "$allKeywords\t$src\n$tgt\n$longestDesc"
-        val vdbData =
-            mapOf(
-                computeMd5(key) to
-                    mapOf(
-                        "content" to relContent,
-                        "src_id" to src,
-                        "tgt_id" to tgt,
-                    ),
-            )
-        relationshipsVdb.upsert(vdbData)
+        upsertEdgeAndVectors(key, edgeList, knowledgeGraphInst, relationshipsVdb, fullRelations)
     }
+}
+
+private fun ExtractedRelation.key(): String = listOf(source, target).sorted().joinToString("#")
+
+private suspend fun upsertNodeAndVectors(
+    name: String,
+    entityList: List<EntityExtractionResult>,
+    knowledgeGraphInst: BaseGraphStorage,
+    entitiesVdb: BaseVectorStorage,
+    fullEntities: BaseKVStorage?,
+) {
+    // Simple merge: take the longest description and majority type.
+    val longestDesc = entityList.maxByOrNull { it.description.length }?.description.orEmpty()
+    val majorityType =
+        entityList
+            .groupingBy { it.entityType }
+            .eachCount()
+            .maxByOrNull { it.value }
+            ?.key ?: "Unknown"
+    val sourceIds = entityList.joinToString(Constants.GRAPH_FIELD_SEP) { it.sourceId }
+
+    val nodeData =
+        mapOf(
+            "entity_id" to name,
+            "entity_type" to majorityType,
+            "description" to longestDesc,
+            "source_id" to sourceIds,
+        )
+
+    knowledgeGraphInst.upsertNode(name, nodeData)
+    fullEntities?.upsert(mapOf(name to nodeData))
+
+    // Update VDB
+    val entityContent = "$name\n$longestDesc"
+    val vdbData =
+        mapOf(
+            computeMd5(name) to
+                mapOf(
+                    "content" to entityContent,
+                    "entity_name" to name,
+                ),
+        )
+    entitiesVdb.upsert(vdbData)
+}
+
+private suspend fun upsertEdgeAndVectors(
+    key: String,
+    edgeList: List<RelationExtractionResult>,
+    knowledgeGraphInst: BaseGraphStorage,
+    relationshipsVdb: BaseVectorStorage,
+    fullRelations: BaseKVStorage?,
+) {
+    val first = edgeList.first()
+    val src = first.srcId
+    val tgt = first.tgtId
+    val longestDesc = edgeList.maxByOrNull { it.description.length }?.description.orEmpty()
+    val allKeywords = edgeList.joinToString(", ") { it.keywords }
+    val weight = edgeList.sumOf { it.weight }
+    val sourceIds = edgeList.joinToString(Constants.GRAPH_FIELD_SEP) { it.sourceId }
+
+    val edgeData =
+        mapOf(
+            "weight" to weight.toString(),
+            "description" to longestDesc,
+            "keywords" to allKeywords,
+            "source_id" to sourceIds,
+            "src_id" to src,
+            "tgt_id" to tgt,
+        )
+
+    knowledgeGraphInst.upsertEdge(src, tgt, edgeData)
+    fullRelations?.upsert(mapOf(key to edgeData))
+
+    // Update VDB
+    val relContent = "$allKeywords\t$src\n$tgt\n$longestDesc"
+    val vdbData =
+        mapOf(
+            computeMd5(key) to
+                mapOf(
+                    "content" to relContent,
+                    "src_id" to src,
+                    "tgt_id" to tgt,
+                ),
+        )
+    relationshipsVdb.upsert(vdbData)
 }
