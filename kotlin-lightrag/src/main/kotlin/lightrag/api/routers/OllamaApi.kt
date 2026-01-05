@@ -1,5 +1,11 @@
 package lightrag.api.routers
 
+import dev.langchain4j.data.message.SystemMessage
+import dev.langchain4j.data.message.UserMessage
+import dev.langchain4j.model.chat.ChatModel
+import dev.langchain4j.model.chat.StreamingChatModel
+import dev.langchain4j.model.chat.response.ChatResponse
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
@@ -7,10 +13,12 @@ import io.ktor.server.application.call
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
+import io.ktor.server.response.respondTextWriter
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import lightrag.core.LightRAG
@@ -117,12 +125,16 @@ data class OllamaMessage(
 /**
  * Configures the Ollama-compatible API routes for the Ktor application.
  *
- * This function sets up mock endpoints that mimic the Ollama API for version, tags, generation, and chat.
- *
- * @param rag The LightRAG instance (unused in the current mock implementation).
+ * @param rag The LightRAG instance (currently unused).
+ * @param chatModel The chat model used to power the API responses.
  */
-fun Application.configureOllamaRoutes(rag: LightRAG) {
-    logger.info { "Configuring Ollama-compatible routes with LightRAG storage manager ${rag.storageManager}" }
+fun Application.configureOllamaRoutes(
+    rag: LightRAG,
+    chatModel: ChatModel,
+) {
+    logger.info {
+        "Configuring Ollama-compatible routes with chat model ${chatModel::class.simpleName} and storage ${rag.storageManager::class.simpleName}"
+    }
     routing {
         route("/api") {
             // Ollama API is prefixed with /api in python code as well when included in main app
@@ -131,18 +143,77 @@ fun Application.configureOllamaRoutes(rag: LightRAG) {
             }
 
             get("/tags") {
-                // Mock
                 call.respond(OllamaTagResponse(listOf()))
             }
 
             post("/generate") {
                 val request = call.receive<OllamaGenerateRequest>()
-                call.respondText("Generate not implemented: ${request.model}", status = HttpStatusCode.NotImplemented)
+                val streamingModel = chatModel as? StreamingChatModel
+                if (request.stream && streamingModel != null) {
+                    call.respondTextWriter {
+                        val channel = Channel<String>(Channel.UNLIMITED)
+                        streamingModel.chat(
+                            listOf(UserMessage(request.prompt)),
+                            object : StreamingChatResponseHandler {
+                                override fun onPartialResponse(partialResponse: String) {
+                                    channel.trySend(partialResponse)
+                                }
+
+                                override fun onCompleteResponse(response: ChatResponse) {
+                                    channel.close()
+                                }
+
+                                override fun onError(error: Throwable) {
+                                    channel.close(error)
+                                }
+                            },
+                        )
+                        for (token in channel) {
+                            write(token)
+                            flush()
+                        }
+                    }
+                } else {
+                    val response = chatModel.chat(listOf(UserMessage(request.prompt)))
+                    call.respond(mapOf("response" to (response.aiMessage()?.text() ?: "")))
+                }
             }
 
             post("/chat") {
                 val request = call.receive<OllamaChatRequest>()
-                call.respondText("Chat not implemented: ${request.model}", status = HttpStatusCode.NotImplemented)
+                val prompt =
+                    request.messages.joinToString("\n") { message ->
+                        "${message.role}: ${message.content}"
+                    }
+                val streamingModel = chatModel as? StreamingChatModel
+                if (request.stream && streamingModel != null) {
+                    call.respondTextWriter {
+                        val channel = Channel<String>(Channel.UNLIMITED)
+                        streamingModel.chat(
+                            listOf(SystemMessage(prompt), UserMessage(request.messages.lastOrNull()?.content ?: "")),
+                            object : StreamingChatResponseHandler {
+                                override fun onPartialResponse(partialResponse: String) {
+                                    channel.trySend(partialResponse)
+                                }
+
+                                override fun onCompleteResponse(response: ChatResponse) {
+                                    channel.close()
+                                }
+
+                                override fun onError(error: Throwable) {
+                                    channel.close(error)
+                                }
+                            },
+                        )
+                        for (token in channel) {
+                            write(token)
+                            flush()
+                        }
+                    }
+                } else {
+                    val response = chatModel.chat(listOf(UserMessage(prompt)))
+                    call.respond(mapOf("response" to (response.aiMessage()?.text() ?: "")))
+                }
             }
         }
     }

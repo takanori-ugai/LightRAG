@@ -384,7 +384,7 @@ paths:
                 $ref: '#/components/schemas/OllamaTagResponse'
   /api/generate:
     post:
-      summary: Generate via Ollama (not implemented)
+      summary: Generate via Ollama-compatible endpoint
       tags:
         - API
       requestBody:
@@ -394,15 +394,18 @@ paths:
             schema:
               $ref: '#/components/schemas/OllamaGenerateRequest'
       responses:
-        '501':
-          description: Not implemented
+        '200':
+          description: Generated text
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                type: object
+                properties:
+                  response:
+                    type: string
   /api/chat:
     post:
-      summary: Chat via Ollama (not implemented)
+      summary: Chat via Ollama-compatible endpoint
       tags:
         - API
       requestBody:
@@ -412,12 +415,15 @@ paths:
             schema:
               $ref: '#/components/schemas/OllamaChatRequest'
       responses:
-        '501':
-          description: Not implemented
+        '200':
+          description: Chat response
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                type: object
+                properties:
+                  response:
+                    type: string
 components:
   schemas:
     InsertTextRequest:

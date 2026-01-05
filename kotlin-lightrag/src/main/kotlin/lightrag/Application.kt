@@ -1,5 +1,6 @@
 package lightrag
 
+import dev.langchain4j.model.chat.ChatModel
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -69,6 +70,7 @@ fun Application.module() {
 
     val rag by inject<LightRAG>()
     val storageManager by inject<StorageManager>()
+    val chatModel by inject<ChatModel>()
 
     val resetStorage = System.getenv("LIGHTRAG_RESET_STORAGE")?.equals("true", ignoreCase = true) == true
     if (resetStorage) {
@@ -92,5 +94,5 @@ fun Application.module() {
     configureDocumentRoutes(rag)
     configureQueryRoutes(rag)
     configureGraphRoutes(rag)
-    configureOllamaRoutes(rag)
+    configureOllamaRoutes(rag, chatModel)
 }
