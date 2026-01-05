@@ -5,14 +5,15 @@ import kotlinx.coroutines.runBlocking
 import lightrag.kg.neo4j.Neo4jGraphStorage
 import org.junit.After
 import org.junit.Before
-import org.junit.Ignore
 import org.junit.Test
 import kotlin.String
+import kotlin.test.Ignore
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+/** Integration-style checks for Neo4j graph storage (ignored unless a database is available). */
 @Ignore("Requires Neo4j database")
 class Neo4jGraphStorageTest {
     val apiKey = "***************************************************"
@@ -25,6 +26,7 @@ class Neo4jGraphStorageTest {
 
     private lateinit var storage: Neo4jGraphStorage
 
+    /** Sets up a Neo4jGraphStorage instance and clears existing data. */
     @Before
     fun setUp() {
         storage =
@@ -36,11 +38,12 @@ class Neo4jGraphStorageTest {
                             mapOf(
                                 "uri" to "neo4j://localhost:7687",
                                 "username" to "neo4j",
-                                "password" to "password",
+                                "password" to "Takasan0",
                             ),
                     ),
                 embeddingFunc =
-                    OpenAiEmbeddingModel.builder()
+                    OpenAiEmbeddingModel
+                        .builder()
                         .apiKey(apiKey)
                         .modelName("text-embedding-3-large")
                         .dimensions(3072)
@@ -52,6 +55,7 @@ class Neo4jGraphStorageTest {
         }
     }
 
+    /** Closes the Neo4j driver after each test run. */
     @After
     fun tearDown() {
         runBlocking {
@@ -59,7 +63,7 @@ class Neo4jGraphStorageTest {
         }
     }
 
-    @Ignore("Requires Neo4j database")
+    /** Validates basic graph CRUD operations against Neo4j storage. */
     @Test
     fun `test basic graph operations`() {
         runBlocking {
@@ -115,7 +119,7 @@ class Neo4jGraphStorageTest {
         }
     }
 
-    @Ignore("Requires Neo4j database")
+    /** Exercises degree calculations, adjacency, and label retrieval against Neo4j storage. */
     @Test
     fun `test advanced graph operations`() {
         runBlocking {
@@ -180,7 +184,7 @@ class Neo4jGraphStorageTest {
         }
     }
 
-    @Ignore("Requires Neo4j database")
+    //  @Ignore("Requires Neo4j database")
     @Test
     fun `test graph batch operations`() {
         runBlocking {
@@ -229,7 +233,6 @@ class Neo4jGraphStorageTest {
         }
     }
 
-    @Ignore("Requires Neo4j database")
     @Test
     fun `test graph special characters`() {
         runBlocking {
