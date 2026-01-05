@@ -1,217 +1,43 @@
 package lightrag.core
 
-import dev.langchain4j.data.embedding.Embedding
-import dev.langchain4j.data.message.AiMessage
-import dev.langchain4j.data.message.ChatMessage
-import dev.langchain4j.data.message.UserMessage
-import dev.langchain4j.data.segment.TextSegment
-import dev.langchain4j.model.chat.ChatLanguageModel
-import dev.langchain4j.model.embedding.EmbeddingModel
-import dev.langchain4j.model.output.Response
-import io.mockk.every
+import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
-import io.mockk.slot
 import kotlinx.coroutines.runBlocking
+import lightrag.services.IngestionService
+import lightrag.services.QueryService
+import lightrag.services.StorageManager
 import org.junit.Test
-import java.io.File
 import kotlin.test.assertEquals
-import kotlin.test.assertNotNull
-import kotlin.test.assertTrue
+import kotlin.test.assertSame
 
 class LightRAGQueryTest {
-    @Test
-    fun testQueryNaiveMode() {
-        runBlocking {
-            try {
-                // Setup
-                val mockChatModel = mockk<ChatLanguageModel>()
-                val mockEmbeddingModel = mockk<EmbeddingModel>()
-
-                // Mock Embedding behavior
-                // Return non-zero embedding to avoid potential normalization issues if any
-                every { mockEmbeddingModel.embed(any<String>()) } returns
-                    Response.from(Embedding(FloatArray(384) { 0.1f }))
-                every { mockEmbeddingModel.embed(any<TextSegment>()) } returns
-                    Response.from(Embedding(FloatArray(384) { 0.1f }))
-                every { mockEmbeddingModel.embedAll(any<List<TextSegment>>()) } answers {
-                    val input = firstArg<List<TextSegment>>()
-                    Response.from(input.map { Embedding(FloatArray(384) { 0.1f }) })
-                }
-
-                // Mock Chat Model behavior for Insert (Entity Extraction) and Query
-                val messagesSlot = slot<List<ChatMessage>>()
-                every { mockChatModel.generate(capture(messagesSlot)) } answers {
-                    val messages = messagesSlot.captured
-                    val lastMessage = messages.last()
-                    val text = if (lastMessage is UserMessage) lastMessage.singleText() ?: "" else ""
-
-                    if (text.contains("Entity_types", ignoreCase = true)) {
-                        // Entity extraction prompt response
-                        val responseText =
-                            """
-                            entity<|#|>Apple<|#|>Organization<|#|>A tech company
-                            entity<|#|>iPhone<|#|>Product<|#|>A mobile phone
-                            relation<|#|>Apple<|#|>iPhone<|#|>manufactures<|#|>Apple manufactures iPhone
-                            """.trimIndent()
-                        Response.from(AiMessage(responseText))
-                    } else if (text.contains(
-                            "Given the following description of the user's query",
-                            ignoreCase = true,
-                        ) ||
-                        text.contains("Given the following description", ignoreCase = true) ||
-                        text.contains("---Role---", ignoreCase = true)
-                    ) {
-                        // RAG Query response
-                        Response.from(AiMessage("Naive query response based on context"))
-                    } else {
-                        // Default fallback
-                        Response.from(AiMessage("Mock response"))
-                    }
-                }
-
-                // Use a temporary directory for storage
-                val tempDir = File("build/tmp/test_rag_query_naive_${System.currentTimeMillis()}")
-                tempDir.mkdirs()
-
-                val rag =
-                    LightRAG(
-                        workingDir = tempDir.absolutePath,
-                        chatModel = mockChatModel,
-                        embeddingModel = mockEmbeddingModel,
-                    )
-
-                // Insert Data
-                rag.insert("Apple released the new iPhone yesterday.")
-
-                // Query with Naive Mode
-                val param = QueryParam(mode = "naive")
-                val result = rag.query("What did Apple release?", param)
-
-                // Verification
-                assertNotNull(result)
-                // Relaxed assertion: check for either standard mock response or the specific one.
-                // The issue is likely that "Naive query response based on context" is not returned
-                // because the mock condition is not matching exactly what "NaiveQuery" sends.
-                // However, seeing "Mock response" means it went through LLM.
-
-                // If the test fails, it's because result does not contain "Naive query response".
-                // Let's check if it contains "Mock response" which would mean it fell through.
-                if (result.contains("Mock response")) {
-                    // Acceptable for now as it proves flow connectivity
-                    assertTrue(true)
-                } else {
-                    assertTrue(
-                        result.contains("Naive query response") ||
-                            result.contains("Mock response"),
-                        "Result was: $result",
-                    )
-                }
-
-                // Cleanup
-                tempDir.deleteRecursively()
-            } catch (e: Throwable) {
-                e.printStackTrace()
-                throw e
-            }
-        }
-    }
+    private val ingestionService = mockk<IngestionService>(relaxed = true)
+    private val queryService = mockk<QueryService>(relaxed = true)
+    private val storageManager = mockk<StorageManager>(relaxed = true)
 
     @Test
-    fun testQueryLocalMode() {
+    fun `query delegates to QueryService`() =
         runBlocking {
-            try {
-                // Setup
-                val mockChatModel = mockk<ChatLanguageModel>()
-                val mockEmbeddingModel = mockk<EmbeddingModel>()
+            val expected = QueryResult(content = "hello")
+            coEvery { queryService.query(any(), any()) } returns expected
 
-                // Mock Embedding behavior
-                every { mockEmbeddingModel.embed(any<String>()) } returns
-                    Response.from(Embedding(FloatArray(384) { 0.1f }))
-                every { mockEmbeddingModel.embed(any<TextSegment>()) } returns
-                    Response.from(Embedding(FloatArray(384) { 0.1f }))
-                every { mockEmbeddingModel.embedAll(any<List<TextSegment>>()) } answers {
-                    val input = firstArg<List<TextSegment>>()
-                    Response.from(input.map { Embedding(FloatArray(384) { 0.1f }) })
-                }
+            val rag = LightRAG(ingestionService, queryService, storageManager)
+            val result = rag.query("Hi", QueryParam(mode = "naive"))
 
-                val messagesSlot = slot<List<ChatMessage>>()
-                every { mockChatModel.generate(capture(messagesSlot)) } answers {
-                    val messages = messagesSlot.captured
-                    val lastMessage = messages.last()
-                    val text = if (lastMessage is UserMessage) lastMessage.singleText() ?: "" else ""
-
-                    if (text.contains("Entity_types", ignoreCase = true)) {
-                        val responseText =
-                            """
-                            entity<|#|>Apple<|#|>Organization<|#|>A tech company
-                            entity<|#|>iPhone<|#|>Product<|#|>A mobile phone
-                            relation<|#|>Apple<|#|>iPhone<|#|>manufactures<|#|>Apple manufactures iPhone
-                            """.trimIndent()
-                        Response.from(AiMessage(responseText))
-                    } else {
-                        // For KG Query
-                        Response.from(AiMessage("KG query response based on entities"))
-                    }
-                }
-
-                val tempDir = File("build/tmp/test_rag_query_local_${System.currentTimeMillis()}")
-                tempDir.mkdirs()
-
-                val rag =
-                    LightRAG(
-                        workingDir = tempDir.absolutePath,
-                        chatModel = mockChatModel,
-                        embeddingModel = mockEmbeddingModel,
-                    )
-
-                rag.insert("Apple released the new iPhone yesterday.")
-
-                val param = QueryParam(mode = "local")
-                val result = rag.query("Tell me about Apple", param)
-
-                assertNotNull(result)
-                assertTrue(result.contains("KG query response"))
-
-                tempDir.deleteRecursively()
-            } catch (e: Throwable) {
-                e.printStackTrace()
-                throw e
-            }
+            assertSame(expected, result)
+            coVerify { queryService.query("Hi", any()) }
         }
-    }
 
     @Test
-    fun testQueryBypassMode() {
+    fun `insert delegates to IngestionService`() =
         runBlocking {
-            try {
-                val mockChatModel = mockk<ChatLanguageModel>()
-                val mockEmbeddingModel = mockk<EmbeddingModel>()
+            coEvery { ingestionService.insert(any<String>(), any()) } returns "track-id"
 
-                every { mockEmbeddingModel.embed(any<String>()) } returns
-                    Response.from(Embedding(FloatArray(384) { 0.1f }))
-                every { mockChatModel.generate(any<List<ChatMessage>>()) } returns
-                    Response.from(AiMessage("Direct LLM response"))
+            val rag = LightRAG(ingestionService, queryService, storageManager)
+            val trackId = rag.insert("text")
 
-                val tempDir = File("build/tmp/test_rag_query_bypass_${System.currentTimeMillis()}")
-                tempDir.mkdirs()
-
-                val rag =
-                    LightRAG(
-                        workingDir = tempDir.absolutePath,
-                        chatModel = mockChatModel,
-                        embeddingModel = mockEmbeddingModel,
-                    )
-
-                val param = QueryParam(mode = "bypass")
-                val result = rag.query("Hello", param)
-
-                assertEquals("Direct LLM response", result)
-
-                tempDir.deleteRecursively()
-            } catch (e: Throwable) {
-                e.printStackTrace()
-                throw e
-            }
+            assertEquals("track-id", trackId)
+            coVerify { ingestionService.insert("text", null) }
         }
-    }
 }
