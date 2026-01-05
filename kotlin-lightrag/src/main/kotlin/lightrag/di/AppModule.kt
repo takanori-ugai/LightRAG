@@ -7,11 +7,13 @@ import com.knuddels.jtokkit.api.EncodingType
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
 import dev.langchain4j.model.chat.ChatModel
+import dev.langchain4j.model.chat.StreamingChatModel
 import dev.langchain4j.model.embedding.EmbeddingModel
 import lightrag.core.AddonConfig
 import lightrag.core.LightRAG
 import lightrag.core.LightRagOverrides
 import lightrag.core.Neo4jConfig
+import lightrag.llm.DualChatModel
 import lightrag.llm.LLMFactory
 import lightrag.services.IngestionService
 import lightrag.services.QueryService
@@ -76,14 +78,26 @@ val appModule =
             )
         }
 
-        single<ChatModel> {
+        single {
             val lightRagConfig = get<LightRagConfig>()
-            LLMFactory.createChatModel(
-                binding = "openai",
-                modelName = lightRagConfig.openai.chatModelName,
-                apiKey = lightRagConfig.openai.apiKey,
-            )
+            val chatModel =
+                LLMFactory.createChatModel(
+                    binding = "openai",
+                    modelName = lightRagConfig.openai.chatModelName,
+                    apiKey = lightRagConfig.openai.apiKey,
+                )
+            val streamingChatModel =
+                LLMFactory.createStreamingChatModel(
+                    binding = "openai",
+                    modelName = lightRagConfig.openai.chatModelName,
+                    apiKey = lightRagConfig.openai.apiKey,
+                )
+            DualChatModel(chatModel, streamingChatModel)
         }
+
+        single<ChatModel> { get<DualChatModel>() }
+
+        single<StreamingChatModel> { get<DualChatModel>() }
 
         single<EmbeddingModel> {
             val lightRagConfig = get<LightRagConfig>()

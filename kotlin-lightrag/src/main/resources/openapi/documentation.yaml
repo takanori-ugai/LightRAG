@@ -116,12 +116,18 @@ paths:
                 $ref: '#/components/schemas/QueryResponse'
   /query/stream:
     post:
-      summary: Streamed query (not implemented)
+      summary: Stream a query response
       tags:
         - Query
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryRequest'
       responses:
-        '501':
-          description: Not implemented
+        '200':
+          description: Streamed tokens
           content:
             text/plain:
               schema:
