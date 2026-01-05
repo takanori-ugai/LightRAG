@@ -17,6 +17,9 @@ detekt {
 group = "com.lightrag"
 version = "0.0.1"
 
+val ktorVersion = "2.3.12"
+val koinVersion = "3.5.6"
+
 application {
     mainClass.set("lightrag.ApplicationKt")
 }
@@ -35,21 +38,22 @@ repositories {
 // }
 
 dependencies {
-    implementation("io.ktor:ktor-server-core:2.3.12")
-    implementation("io.ktor:ktor-server-netty:2.3.12")
-    implementation("io.ktor:ktor-server-content-negotiation:2.3.12")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.12")
-    implementation("io.ktor:ktor-server-swagger:2.3.12")
-    implementation("io.ktor:ktor-server-cors:2.3.12")
+    implementation(platform("io.ktor:ktor-bom:$ktorVersion"))
+    implementation("io.ktor:ktor-server-core")
+    implementation("io.ktor:ktor-server-netty")
+    implementation("io.ktor:ktor-server-content-negotiation")
+    implementation("io.ktor:ktor-serialization-kotlinx-json")
+    implementation("io.ktor:ktor-server-swagger")
+    implementation("io.ktor:ktor-server-cors")
     implementation("ch.qos.logback:logback-classic:1.5.13")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
     implementation("io.github.oshai:kotlin-logging-jvm:5.1.0")
 
     // Koin for Ktor
-    implementation("io.insert-koin:koin-ktor:4.1.1")
-    implementation("io.insert-koin:koin-core:4.1.1")
-    implementation("io.insert-koin:koin-logger-slf4j:4.1.1")
+    implementation("io.insert-koin:koin-ktor:$koinVersion")
+    implementation("io.insert-koin:koin-core:$koinVersion")
+    implementation("io.insert-koin:koin-logger-slf4j:$koinVersion")
 
     // LangChain4j dependencies
     implementation("dev.langchain4j:langchain4j:1.9.1")

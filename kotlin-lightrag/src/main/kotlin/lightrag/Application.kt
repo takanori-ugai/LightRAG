@@ -18,6 +18,9 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.modules.SerializersModule
+import kotlinx.serialization.modules.contextual
 import lightrag.api.routers.configureDocumentRoutes
 import lightrag.api.routers.configureGraphRoutes
 import lightrag.api.routers.configureOllamaRoutes
@@ -25,6 +28,7 @@ import lightrag.api.routers.configureQueryRoutes
 import lightrag.core.LightRAG
 import lightrag.di.appModule
 import lightrag.services.StorageManager
+import lightrag.utils.AnyValueSerializer
 import org.koin.ktor.ext.inject
 import org.koin.ktor.plugin.Koin
 
@@ -43,7 +47,16 @@ fun main() {
  */
 fun Application.module() {
     install(ContentNegotiation) {
-        json()
+        json(
+            Json {
+                ignoreUnknownKeys = true
+                prettyPrint = true
+                serializersModule =
+                    SerializersModule {
+                        contextual(Any::class, AnyValueSerializer)
+                    }
+            },
+        )
     }
     install(CORS) {
         anyHost()

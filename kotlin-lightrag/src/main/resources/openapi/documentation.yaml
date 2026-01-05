@@ -102,8 +102,90 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GraphLabelsResponse'
-  /graph/graphs:
+                type: array
+                items:
+                  type: string
+  /graph/label/popular:
+    get:
+      summary: List popular graph labels
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 300
+      responses:
+        '200':
+          description: Popular labels
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+  /graph/label/search:
+    get:
+      summary: Search graph labels
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        '200':
+          description: Matching labels
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        '400':
+          description: Missing query
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /graph/entity/exists:
+    get:
+      summary: Check if an entity exists
+      parameters:
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Entity existence result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  exists:
+                    type: boolean
+                required:
+                  - exists
+        '400':
+          description: Missing name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /graphs:
     get:
       summary: Get a graph by label
       parameters:
@@ -112,6 +194,18 @@ paths:
           required: true
           schema:
             type: string
+        - name: max_depth
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 3
+        - name: max_nodes
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1000
       responses:
         '200':
           description: Graph content
@@ -122,9 +216,9 @@ paths:
         '400':
           description: Missing label
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: '#/components/schemas/ErrorResponse'
   /graph/entity/edit:
     post:
       summary: Update an entity
@@ -140,7 +234,23 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StatusMessage'
+                $ref: '#/components/schemas/GraphMutationResponse'
+  /graph/relation/edit:
+    post:
+      summary: Update a relation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RelationUpdateRequest'
+      responses:
+        '200':
+          description: Update result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GraphMutationResponse'
   /graph/entity/create:
     post:
       summary: Create an entity
@@ -156,7 +266,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StatusMessage'
+                $ref: '#/components/schemas/GraphMutationResponse'
   /graph/relation/create:
     post:
       summary: Create a relation
@@ -172,7 +282,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StatusMessage'
+                $ref: '#/components/schemas/GraphMutationResponse'
   /graph/entities/merge:
     post:
       summary: Merge entities
@@ -188,7 +298,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/StatusMessage'
+                $ref: '#/components/schemas/GraphMutationResponse'
   /api/version:
     get:
       summary: Ollama-compatible version endpoint
@@ -324,28 +434,28 @@ components:
       required:
         - response
     GraphLabelsResponse:
-      type: object
-      properties:
-        labels:
-          type: array
-          items:
-            type: string
-      required:
-        - labels
+      type: array
+      items:
+        type: string
     KnowledgeGraphResponse:
       type: object
       properties:
         nodes:
           type: array
           items:
-            type: string
+            type: object
+            additionalProperties: {}
         edges:
           type: array
           items:
-            type: string
+            type: object
+            additionalProperties: {}
+        isTruncated:
+          type: boolean
       required:
         - nodes
         - edges
+        - isTruncated
     EntityUpdateRequest:
       type: object
       properties:
@@ -389,6 +499,21 @@ components:
         - source_entity
         - target_entity
         - relation_data
+    RelationUpdateRequest:
+      type: object
+      properties:
+        source_id:
+          type: string
+        target_id:
+          type: string
+        updated_data:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+        - source_id
+        - target_id
+        - updated_data
     EntityMergeRequest:
       type: object
       properties:
@@ -401,7 +526,23 @@ components:
       required:
         - entities_to_change
         - entity_to_change_into
-    StatusMessage:
+    GraphMutationResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        message:
+          type: string
+        data:
+          type: object
+          additionalProperties: {}
+        operation_summary:
+          type: object
+          additionalProperties: {}
+      required:
+        - status
+        - message
+    ErrorResponse:
       type: object
       properties:
         status:

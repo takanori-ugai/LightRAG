@@ -177,11 +177,11 @@ class InMemoryGraphStorageTest {
             assertTrue(allLabels.contains(node2Id))
             assertTrue(allLabels.contains(node3Id))
 
-            // 6. Test getKnowledgeGraph (placeholder in InMemoryGraphStorage, but we can test it returns something)
+            // 6. Test getKnowledgeGraph
             val kg = storage.getKnowledgeGraph("*", 2, 10)
-            assertNotNull(kg)
-            // InMemoryGraphStorage implementation returns empty KG currently, so we just check type/existence
-            // If implementation changes, update assertions
+            assertEquals(3, kg.nodes.size)
+            assertEquals(2, kg.edges.size)
+            assertFalse(kg.isTruncated)
 
             // 7. Test deleteNode
             storage.deleteNode(node3Id)
@@ -303,9 +303,9 @@ class InMemoryGraphStorageTest {
         }
     }
 
-    /** Placeholder behavior: knowledge graph export should yield an empty graph structure. */
+    /** Knowledge graph traversal should honor depth/max_nodes and report truncation. */
     @Test
-    fun `knowledge graph placeholder returns empty graph`() {
+    fun `knowledge graph traversal returns connected component`() {
         runBlocking {
             val storage =
                 InMemoryGraphStorage(
@@ -313,10 +313,23 @@ class InMemoryGraphStorageTest {
                     workspace = "ws",
                     embeddingFunc = TestEmbeddings.mockEmbeddingModel(),
                 )
-            val kg = storage.getKnowledgeGraph(nodeLabel = "any", maxDepth = 3, maxNodes = 10)
-            assertTrue(kg.nodes.isEmpty())
-            assertTrue(kg.edges.isEmpty())
-            assertFalse(kg.isTruncated)
+            storage.upsertNode("A", mapOf("entity_id" to "A"))
+            storage.upsertNode("B", mapOf("entity_id" to "B"))
+            storage.upsertNode("C", mapOf("entity_id" to "C"))
+            storage.upsertNode("D", mapOf("entity_id" to "D"))
+            storage.upsertEdge("A", "B", mapOf("type" to "rel"))
+            storage.upsertEdge("B", "C", mapOf("type" to "rel"))
+            storage.upsertEdge("C", "D", mapOf("type" to "rel"))
+
+            val depthLimited = storage.getKnowledgeGraph(nodeLabel = "A", maxDepth = 1, maxNodes = 10)
+            assertEquals(2, depthLimited.nodes.size)
+            assertEquals(1, depthLimited.edges.size)
+            assertFalse(depthLimited.isTruncated)
+
+            val truncated = storage.getKnowledgeGraph(nodeLabel = "A", maxDepth = 5, maxNodes = 2)
+            assertEquals(2, truncated.nodes.size)
+            assertEquals(1, truncated.edges.size)
+            assertTrue(truncated.isTruncated)
         }
     }
 

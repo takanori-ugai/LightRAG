@@ -263,8 +263,88 @@ class InMemoryGraphStorage(
         maxDepth: Int,
         maxNodes: Int,
     ): KnowledgeGraph {
-        // BFS Implementation placeholder
-        return KnowledgeGraph(emptyList(), emptyList())
+        if (maxNodes <= 0) return KnowledgeGraph(emptyList(), emptyList())
+
+        val nodesResult = mutableListOf<Map<String, Any>>()
+        val edgesResult = mutableListOf<Map<String, Any>>()
+        val visitedNodes = mutableSetOf<String>()
+        val queuedNodes = mutableSetOf<String>()
+        val visitedEdges = mutableSetOf<Pair<String, String>>() // normalized undirected pairs
+        var isTruncated = false
+
+        val queue = ArrayDeque<Pair<String, Int>>() // nodeId, depth
+
+        fun enqueueStart(nodeId: String) {
+            if (nodeId !in queuedNodes && queuedNodes.size < maxNodes) {
+                queue.add(nodeId to 0)
+                queuedNodes.add(nodeId)
+            } else if (nodeId !in queuedNodes) {
+                isTruncated = true
+            }
+        }
+
+        if (nodeLabel == "*") {
+            nodes.keys.sorted().forEach { enqueueStart(it) }
+        } else if (nodes.containsKey(nodeLabel)) {
+            enqueueStart(nodeLabel)
+        } else {
+            return KnowledgeGraph(emptyList(), emptyList())
+        }
+
+        while (queue.isNotEmpty() && visitedNodes.size < maxNodes) {
+            val (currentId, depth) = queue.removeFirst()
+            val currentData = nodes[currentId] ?: emptyMap()
+
+            if (currentId in visitedNodes || depth > maxDepth) continue
+
+            val nodeMap =
+                mapOf(
+                    "id" to currentId,
+                    "labels" to listOf(currentId),
+                    "properties" to (if (currentData.containsKey("entity_id")) currentData else currentData + ("entity_id" to currentId)),
+                )
+            nodesResult.add(nodeMap)
+            visitedNodes.add(currentId)
+
+            if (depth == maxDepth || visitedNodes.size >= maxNodes) {
+                if (queue.isNotEmpty()) isTruncated = true
+                continue
+            }
+
+            val neighbors = edges[currentId] ?: emptyMap()
+            for ((neighborId, edgeData) in neighbors) {
+                val normalized =
+                    if (currentId < neighborId) currentId to neighborId else neighborId to currentId
+
+                if (neighborId !in queuedNodes && depth + 1 <= maxDepth) {
+                    if (queuedNodes.size < maxNodes) {
+                        queue.add(neighborId to depth + 1)
+                        queuedNodes.add(neighborId)
+                    } else {
+                        isTruncated = true
+                    }
+                }
+
+                if (neighborId in queuedNodes && visitedEdges.add(normalized)) {
+                    val edgeType = edgeData["type"] ?: edgeData["relationship"] ?: "RELATED"
+                    val edgeMap =
+                        mapOf(
+                            "id" to "${normalized.first}--${normalized.second}",
+                            "type" to edgeType,
+                            "source" to currentId,
+                            "target" to neighborId,
+                            "properties" to edgeData,
+                        )
+                    edgesResult.add(edgeMap)
+                }
+            }
+        }
+
+        if (visitedNodes.size >= maxNodes && (queue.isNotEmpty() || nodes.size > visitedNodes.size)) {
+            isTruncated = true
+        }
+
+        return KnowledgeGraph(nodesResult, edgesResult, isTruncated)
     }
 
     /**
