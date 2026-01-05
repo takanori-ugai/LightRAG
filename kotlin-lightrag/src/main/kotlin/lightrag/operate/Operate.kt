@@ -293,7 +293,7 @@ suspend fun mergeNodesAndEdges(
     }
 }
 
-private fun ExtractedRelation.key(): String = "${source}#${target}"
+private fun ExtractedRelation.key(): String = "$source#$target"
 
 private suspend fun upsertNodeAndVectors(
     name: String,
