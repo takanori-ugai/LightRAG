@@ -1,4 +1,5 @@
 import org.jlleitschuh.gradle.ktlint.reporter.ReporterType
+import java.io.File
 
 plugins {
     kotlin("jvm") version "2.3.0"
@@ -19,6 +20,18 @@ version = "0.0.1"
 
 val ktorVersion = "2.3.12"
 val koinVersion = "3.5.6"
+val javafxVersion = "21.0.5"
+val osName = System.getProperty("os.name").lowercase()
+val archName = System.getProperty("os.arch").lowercase()
+val javafxPlatform =
+    when {
+        osName.contains("mac") && archName.contains("aarch64") -> "mac-aarch64"
+        osName.contains("mac") -> "mac"
+        osName.contains("win") && archName.contains("aarch64") -> "win-aarch64"
+        osName.contains("win") -> "win"
+        archName.contains("aarch64") || archName.contains("arm64") -> "linux-aarch64"
+        else -> "linux"
+    }
 
 application {
     mainClass.set("lightrag.ApplicationKt")
@@ -28,14 +41,6 @@ repositories {
     mavenCentral()
     gradlePluginPortal()
 }
-
-// sourceSets {
-//    main {
-//        kotlin {
-//            exclude("lightrag/examples/**")
-//        }
-//    }
-// }
 
 dependencies {
     implementation(platform("io.ktor:ktor-bom:$ktorVersion"))
@@ -60,6 +65,10 @@ dependencies {
     implementation("dev.langchain4j:langchain4j-open-ai:1.9.1")
     implementation("dev.langchain4j:langchain4j-ollama:1.9.1")
     implementation("dev.langchain4j:langchain4j-community-neo4j:1.9.1-beta17")
+
+    implementation("org.openjfx:javafx-base:$javafxVersion:$javafxPlatform")
+    implementation("org.openjfx:javafx-graphics:$javafxVersion:$javafxPlatform")
+    implementation("org.openjfx:javafx-controls:$javafxVersion:$javafxPlatform")
 
     // JTokkit
     implementation("com.knuddels:jtokkit:1.1.0")
@@ -92,6 +101,25 @@ tasks {
             },
         )
         classpath = sourceSets.main.get().runtimeClasspath
+    }
+}
+
+// Configure JavaFX runtime options for the run/execute tasks to avoid module warnings and missing modules.
+tasks.withType<JavaExec>().configureEach {
+    doFirst {
+        val javafxJars =
+            configurations.runtimeClasspath
+                .get()
+                .filter { it.name.startsWith("javafx-") }
+                .files
+        if (javafxJars.isNotEmpty()) {
+            jvmArgs(
+                "--module-path",
+                javafxJars.joinToString(File.pathSeparator),
+                "--add-modules",
+                "javafx.controls,javafx.graphics",
+            )
+        }
     }
 }
 

@@ -353,9 +353,7 @@ fun Application.configureGraphRoutes(rag: LightRAG) {
                 }
 
                 runCatching {
-                    if (graph.hasNode(request.entityName)) {
-                        throw IllegalArgumentException("Entity '${request.entityName}' already exists")
-                    }
+                    require(!graph.hasNode(request.entityName)) { "Entity '${request.entityName}' already exists" }
                     val data = request.entityData.toMutableMap()
                     data.putIfAbsent("entity_id", request.entityName)
                     graph.upsertNode(request.entityName, data)
@@ -463,14 +461,12 @@ fun Application.configureGraphRoutes(rag: LightRAG) {
                 }
 
                 runCatching {
-                    if (!graph.hasNode(request.entityToChangeInto)) {
-                        throw IllegalArgumentException("Target entity '${request.entityToChangeInto}' does not exist")
+                    require(graph.hasNode(request.entityToChangeInto)) {
+                        "Target entity '${request.entityToChangeInto}' does not exist"
                     }
 
                     request.entitiesToChange.forEach { source ->
-                        if (!graph.hasNode(source)) {
-                            throw IllegalArgumentException("Source entity '$source' does not exist")
-                        }
+                        require(graph.hasNode(source)) { "Source entity '$source' does not exist" }
                     }
 
                     request.entitiesToChange.forEach { source ->
