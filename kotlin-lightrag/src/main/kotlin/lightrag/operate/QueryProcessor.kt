@@ -451,8 +451,9 @@ class QueryProcessor(
 
     private fun buildEntitiesStr(entities: List<Map<String, Any>>): String =
         entities.joinToString("\n") { entity ->
+            val content = (entity["content"] ?: entity["description"] ?: "").toString()
             """{ "entity_name": "${entity["entity_name"]}", "content": "${
-                JsonUtils.escape((entity["content"] ?: "").toString())
+                JsonUtils.escape(content)
             }" }"""
         }
 

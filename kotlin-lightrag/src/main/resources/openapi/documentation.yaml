@@ -471,6 +471,14 @@ components:
           type: string
         top_k:
           type: integer
+        high_level_keywords:
+          type: array
+          items:
+            type: string
+        low_level_keywords:
+          type: array
+          items:
+            type: string
         max_token_for_text_unit:
           type: integer
       required:

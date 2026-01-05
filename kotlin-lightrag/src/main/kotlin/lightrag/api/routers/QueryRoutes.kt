@@ -35,6 +35,10 @@ data class QueryRequest(
     val topK: Int? = null,
     @SerialName("max_token_for_text_unit")
     val maxTokenForTextUnit: Int? = null,
+    @SerialName("high_level_keywords")
+    val highLevelKeywords: List<String>? = null,
+    @SerialName("low_level_keywords")
+    val lowLevelKeywords: List<String>? = null,
 )
 
 /**
@@ -65,6 +69,8 @@ fun Application.configureQueryRoutes(rag: LightRAG) {
                         onlyNeedContext = request.onlyNeedContext ?: false,
                         responseType = request.responseType,
                         topK = request.topK ?: 10,
+                        hlKeywords = request.highLevelKeywords ?: emptyList(),
+                        llKeywords = request.lowLevelKeywords ?: emptyList(),
                     )
 
                 val result = rag.query(request.query, param)
