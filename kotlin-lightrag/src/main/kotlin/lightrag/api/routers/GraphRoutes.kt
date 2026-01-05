@@ -519,7 +519,7 @@ fun Application.configureGraphRoutes(rag: LightRAG) {
             }
         }
 
-        get("/graphs") {
+        get("/graph/graphs") {
             val label = call.request.queryParameters["label"]
             if (label.isNullOrBlank()) {
                 call.respond(HttpStatusCode.BadRequest, mapOf("status" to "error", "message" to "Missing label parameter"))

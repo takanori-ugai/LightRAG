@@ -4,10 +4,21 @@ info:
   version: "1.0.0"
 servers:
   - url: http://localhost:8080
+tags:
+  - name: Documents
+    description: Document ingestion and management
+  - name: Query
+    description: Retrieval and answering endpoints
+  - name: Graph
+    description: Knowledge graph endpoints
+  - name: API
+    description: Ollama-compatible mock endpoints
 paths:
   /documents/text:
     post:
       summary: Insert a single text document
+      tags:
+        - Documents
       requestBody:
         required: true
         content:
@@ -24,6 +35,8 @@ paths:
   /documents/texts:
     post:
       summary: Insert multiple text documents
+      tags:
+        - Documents
       requestBody:
         required: true
         content:
@@ -40,6 +53,8 @@ paths:
   /documents/status_counts:
     get:
       summary: Get document processing status counts
+      tags:
+        - Documents
       responses:
         '200':
           description: Counts by status
@@ -52,6 +67,8 @@ paths:
   /documents/delete_document:
     delete:
       summary: Delete documents by id
+      tags:
+        - Documents
       requestBody:
         required: true
         content:
@@ -70,6 +87,8 @@ paths:
   /query:
     post:
       summary: Query LightRAG
+      tags:
+        - Query
       requestBody:
         required: true
         content:
@@ -86,6 +105,8 @@ paths:
   /query/stream:
     post:
       summary: Streamed query (not implemented)
+      tags:
+        - Query
       responses:
         '501':
           description: Not implemented
@@ -96,6 +117,8 @@ paths:
   /graph/label/list:
     get:
       summary: List graph labels
+      tags:
+        - Graph
       responses:
         '200':
           description: Available labels
@@ -108,6 +131,8 @@ paths:
   /graph/label/popular:
     get:
       summary: List popular graph labels
+      tags:
+        - Graph
       parameters:
         - name: limit
           in: query
@@ -129,6 +154,8 @@ paths:
   /graph/label/search:
     get:
       summary: Search graph labels
+      tags:
+        - Graph
       parameters:
         - name: q
           in: query
@@ -161,6 +188,8 @@ paths:
   /graph/entity/exists:
     get:
       summary: Check if an entity exists
+      tags:
+        - Graph
       parameters:
         - name: name
           in: query
@@ -185,9 +214,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /graphs:
+  /graph/graphs:
     get:
       summary: Get a graph by label
+      tags:
+        - Graph
       parameters:
         - name: label
           in: query
@@ -222,6 +253,8 @@ paths:
   /graph/entity/edit:
     post:
       summary: Update an entity
+      tags:
+        - Graph
       requestBody:
         required: true
         content:
@@ -238,6 +271,8 @@ paths:
   /graph/relation/edit:
     post:
       summary: Update a relation
+      tags:
+        - Graph
       requestBody:
         required: true
         content:
@@ -254,6 +289,8 @@ paths:
   /graph/entity/create:
     post:
       summary: Create an entity
+      tags:
+        - Graph
       requestBody:
         required: true
         content:
@@ -270,6 +307,8 @@ paths:
   /graph/relation/create:
     post:
       summary: Create a relation
+      tags:
+        - Graph
       requestBody:
         required: true
         content:
@@ -286,6 +325,8 @@ paths:
   /graph/entities/merge:
     post:
       summary: Merge entities
+      tags:
+        - Graph
       requestBody:
         required: true
         content:
@@ -302,6 +343,8 @@ paths:
   /api/version:
     get:
       summary: Ollama-compatible version endpoint
+      tags:
+        - API
       responses:
         '200':
           description: Version info
@@ -312,6 +355,8 @@ paths:
   /api/tags:
     get:
       summary: List available Ollama models (mock)
+      tags:
+        - API
       responses:
         '200':
           description: Tag list
@@ -322,6 +367,8 @@ paths:
   /api/generate:
     post:
       summary: Generate via Ollama (not implemented)
+      tags:
+        - API
       requestBody:
         required: true
         content:
@@ -338,6 +385,8 @@ paths:
   /api/chat:
     post:
       summary: Chat via Ollama (not implemented)
+      tags:
+        - API
       requestBody:
         required: true
         content:
