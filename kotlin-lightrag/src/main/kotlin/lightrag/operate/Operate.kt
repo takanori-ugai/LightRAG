@@ -96,7 +96,7 @@ fun chunkingByTokenSize(
                 chunkTokenSize = chunkTokenSize,
                 chunkOverlapTokenSize = chunkOverlapTokenSize,
                 decoder = decoder,
-            ).map { it.tokens to it.content }
+            )
         }
 
     return processedChunks.mapIndexed { index, (length, chunk) ->
@@ -144,11 +144,9 @@ private fun sequentialChunks(
     chunkTokenSize: Int,
     chunkOverlapTokenSize: Int,
     decoder: (List<Int>) -> String,
-): List<ChunkingResult> {
+): List<Pair<Int, String>> {
     val overlapStep = chunkTokenSize - chunkOverlapTokenSize
-    return splitTokensWithOverlap(tokens, chunkTokenSize, overlapStep, decoder).mapIndexed { index, (length, chunk) ->
-        ChunkingResult(length, chunk.trim(), index)
-    }
+    return splitTokensWithOverlap(tokens, chunkTokenSize, overlapStep, decoder)
 }
 
 private fun splitTokensWithOverlap(
