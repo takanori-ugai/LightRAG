@@ -21,6 +21,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
+/** Unit tests validating naive query behavior, caching, and streaming paths. */
 class NaiveQueryTest {
     private fun defaultParams(
         query: String = "What is AI?",
@@ -60,6 +61,7 @@ class NaiveQueryTest {
         )
     }
 
+    /** Ensures blank queries return the fail response prompt. */
     @Test
     fun `returns fail response when query is blank`() =
         runBlocking {
@@ -69,6 +71,7 @@ class NaiveQueryTest {
             assertEquals(Prompts.FAIL_RESPONSE, result.content)
         }
 
+    /** Verifies an error is surfaced when no chat model is configured. */
     @Test
     fun `returns error when chat model is missing`() =
         runBlocking {
@@ -79,6 +82,7 @@ class NaiveQueryTest {
             assertTrue(result.content.contains("Error: No LLM model configured"))
         }
 
+    /** Confirms null is returned when no chunks are retrieved for a query. */
     @Test
     fun `returns null when no chunks found`() =
         runBlocking {
@@ -87,6 +91,7 @@ class NaiveQueryTest {
             assertEquals(null, result)
         }
 
+    /** Checks that context-only requests return chunk context and references. */
     @Test
     fun `returns context only when onlyNeedContext is true`() {
         runBlocking {
@@ -99,6 +104,7 @@ class NaiveQueryTest {
         }
     }
 
+    /** Checks that prompt-only requests return the constructed prompt and references. */
     @Test
     fun `returns prompt only when onlyNeedPrompt is true`() {
         runBlocking {
@@ -111,6 +117,7 @@ class NaiveQueryTest {
         }
     }
 
+    /** Ensures cached responses are returned when LLM cache is enabled and populated. */
     @Test
     fun `returns cached result if present`() =
         runBlocking {
@@ -145,6 +152,7 @@ class NaiveQueryTest {
             assertEquals("Cached response", result.content)
         }
 
+    /** Confirms the LLM is invoked and its response is surfaced when no cache exists. */
     @Test
     fun `calls LLM and returns its response`() =
         runBlocking {
@@ -157,6 +165,7 @@ class NaiveQueryTest {
             assertTrue(result.content.contains("LLM answer"))
         }
 
+    /** Verifies streaming responses are produced when a streaming-capable model is provided. */
     @Test
     fun `returns streaming response when stream is true and model supports it`() =
         runBlocking {

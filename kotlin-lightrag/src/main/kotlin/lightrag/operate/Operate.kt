@@ -82,61 +82,79 @@ fun chunkingByTokenSize(
 
     if (splitByCharacter != null) {
         val rawChunks = content.split(splitByCharacter)
-        val newChunks = mutableListOf<Pair<Int, String>>()
+        val processed =
+            splitByCharacterChunks(
+                rawChunks,
+                splitByCharacterOnly,
+                chunkTokenSize,
+                chunkOverlapTokenSize,
+                tokenizer,
+                decoder,
+                tokens,
+            )
+        processed.forEachIndexed { index, (len, chunk) -> results.add(ChunkingResult(len, chunk.trim(), index)) }
+    } else {
+        results.addAll(sequentialChunks(tokens, chunkTokenSize, chunkOverlapTokenSize, decoder))
+    }
+    return results
+}
 
-        if (splitByCharacterOnly) {
-            for (chunk in rawChunks) {
-                val chunkTokens = tokenizer(chunk)
-                if (chunkTokens.size > chunkTokenSize) {
-                    logger.warn {
-                        "Chunk split_by_character exceeds token limit: " +
-                            "len=${chunkTokens.size} limit=$chunkTokenSize"
-                    }
-                    // In Python code it raises exception, here we can log and maybe truncate or skip?
-                    // Python raises ChunkTokenLimitExceededError.
-                    throw RuntimeException("Chunk token limit exceeded: ${chunkTokens.size} > $chunkTokenSize")
+private fun splitByCharacterChunks(
+    rawChunks: List<String>,
+    splitByCharacterOnly: Boolean,
+    chunkTokenSize: Int,
+    chunkOverlapTokenSize: Int,
+    tokenizer: (String) -> List<Int>,
+    decoder: (List<Int>) -> String,
+    fullTokens: List<Int>,
+): List<Pair<Int, String>> {
+    val newChunks = mutableListOf<Pair<Int, String>>()
+    if (splitByCharacterOnly) {
+        rawChunks.forEach { chunk ->
+            val chunkTokens = tokenizer(chunk)
+            if (chunkTokens.size > chunkTokenSize) {
+                logger.warn {
+                    "Chunk split_by_character exceeds token limit: len=${chunkTokens.size} limit=$chunkTokenSize"
                 }
-                newChunks.add(chunkTokens.size to chunk)
+                throw IllegalArgumentException("Chunk token limit exceeded: ${chunkTokens.size} > $chunkTokenSize")
             }
-        } else {
-            for (chunk in rawChunks) {
-                val chunkTokens = tokenizer(chunk)
-                if (chunkTokens.size > chunkTokenSize) {
-                    var start = 0
-                    while (start < chunkTokens.size) {
-                        val end = minOf(start + chunkTokenSize, tokens.size)
-                        val chunkContent = decoder(tokens.subList(start, end))
-                        newChunks.add(
-                            minOf(chunkTokenSize, tokens.size - start) to chunkContent,
-                        )
-                        start += (chunkTokenSize - chunkOverlapTokenSize)
-                    }
-                } else {
-                    newChunks.add(chunkTokens.size to chunk)
-                }
-            }
-        }
-
-        newChunks.forEachIndexed { index, (len, chunk) ->
-            results.add(ChunkingResult(len, chunk.trim(), index))
+            newChunks.add(chunkTokens.size to chunk)
         }
     } else {
-        var start = 0
-        var index = 0
-        while (start < tokens.size) {
-            val end = minOf(start + chunkTokenSize, tokens.size)
-            val chunkTokens = tokens.subList(start, end)
-            val chunkContent = decoder(chunkTokens)
-            results.add(
-                ChunkingResult(
-                    chunkTokens.size,
-                    chunkContent.trim(),
-                    index,
-                ),
-            )
-            start += (chunkTokenSize - chunkOverlapTokenSize)
-            index++
+        rawChunks.forEach { chunk ->
+            val chunkTokens = tokenizer(chunk)
+            if (chunkTokens.size > chunkTokenSize) {
+                var start = 0
+                while (start < chunkTokens.size) {
+                    val end = minOf(start + chunkTokenSize, fullTokens.size)
+                    val chunkContent = decoder(fullTokens.subList(start, end))
+                    newChunks.add(minOf(chunkTokenSize, fullTokens.size - start) to chunkContent)
+                    start += (chunkTokenSize - chunkOverlapTokenSize)
+                }
+            } else {
+                newChunks.add(chunkTokens.size to chunk)
+            }
         }
+    }
+    return newChunks
+}
+
+private fun sequentialChunks(
+    tokens: List<Int>,
+    chunkTokenSize: Int,
+    chunkOverlapTokenSize: Int,
+    decoder: (List<Int>) -> String,
+): List<ChunkingResult> {
+    val results = mutableListOf<ChunkingResult>()
+    var start = 0
+    var index = 0
+    while (start < tokens.size) {
+        val end = minOf(start + chunkTokenSize, tokens.size)
+        val chunkTokens = tokens.subList(start, end)
+        val chunkContent = decoder(chunkTokens)
+        results.add(ChunkingResult(chunkTokens.size, chunkContent.trim(), index))
+        start += (chunkTokenSize - chunkOverlapTokenSize)
+        index++
     }
     return results
 }
@@ -180,8 +198,10 @@ suspend fun extractEntities(
             chunkEdges.forEach { (key, list) ->
                 edges.computeIfAbsent(key) { mutableListOf() }.addAll(list)
             }
-        } catch (e: Exception) {
-            logger.error(e) { "Error extracting entities for chunk $chunkKey" }
+        } catch (e: IllegalStateException) {
+            logger.error(e) { "Illegal state while extracting entities for chunk $chunkKey" }
+        } catch (e: IllegalArgumentException) {
+            logger.error(e) { "Invalid input while extracting entities for chunk $chunkKey" }
         }
     }
 

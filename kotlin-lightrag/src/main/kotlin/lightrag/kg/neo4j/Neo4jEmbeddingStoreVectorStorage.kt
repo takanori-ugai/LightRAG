@@ -14,7 +14,10 @@ import lightrag.core.types.BaseVectorStorage
 import org.neo4j.driver.AuthTokens
 import org.neo4j.driver.Driver
 import org.neo4j.driver.GraphDatabase
+import org.neo4j.driver.Result
+import org.neo4j.driver.Session
 import org.neo4j.driver.SessionConfig
+import org.neo4j.driver.Value
 import java.util.concurrent.TimeUnit
 
 private val logger = KotlinLogging.logger {}
@@ -87,6 +90,45 @@ class Neo4jEmbeddingStoreVectorStorage(
         return database?.let { SessionConfig.forDatabase(it) } ?: SessionConfig.defaultConfig()
     }
 
+    private fun databaseForLog(): String = System.getenv("NEO4J_DATABASE") ?: parseNeo4jConfig()?.database ?: "default"
+
+    private fun logQuery(
+        query: String,
+        params: Map<String, Any?>,
+    ) {
+        if (logger.isDebugEnabled()) {
+            logger.debug { "[$namespace/$workspace][${databaseForLog()}] CYPHER: $query params=$params" }
+        }
+    }
+
+    private fun Session.runLogged(
+        query: String,
+        params: Any? = null,
+    ): Result =
+        when (params) {
+            null -> {
+                logQuery(query, emptyMap())
+                run(query)
+            }
+
+            is Value -> {
+                logQuery(query, params.asMap())
+                run(query, params)
+            }
+
+            is Map<*, *> -> {
+                val castParams = params.entries.associate { (k, v) -> k.toString() to v }
+                logQuery(query, castParams)
+                run(query, castParams)
+            }
+
+            else -> {
+                val wrapped = mapOf("param" to params)
+                logQuery(query, wrapped)
+                run(query, wrapped)
+            }
+        }
+
     private fun resolveDimension(): Int {
         val configured =
             System.getenv("NEO4J_EMBEDDING_DIMENSION")?.toIntOrNull()
@@ -99,10 +141,16 @@ class Neo4jEmbeddingStoreVectorStorage(
         return try {
             val vector = embeddingFunc.embed("dimension probe").content().vector()
             vector.size
-        } catch (e: Exception) {
+        } catch (e: IllegalStateException) {
             val fallbackDimension = 1536
             logger.warn(e) {
                 "Unable to infer embedding dimension for Neo4jEmbeddingStore; defaulting to $fallbackDimension"
+            }
+            fallbackDimension
+        } catch (e: IllegalArgumentException) {
+            val fallbackDimension = 1536
+            logger.warn(e) {
+                "Invalid input inferring embedding dimension for Neo4jEmbeddingStore; defaulting to $fallbackDimension"
             }
             fallbackDimension
         }
@@ -282,7 +330,7 @@ class Neo4jEmbeddingStoreVectorStorage(
         return withContext(Dispatchers.IO) {
             driver?.session(sessionCfg)?.use { session ->
                 val result =
-                    session.run(
+                    session.runLogged(
                         "MATCH (n:${labelName()}) WHERE n.$idProp IN \$ids RETURN properties(n) AS props, n.$embeddingProp AS embedding",
                         mapOf("ids" to ids),
                     )
@@ -316,7 +364,7 @@ class Neo4jEmbeddingStoreVectorStorage(
         return withContext(Dispatchers.IO) {
             driver?.session(sessionCfg)?.use { session ->
                 val result =
-                    session.run(
+                    session.runLogged(
                         "MATCH (n:${labelName()}) WHERE n.$idProp IN \$ids RETURN n.$idProp AS id, n.$embeddingProp AS embedding",
                         mapOf("ids" to ids),
                     )
@@ -358,7 +406,7 @@ class Neo4jEmbeddingStoreVectorStorage(
         return withContext(Dispatchers.IO) {
             driver?.session(sessionCfg)?.use { session ->
                 val result =
-                    session.run(
+                    session.runLogged(
                         "MATCH (n:${labelName()}) WHERE n.$metaKey = \$value RETURN n.$idProp AS id",
                         mapOf("value" to value),
                     )
@@ -373,8 +421,11 @@ class Neo4jEmbeddingStoreVectorStorage(
         try {
             val response = embeddingFunc.embed(text)
             response.content().vector().toList()
-        } catch (e: Exception) {
-            logger.error(e) { "Error embedding text for Neo4jEmbeddingStoreVectorStorage" }
+        } catch (e: IllegalStateException) {
+            logger.error(e) { "Illegal state embedding text for Neo4jEmbeddingStoreVectorStorage" }
+            emptyList()
+        } catch (e: IllegalArgumentException) {
+            logger.error(e) { "Invalid input embedding text for Neo4jEmbeddingStoreVectorStorage" }
             emptyList()
         }
 }

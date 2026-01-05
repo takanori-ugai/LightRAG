@@ -1,14 +1,17 @@
 package lightrag.api.routers
 
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.call
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
+import io.ktor.server.response.respondTextWriter
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
+import kotlinx.coroutines.flow.collect
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import lightrag.core.LightRAG
@@ -35,6 +38,10 @@ data class QueryRequest(
     val topK: Int? = null,
     @SerialName("max_token_for_text_unit")
     val maxTokenForTextUnit: Int? = null,
+    @SerialName("high_level_keywords")
+    val highLevelKeywords: List<String>? = null,
+    @SerialName("low_level_keywords")
+    val lowLevelKeywords: List<String>? = null,
 )
 
 /**
@@ -65,6 +72,8 @@ fun Application.configureQueryRoutes(rag: LightRAG) {
                         onlyNeedContext = request.onlyNeedContext ?: false,
                         responseType = request.responseType,
                         topK = request.topK ?: 10,
+                        hlKeywords = request.highLevelKeywords ?: emptyList(),
+                        llKeywords = request.lowLevelKeywords ?: emptyList(),
                     )
 
                 val result = rag.query(request.query, param)
@@ -72,7 +81,37 @@ fun Application.configureQueryRoutes(rag: LightRAG) {
             }
 
             post("/stream") {
-                call.respondText("Streaming not implemented", status = HttpStatusCode.NotImplemented)
+                val request = call.receive<QueryRequest>()
+                val param =
+                    QueryParam(
+                        mode = request.mode,
+                        onlyNeedContext = request.onlyNeedContext ?: false,
+                        responseType = request.responseType,
+                        topK = request.topK ?: 10,
+                        hlKeywords = request.highLevelKeywords ?: emptyList(),
+                        llKeywords = request.lowLevelKeywords ?: emptyList(),
+                        stream = true,
+                    )
+
+                val result = rag.query(request.query, param)
+                when {
+                    result == null -> {
+                        call.respondText("Query failed", status = HttpStatusCode.InternalServerError)
+                    }
+
+                    result.isStreaming && result.responseIterator != null -> {
+                        call.respondTextWriter(ContentType.Text.Plain) {
+                            result.responseIterator.collect { token ->
+                                write(token)
+                                flush()
+                            }
+                        }
+                    }
+
+                    else -> {
+                        call.respond(QueryResponse(result.content ?: "No result generated."))
+                    }
+                }
             }
         }
     }

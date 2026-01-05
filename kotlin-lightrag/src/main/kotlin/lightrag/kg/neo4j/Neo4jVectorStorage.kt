@@ -12,7 +12,10 @@ import lightrag.kg.memory.Metadata
 import org.neo4j.driver.AuthTokens
 import org.neo4j.driver.Driver
 import org.neo4j.driver.GraphDatabase
+import org.neo4j.driver.Result
+import org.neo4j.driver.Session
 import org.neo4j.driver.SessionConfig
+import org.neo4j.driver.Value
 import java.util.concurrent.TimeUnit
 
 private val logger = KotlinLogging.logger {}
@@ -84,6 +87,45 @@ class Neo4jVectorStorage(
         return database?.let { SessionConfig.forDatabase(it) } ?: SessionConfig.defaultConfig()
     }
 
+    private fun databaseForLog(): String = System.getenv("NEO4J_DATABASE") ?: parseNeo4jConfig()?.database ?: "default"
+
+    private fun logQuery(
+        query: String,
+        params: Map<String, Any?>,
+    ) {
+        if (logger.isDebugEnabled()) {
+            logger.debug { "[$namespace/$workspace][${databaseForLog()}] CYPHER: $query params=$params" }
+        }
+    }
+
+    private fun Session.runLogged(
+        query: String,
+        params: Any? = null,
+    ): Result =
+        when (params) {
+            null -> {
+                logQuery(query, emptyMap())
+                run(query)
+            }
+
+            is Value -> {
+                logQuery(query, params.asMap())
+                run(query, params)
+            }
+
+            is Map<*, *> -> {
+                val castParams = params.entries.associate { (k, v) -> k.toString() to v }
+                logQuery(query, castParams)
+                run(query, castParams)
+            }
+
+            else -> {
+                val wrapped = mapOf("param" to params)
+                logQuery(query, wrapped)
+                run(query, wrapped)
+            }
+        }
+
     /**
      * Initializes the storage by creating a Neo4j driver and creating a constraint on the label.
      */
@@ -122,7 +164,7 @@ class Neo4jVectorStorage(
         withContext(Dispatchers.IO) {
             driver?.session(sessionConfig())?.use { session ->
                 session
-                    .run(
+                    .runLogged(
                         "CREATE CONSTRAINT IF NOT EXISTS FOR (n:$label) REQUIRE n.id IS UNIQUE",
                     ).consume()
             }
@@ -143,16 +185,52 @@ class Neo4jVectorStorage(
         withContext(Dispatchers.IO) {
             driver?.session(sessionCfg)?.use { session ->
                 val result =
-                    session.run("MATCH (n:$label) RETURN n.id AS id, n.vector AS vector, n.metadata AS metadata")
+                    session.runLogged("MATCH (n:$label) RETURN n.id AS id, n.vector AS vector, n.metadata AS metadata")
                 while (result.hasNext()) {
                     val record = result.next()
                     val id = record["id"].asString()
+                    val vectorValue = record["vector"]
+                    if (vectorValue == null || vectorValue.isNull) {
+                        logger.warn { "[$namespace/$workspace] Skipping vector '$id' because stored vector is null" }
+                        continue
+                    }
                     val vec =
-                        record["vector"]?.let { value ->
-                            value.asList { it.asDouble() }.map { it.toFloat() }
-                        } ?: emptyList()
+                        runCatching { vectorValue.asList { it.asDouble() }.map { it.toFloat() } }
+                            .getOrElse {
+                                logger.warn(it) { "[$namespace/$workspace] Skipping vector '$id' due to invalid vector format" }
+                                emptyList()
+                            }
+                    if (vec.isEmpty()) continue
+
                     val rawMeta =
-                        record["metadata"]?.asMap { it.asString() } ?: emptyMap()
+                        record["metadata"]
+                            ?.takeIf { !it.isNull }
+                            ?.let { value ->
+                                // Neo4j stores properties as scalars or lists; older runs persisted metadata as
+                                // a list of "key:value" strings. Try to read as a map first, then fall back to list parsing.
+                                runCatching { value.asMap { v -> v.asString() } }
+                                    .getOrElse { mapEx ->
+                                        runCatching {
+                                            value
+                                                .asList { it.asString() }
+                                                .mapNotNull { entry ->
+                                                    val sep = entry.indexOf(':')
+                                                    if (sep <= 0) return@mapNotNull null
+                                                    val key = entry.substring(0, sep)
+                                                    val rawVal = entry.substring(sep + 1)
+                                                    key to rawVal
+                                                }.toMap()
+                                        }.getOrElse { listEx ->
+                                            logger.warn(mapEx) {
+                                                "[$namespace/$workspace] Skipping metadata for vector '$id' due to invalid format"
+                                            }
+                                            logger.warn(listEx) {
+                                                "[$namespace/$workspace] Failed to parse legacy metadata list for vector '$id'"
+                                            }
+                                            emptyMap()
+                                        }
+                                    }
+                            } ?: emptyMap()
                     vectors[id] = vec
                     metadata[id] = mapToMetadata(rawMeta)
                 }
@@ -177,7 +255,7 @@ class Neo4jVectorStorage(
     override suspend fun drop(): Map<String, String> {
         withContext(Dispatchers.IO) {
             driver?.session(sessionConfig())?.use { session ->
-                session.run("MATCH (n:$label) DETACH DELETE n").consume()
+                session.runLogged("MATCH (n:$label) DETACH DELETE n").consume()
             }
         }
         vectors.clear()
@@ -235,7 +313,7 @@ class Neo4jVectorStorage(
                         )
                     Triple(id, similarity, meta)
                 }.filter {
-                    it.third != null && it.second >= cosineBetterThanThreshold
+                    it.second >= cosineBetterThanThreshold
                 }.sortedByDescending { it.second }
                 .take(topK)
 
@@ -246,7 +324,7 @@ class Neo4jVectorStorage(
         }
 
         return results.map { (id, score, meta) ->
-            val raw = meta?.raw ?: emptyMap()
+            val raw = meta.raw
             raw + mapOf("id" to id, "score" to score, "distance" to score)
         }
     }
@@ -320,7 +398,7 @@ class Neo4jVectorStorage(
         withContext(Dispatchers.IO) {
             driver?.session(sessionConfig())?.use { session ->
                 session
-                    .run(
+                    .runLogged(
                         "MATCH (n:$label) WHERE n.id IN \$ids DETACH DELETE n",
                         mapOf("ids" to ids),
                     ).consume()
@@ -365,7 +443,7 @@ class Neo4jVectorStorage(
             )
         driver?.session(sessionConfig())?.use { session ->
             session
-                .run(
+                .runLogged(
                     "MERGE (n:$label {id: \$id}) SET n.vector = \$vector, n.metadata = \$metadata",
                     params,
                 ).consume()
@@ -377,15 +455,17 @@ class Neo4jVectorStorage(
             val response = embeddingFunc.embed(text)
             val content = response.content()
             content.vector().toList()
-        } catch (e: Exception) {
-            logger.error(e) { "Error embedding text for Neo4jVectorStorage" }
+        } catch (e: IllegalStateException) {
+            logger.error(e) { "Illegal state embedding text for Neo4jVectorStorage" }
+            emptyList()
+        } catch (e: IllegalArgumentException) {
+            logger.error(e) { "Invalid input embedding text for Neo4jVectorStorage" }
             emptyList()
         }
 
     private fun mapToMetadata(meta: Map<String, Any>): Metadata {
         val content = meta["content"] as? String
 
-        @Suppress("UNCHECKED_CAST")
         val vector = (meta["vector"] as? List<*>)?.mapNotNull { (it as? Number)?.toFloat() }
         val entityName = meta["entity_name"] as? String
         val srcId = meta["src_id"] as? String

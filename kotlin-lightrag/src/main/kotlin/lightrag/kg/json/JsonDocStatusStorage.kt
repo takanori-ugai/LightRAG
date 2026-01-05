@@ -4,6 +4,7 @@ import dev.langchain4j.model.embedding.EmbeddingModel
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -56,8 +57,10 @@ class JsonDocStatusStorage(
                     }
                     logger.info { "Loaded ${loaded.size} docs status from ${file.absolutePath}" }
                 }
-            } catch (e: Exception) {
-                logger.error(e) { "Error loading DocStatus storage from ${file.absolutePath}" }
+            } catch (e: java.io.IOException) {
+                logger.error(e) { "I/O error loading DocStatus storage from ${file.absolutePath}" }
+            } catch (e: SerializationException) {
+                logger.error(e) { "Serialization error loading DocStatus storage from ${file.absolutePath}" }
             }
         }
     }
@@ -71,8 +74,10 @@ class JsonDocStatusStorage(
                 val content = json.encodeToString(docs)
                 file.writeText(content)
                 logger.debug { "Saved ${docs.size} docs status to ${file.absolutePath}" }
-            } catch (e: Exception) {
-                logger.error(e) { "Error saving DocStatus storage to ${file.absolutePath}" }
+            } catch (e: java.io.IOException) {
+                logger.error(e) { "I/O error saving DocStatus storage to ${file.absolutePath}" }
+            } catch (e: SerializationException) {
+                logger.error(e) { "Serialization error saving DocStatus storage to ${file.absolutePath}" }
             }
         }
     }

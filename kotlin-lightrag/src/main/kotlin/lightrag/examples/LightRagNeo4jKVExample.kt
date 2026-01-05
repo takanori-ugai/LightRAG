@@ -63,6 +63,9 @@ fun main() =
         val rag: LightRAG = get(LightRAG::class.java)
         val storageManager: StorageManager = get(StorageManager::class.java)
 
+        // Initialize storages (creates Neo4j connections/indexes and loads any persisted data).
+        storageManager.initialize()
+
         val text =
             """
             Neo4j is a native graph database.

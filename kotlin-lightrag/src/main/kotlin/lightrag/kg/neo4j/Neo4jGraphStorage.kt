@@ -7,11 +7,16 @@ import kotlinx.coroutines.withContext
 import lightrag.core.Neo4jConfig
 import lightrag.core.types.BaseGraphStorage
 import lightrag.core.types.KnowledgeGraph
+import org.neo4j.driver.AuthToken
 import org.neo4j.driver.AuthTokens
 import org.neo4j.driver.Driver
 import org.neo4j.driver.GraphDatabase
+import org.neo4j.driver.Result
 import org.neo4j.driver.Session
 import org.neo4j.driver.SessionConfig
+import org.neo4j.driver.Transaction
+import org.neo4j.driver.TransactionContext
+import org.neo4j.driver.Value
 import org.neo4j.driver.exceptions.ClientException
 import org.neo4j.driver.exceptions.Neo4jException
 import org.neo4j.driver.exceptions.ServiceUnavailableException
@@ -59,16 +64,13 @@ class Neo4jGraphStorage(
         // Read env and override the arg if present
         val neo4jWorkspace = System.getenv("NEO4J_WORKSPACE")
         val originalWorkspace = globalConfig["workspace"] as? String
-        var ws = originalWorkspace
-        if (!neo4jWorkspace.isNullOrBlank()) {
-            ws = neo4jWorkspace
-        }
-
-        // Default to 'base' when both arg and env are empty
-        if (ws.isNullOrBlank()) {
-            ws = "base"
-        }
-        workspace = ws ?: "base"
+        val resolvedWorkspace =
+            when {
+                !neo4jWorkspace.isNullOrBlank() -> neo4jWorkspace
+                originalWorkspace.isNullOrBlank() -> "base"
+                else -> originalWorkspace
+            }
+        workspace = resolvedWorkspace
 
         if (!neo4jWorkspace.isNullOrBlank()) {
             logger.info {
@@ -94,6 +96,90 @@ class Neo4jGraphStorage(
             logger.debug { "[$workspace][${databaseForLog()}] CYPHER: $query params=$params" }
         }
     }
+
+    private fun Session.runLogged(
+        query: String,
+        params: Any? = null,
+    ): Result =
+        when (params) {
+            null -> {
+                logQuery(query, emptyMap())
+                run(query)
+            }
+
+            is Value -> {
+                logQuery(query, params.asMap())
+                run(query, params)
+            }
+
+            is Map<*, *> -> {
+                val castParams = params.entries.associate { it.key.toString() to it.value }
+                logQuery(query, castParams)
+                run(query, castParams)
+            }
+
+            else -> {
+                val wrapped = mapOf("param" to params)
+                logQuery(query, wrapped)
+                run(query, wrapped)
+            }
+        }
+
+    private fun Transaction.runLogged(
+        query: String,
+        params: Any? = null,
+    ): Result =
+        when (params) {
+            null -> {
+                logQuery(query, emptyMap())
+                run(query)
+            }
+
+            is Value -> {
+                logQuery(query, params.asMap())
+                run(query, params)
+            }
+
+            is Map<*, *> -> {
+                val castParams = params.entries.associate { it.key.toString() to it.value }
+                logQuery(query, castParams)
+                run(query, castParams)
+            }
+
+            else -> {
+                val wrapped = mapOf("param" to params)
+                logQuery(query, wrapped)
+                run(query, wrapped)
+            }
+        }
+
+    private fun TransactionContext.runLogged(
+        query: String,
+        params: Any? = null,
+    ): Result =
+        when (params) {
+            null -> {
+                logQuery(query, emptyMap())
+                run(query)
+            }
+
+            is Value -> {
+                logQuery(query, params.asMap())
+                run(query, params)
+            }
+
+            is Map<*, *> -> {
+                val castParams = params.entries.associate { it.key.toString() to it.value }
+                logQuery(query, castParams)
+                run(query, castParams)
+            }
+
+            else -> {
+                val wrapped = mapOf("param" to params)
+                logQuery(query, wrapped)
+                run(query, wrapped)
+            }
+        }
 
     private fun isDebugEnabled(): Boolean {
         val flagFromConfig = (globalConfig["neo4j"] as? Map<*, *>)?.get("debug")?.toString()
@@ -163,87 +249,96 @@ class Neo4jGraphStorage(
      * Initializes the storage by creating a Neo4j driver and creating indexes.
      */
     override suspend fun initialize() {
+        val (uri, username, password) = resolveCredentials() ?: return
+        driver = GraphDatabase.driver(uri, buildAuthToken(username, password), buildDriverConfig())
+
+        withContext(Dispatchers.IO) {
+            val sessionCfg = sessionConfig()
+            validateConnection(uri, sessionCfg)
+            ensureBTreeIndex(sessionCfg)
+            createFulltextIndex(driver!!, getWorkspaceLabel())
+        }
+    }
+
+    private fun resolveCredentials(): Triple<String, String, String?>? {
         val uri = System.getenv("NEO4J_URI") ?: providedConfig?.uri ?: DEFAULT_URI
         val username = System.getenv("NEO4J_USERNAME") ?: providedConfig?.username ?: DEFAULT_USERNAME
         val password = System.getenv("NEO4J_PASSWORD") ?: providedConfig?.password
 
         if (uri.isBlank()) {
             logger.error { "NEO4J_URI is not set and no default available" }
-            return
+            return null
         }
+        return Triple(uri, username, password)
+    }
 
-        val authToken =
-            if (username != null && password != null) {
-                AuthTokens.basic(username, password)
-            } else {
-                AuthTokens.none()
-            }
+    private fun buildAuthToken(
+        username: String,
+        password: String?,
+    ): AuthToken = password?.let { AuthTokens.basic(username, it) } ?: AuthTokens.none()
 
-        // Configuration mapping
+    private fun buildDriverConfig(): org.neo4j.driver.Config {
         val maxConnectionPoolSize =
             (System.getenv("NEO4J_MAX_CONNECTION_POOL_SIZE")?.toIntOrNull() ?: DEFAULT_POOL_SIZE)
         val connectionTimeout =
-            (System.getenv("NEO4J_CONNECTION_TIMEOUT")?.toLongOrNull() ?: DEFAULT_TIMEOUT_MS) // ms
+            (System.getenv("NEO4J_CONNECTION_TIMEOUT")?.toLongOrNull() ?: DEFAULT_TIMEOUT_MS)
         val maxConnectionLifetime =
-            (System.getenv("NEO4J_MAX_CONNECTION_LIFETIME")?.toLongOrNull() ?: DEFAULT_MAX_LIFETIME_MS) // ms
+            (System.getenv("NEO4J_MAX_CONNECTION_LIFETIME")?.toLongOrNull() ?: DEFAULT_MAX_LIFETIME_MS)
 
         logDebugInfo(
-            uri = uri,
-            username = username,
+            uri = System.getenv("NEO4J_URI") ?: providedConfig?.uri ?: DEFAULT_URI,
+            username = System.getenv("NEO4J_USERNAME") ?: providedConfig?.username ?: DEFAULT_USERNAME,
             maxConnectionPoolSize = maxConnectionPoolSize,
             connectionTimeout = connectionTimeout,
             maxConnectionLifetime = maxConnectionLifetime,
         )
 
-        val config =
-            org.neo4j.driver.Config
-                .builder()
-                .withMaxConnectionPoolSize(maxConnectionPoolSize)
-                .withConnectionTimeout(connectionTimeout, TimeUnit.MILLISECONDS)
-                .withMaxConnectionLifetime(maxConnectionLifetime, TimeUnit.MILLISECONDS)
-                .build()
+        return org.neo4j.driver.Config
+            .builder()
+            .withMaxConnectionPoolSize(maxConnectionPoolSize)
+            .withConnectionTimeout(connectionTimeout, TimeUnit.MILLISECONDS)
+            .withMaxConnectionLifetime(maxConnectionLifetime, TimeUnit.MILLISECONDS)
+            .build()
+    }
 
-        driver = GraphDatabase.driver(uri, authToken, config)
-
-        withContext(Dispatchers.IO) {
-            val sessionCfg = sessionConfig()
-            try {
-                driver!!.session(sessionCfg).use { neoSession: Session ->
-                    neoSession.run("MATCH (n) RETURN n LIMIT 0").consume()
-                }
-                logger.info { "[$workspace] Connected to ${databaseForLog()} at $uri" }
-            } catch (e: ServiceUnavailableException) {
-                logger.error { "[$workspace] Database ${databaseForLog()} at $uri is not available" }
-                throw e
-            } catch (e: ClientException) {
-                logger.error {
-                    "[$workspace] Failed to access database ${databaseForLog()} at $uri: ${e.message}"
-                }
-                throw e
-            } catch (e: Neo4jException) {
-                logger.error { "[$workspace] Authentication or connection failed: ${e.message}" }
-                throw e
+    private suspend fun validateConnection(
+        uri: String,
+        sessionCfg: SessionConfig,
+    ) {
+        try {
+            driver!!.session(sessionCfg).use { neoSession: Session ->
+                neoSession.runLogged("MATCH (n) RETURN n LIMIT 0").consume()
             }
-
-            val workspaceLabel = getWorkspaceLabel()
-            // Create B-Tree index
-            try {
-                driver!!.session(sessionCfg).use { neoSession: Session ->
-                    neoSession
-                        .run(
-                            "CREATE INDEX IF NOT EXISTS FOR (n:`$workspaceLabel`) ON (n.entity_id)",
-                        ).consume()
-                    logger.info {
-                        "[$workspace] Ensured B-Tree index on entity_id for $workspaceLabel in " +
-                            databaseForLog()
-                    }
-                }
-            } catch (e: Neo4jException) {
-                logger.warn { "[$workspace] Failed to create B-Tree index: ${e.message}" }
+            logger.info { "[$workspace] Connected to ${databaseForLog()} at $uri" }
+        } catch (e: ServiceUnavailableException) {
+            logger.error { "[$workspace] Database ${databaseForLog()} at $uri is not available" }
+            throw e
+        } catch (e: ClientException) {
+            logger.error {
+                "[$workspace] Failed to access database ${databaseForLog()} at $uri: ${e.message}"
             }
+            throw e
+        } catch (e: Neo4jException) {
+            logger.error { "[$workspace] Authentication or connection failed: ${e.message}" }
+            throw e
+        }
+    }
 
-            // Create full-text index
-            createFulltextIndex(driver!!, workspaceLabel)
+    private fun ensureBTreeIndex(sessionCfg: SessionConfig) {
+        val workspaceLabel = getWorkspaceLabel()
+        try {
+            driver!!.session(sessionCfg).use { neoSession: Session ->
+                neoSession
+                    .runLogged(
+                        "CREATE INDEX IF NOT EXISTS FOR (n:`$workspaceLabel`) ON (n.entity_id)",
+                    ).consume()
+                logger.info {
+                    "[$workspace] Ensured B-Tree index on entity_id for $workspaceLabel in " +
+                        databaseForLog()
+                }
+            }
+        } catch (e: Neo4jException) {
+            logger.warn { "[$workspace] Failed to create B-Tree index: ${e.message}" }
         }
     }
 
@@ -256,98 +351,12 @@ class Neo4jGraphStorage(
 
         try {
             driver.session(sessionConfig()).use { neoSession: Session ->
-                val checkIndexQuery = "SHOW FULLTEXT INDEXES"
-                val result = neoSession.run(checkIndexQuery)
-                val indexes = result.list().map { it.asMap() }
+                val (existingIndex, legacyIndex) = findIndexes(neoSession, indexName, legacyIndexName)
+                migrateLegacyIndex(neoSession, legacyIndexName, legacyIndex, existingIndex, indexName)
+                if (existingIndexIsOnline(existingIndex, indexName)) return
 
-                var existingIndex: Map<String, Any>? = null
-                var legacyIndex: Map<String, Any>? = null
-
-                for (idx in indexes) {
-                    if (idx["name"] == indexName) {
-                        existingIndex = idx
-                    } else if (idx["name"] == legacyIndexName) {
-                        legacyIndex = idx
-                    }
-                }
-
-                if (legacyIndex != null && existingIndex == null) {
-                    logger.info { "[$workspace] Found legacy index '$legacyIndexName'. Migrating to '$indexName'." }
-                    try {
-                        neoSession.run("DROP INDEX $legacyIndexName IF EXISTS").consume()
-                        logger.info { "[$workspace] Dropped legacy index '$legacyIndexName'" }
-                    } catch (e: Neo4jException) {
-                        logger.warn { "[$workspace] Failed to drop legacy index: ${e.message}" }
-                    }
-                }
-
-                if (existingIndex != null) {
-                    val indexState = existingIndex["state"] as? String ?: "UNKNOWN"
-                    logger.info { "[$workspace] Found existing index '$indexName' with state: $indexState" }
-                    if (indexState == "ONLINE") {
-                        logger.info {
-                            "[$workspace] Full-text index '$indexName' already exists and is online. " +
-                                "Skipping recreation."
-                        }
-                        return
-                    } else {
-                        logger.warn {
-                            "[$workspace] Existing index '$indexName' is not online (state: $indexState). " +
-                                "Will recreate."
-                        }
-                    }
-                } else {
-                    logger.info { "[$workspace] No existing index '$indexName' found. Creating new index." }
-                }
-
-                val needsRecreation = existingIndex != null && existingIndex["state"] != "ONLINE"
-                val needsCreation = existingIndex == null
-
-                if (needsRecreation || needsCreation) {
-                    if (needsRecreation) {
-                        try {
-                            neoSession.run("DROP INDEX $indexName IF EXISTS").consume()
-                            logger.info { "[$workspace] Dropped existing index '$indexName'" }
-                        } catch (e: Neo4jException) {
-                            logger.warn { "[$workspace] Failed to drop existing index: ${e.message}" }
-                        }
-                    }
-
-                    logger.info {
-                        "[$workspace] Creating full-text index '$indexName' with Chinese tokenizer support."
-                    }
-                    try {
-                        val createIndexQuery =
-                            """
-                            CREATE FULLTEXT INDEX $indexName
-                            FOR (n:`$workspaceLabel`) ON EACH [n.entity_id]
-                            OPTIONS {
-                                indexConfig: {
-                                    `fulltext.analyzer`: 'cjk',
-                                    `fulltext.eventually_consistent`: true
-                                }
-                            }
-                            """.trimIndent()
-                        neoSession.run(createIndexQuery).consume()
-                        logger.info {
-                            "[$workspace] Successfully created full-text index '$indexName' with CJK analyzer."
-                        }
-                    } catch (cjkError: Neo4jException) {
-                        logger.warn {
-                            "[$workspace] CJK analyzer not supported: ${cjkError.message}. " +
-                                "Falling back to standard analyzer."
-                        }
-                        val createIndexQuery =
-                            """
-                            CREATE FULLTEXT INDEX $indexName
-                            FOR (n:`$workspaceLabel`) ON EACH [n.entity_id]
-                            """.trimIndent()
-                        neoSession.run(createIndexQuery).consume()
-                        logger.info {
-                            "[$workspace] Successfully created full-text index '$indexName' with standard analyzer."
-                        }
-                    }
-                }
+                dropExistingIndexIfNeeded(neoSession, indexName, existingIndex)
+                createIndexWithFallback(neoSession, indexName, workspaceLabel)
             }
         } catch (e: Neo4jException) {
             if (e.message?.contains("Unknown command") == true ||
@@ -362,6 +371,116 @@ class Neo4jGraphStorage(
                     "[$workspace] Failed to create or verify full-text index '$indexName': ${e.message}"
                 }
             }
+        }
+    }
+
+    private fun findIndexes(
+        neoSession: Session,
+        indexName: String,
+        legacyIndexName: String,
+    ): Pair<Map<String, Any>?, Map<String, Any>?> {
+        val indexes = neoSession.runLogged("SHOW FULLTEXT INDEXES").list().map { it.asMap() }
+        var existingIndex: Map<String, Any>? = null
+        var legacyIndex: Map<String, Any>? = null
+
+        for (idx in indexes) {
+            if (idx["name"] == indexName) {
+                existingIndex = idx
+            } else if (idx["name"] == legacyIndexName) {
+                legacyIndex = idx
+            }
+        }
+        return existingIndex to legacyIndex
+    }
+
+    private fun migrateLegacyIndex(
+        neoSession: Session,
+        legacyIndexName: String,
+        legacyIndex: Map<String, Any>?,
+        existingIndex: Map<String, Any>?,
+        targetIndexName: String,
+    ) {
+        if (legacyIndex == null || existingIndex != null) return
+        logger.info { "[$workspace] Found legacy index '$legacyIndexName'. Migrating to '$targetIndexName'." }
+        try {
+            neoSession.runLogged("DROP INDEX $legacyIndexName IF EXISTS").consume()
+            logger.info { "[$workspace] Dropped legacy index '$legacyIndexName'" }
+        } catch (e: Neo4jException) {
+            logger.warn { "[$workspace] Failed to drop legacy index: ${e.message}" }
+        }
+    }
+
+    private fun existingIndexIsOnline(
+        existingIndex: Map<String, Any>?,
+        indexName: String,
+    ): Boolean {
+        if (existingIndex == null) {
+            logger.info { "[$workspace] No existing index '$indexName' found. Creating new index." }
+            return false
+        }
+        val indexState = existingIndex["state"] as? String ?: "UNKNOWN"
+        logger.info { "[$workspace] Found existing index '$indexName' with state: $indexState" }
+        return if (indexState == "ONLINE") {
+            logger.info {
+                "[$workspace] Full-text index '$indexName' already exists and is online. " +
+                    "Skipping recreation."
+            }
+            true
+        } else {
+            logger.warn {
+                "[$workspace] Existing index '$indexName' is not online (state: $indexState). Will recreate."
+            }
+            false
+        }
+    }
+
+    private fun dropExistingIndexIfNeeded(
+        neoSession: Session,
+        indexName: String,
+        existingIndex: Map<String, Any>?,
+    ) {
+        val needsRecreation = existingIndex != null && existingIndex["state"] != "ONLINE"
+        if (!needsRecreation) return
+
+        try {
+            neoSession.runLogged("DROP INDEX $indexName IF EXISTS").consume()
+            logger.info { "[$workspace] Dropped existing index '$indexName'" }
+        } catch (e: Neo4jException) {
+            logger.warn { "[$workspace] Failed to drop existing index: ${e.message}" }
+        }
+    }
+
+    private fun createIndexWithFallback(
+        neoSession: Session,
+        indexName: String,
+        workspaceLabel: String,
+    ) {
+        logger.info { "[$workspace] Creating full-text index '$indexName' with Chinese tokenizer support." }
+        try {
+            val createIndexQuery =
+                """
+                CREATE FULLTEXT INDEX $indexName
+                FOR (n:`$workspaceLabel`) ON EACH [n.entity_id]
+                OPTIONS {
+                    indexConfig: {
+                        `fulltext.analyzer`: 'cjk',
+                        `fulltext.eventually_consistent`: true
+                    }
+                }
+                """.trimIndent()
+            neoSession.runLogged(createIndexQuery).consume()
+            logger.info { "[$workspace] Successfully created full-text index '$indexName' with CJK analyzer." }
+        } catch (cjkError: Neo4jException) {
+            logger.warn {
+                "[$workspace] CJK analyzer not supported: ${cjkError.message}. Falling back to standard analyzer."
+            }
+            val createIndexQuery =
+                """
+                CREATE FULLTEXT INDEX $indexName
+                FOR (n:`$workspaceLabel`) ON EACH [n.entity_id]
+                """.trimIndent()
+            neoSession.runLogged(createIndexQuery).consume()
+            logger.info { "[$workspace] Successfully created full-text index '$indexName' with standard analyzer." }
         }
     }
 
@@ -390,7 +509,7 @@ class Neo4jGraphStorage(
             try {
                 driver!!.session(sessionConfig()).use { neoSession: Session ->
                     val query = "MATCH (n:`$workspaceLabel`) DETACH DELETE n"
-                    neoSession.run(query).consume()
+                    neoSession.runLogged(query).consume()
                 }
                 mapOf("status" to "success", "message" to "workspace '$workspaceLabel' data dropped")
             } catch (e: Neo4jException) {
@@ -412,8 +531,7 @@ class Neo4jGraphStorage(
                 val query =
                     "MATCH (n:`$workspaceLabel` {entity_id: \$entity_id}) RETURN count(n) > 0 AS node_exists"
                 val params = mapOf("entity_id" to nodeId)
-                logQuery(query, params)
-                val result = neoSession.run(query, params)
+                val result = neoSession.runLogged(query, params)
                 if (result.hasNext()) {
                     result.single().get("node_exists").asBoolean()
                 } else {
@@ -445,8 +563,7 @@ class Neo4jGraphStorage(
                         "source_entity_id" to sourceNodeId,
                         "target_entity_id" to targetNodeId,
                     )
-                logQuery(query, params)
-                val result = neoSession.run(query, params)
+                val result = neoSession.runLogged(query, params)
                 if (result.hasNext()) {
                     result.single().get("edgeExists").asBoolean()
                 } else {
@@ -471,8 +588,7 @@ class Neo4jGraphStorage(
                     RETURN COUNT(r) AS degree
                     """.trimIndent()
                 val params = mapOf("entity_id" to nodeId)
-                logQuery(query, params)
-                val result = neoSession.run(query, params)
+                val result = neoSession.runLogged(query, params)
                 if (result.hasNext()) {
                     result.single().get("degree").asInt()
                 } else {
@@ -507,15 +623,13 @@ class Neo4jGraphStorage(
             driver!!.session(sessionConfig()).use { neoSession: Session ->
                 val query = "MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id}) RETURN n"
                 val params = mapOf("entity_id" to nodeId)
-                logQuery(query, params)
-                val result = neoSession.run(query, params)
+                val result = neoSession.runLogged(query, params)
                 if (result.hasNext()) {
                     val record = result.next()
                     val node = record.get("n").asNode()
                     val nodeMap = node.asMap().toMutableMap()
                     if (nodeMap.containsKey("labels")) {
-                        @Suppress("UNCHECKED_CAST")
-                        val labels = nodeMap["labels"] as? List<String>
+                        val labels = nodeMap["labels"] as? List<*>
                         if (labels != null) {
                             nodeMap["labels"] = labels.filter { it != workspaceLabel }
                         }
@@ -550,8 +664,7 @@ class Neo4jGraphStorage(
                         "source_entity_id" to sourceNodeId,
                         "target_entity_id" to targetNodeId,
                     )
-                logQuery(query, params)
-                val result = neoSession.run(query, params)
+                val result = neoSession.runLogged(query, params)
 
                 if (result.hasNext()) {
                     val record = result.next()
@@ -593,8 +706,7 @@ class Neo4jGraphStorage(
                     RETURN n, r, connected
                     """.trimIndent()
                 val params = mapOf("entity_id" to sourceNodeId)
-                logQuery(query, params)
-                val result = neoSession.run(query, params)
+                val result = neoSession.runLogged(query, params)
                 val edges = mutableListOf<Pair<String, String>>()
                 while (result.hasNext()) {
                     val record = result.next()
@@ -636,7 +748,8 @@ class Neo4jGraphStorage(
                     SET n += ${'$'}properties
                     SET n:`$entityType`
                     """.trimIndent()
-                tx.run(query, mapOf("entity_id" to nodeId, "properties" to properties)).consume()
+                tx.runLogged(query, mapOf("entity_id" to nodeId, "properties" to properties)).consume()
+                Unit
             }
         }
         Unit
@@ -666,7 +779,7 @@ class Neo4jGraphStorage(
                     RETURN r
                     """.trimIndent()
                 tx
-                    .run(
+                    .runLogged(
                         query,
                         mapOf(
                             "source_entity_id" to sourceNodeId,
@@ -674,6 +787,7 @@ class Neo4jGraphStorage(
                             "properties" to edgeData,
                         ),
                     ).consume()
+                Unit
             }
         }
         Unit
@@ -693,7 +807,8 @@ class Neo4jGraphStorage(
                         MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id})
                         DETACH DELETE n
                         """.trimIndent()
-                    tx.run(query, mapOf("entity_id" to nodeId)).consume()
+                    tx.runLogged(query, mapOf("entity_id" to nodeId)).consume()
+                    Unit
                 }
             }
             Unit
@@ -722,8 +837,9 @@ class Neo4jGraphStorage(
                         DELETE r
                         """.trimIndent()
                     edges.forEach { (src, tgt) ->
-                        tx.run(query, mapOf("source_entity_id" to src, "target_entity_id" to tgt)).consume()
+                        tx.runLogged(query, mapOf("source_entity_id" to src, "target_entity_id" to tgt)).consume()
                     }
+                    Unit
                 }
             }
             Unit
@@ -744,7 +860,7 @@ class Neo4jGraphStorage(
                     RETURN DISTINCT n.entity_id AS label
                     ORDER BY label
                     """.trimIndent()
-                val result = neoSession.run(query)
+                val result = neoSession.runLogged(query)
                 result.list().map { it.get("label").asString() }
             }
         }
@@ -773,7 +889,7 @@ class Neo4jGraphStorage(
                 if (nodeLabel == "*") {
                     // Wildcard case
                     val countQuery = "MATCH (n:`$workspaceLabel`) RETURN count(n) as total"
-                    val countResult = neoSession.run(countQuery).single()
+                    val countResult = neoSession.runLogged(countQuery).single()
                     val total = countResult.get("total").asInt()
 
                     if (total > effectiveMaxNodes) {
@@ -792,7 +908,6 @@ class Neo4jGraphStorage(
             robustFallback(nodeLabel, maxDepth, effectiveMaxNodes)
         }
 
-    @Suppress("LoopWithTooManyJumpStatements", "ReturnCount")
     private suspend fun robustFallback(
         nodeLabel: String,
         maxDepth: Int,
@@ -816,7 +931,7 @@ class Neo4jGraphStorage(
         withContext(Dispatchers.IO) {
             driver!!.session(sessionConfig()).use { neoSession: Session ->
                 val query = "MATCH (n:`$workspaceLabel` {entity_id: ${'$'}entity_id}) RETURN n"
-                val result = neoSession.run(query, mapOf("entity_id" to nodeLabel))
+                val result = neoSession.runLogged(query, mapOf("entity_id" to nodeLabel))
                 if (result.hasNext()) {
                     val node = result.next().get("n").asNode()
                     val props = node.asMap().toMutableMap()
@@ -873,7 +988,6 @@ class Neo4jGraphStorage(
         visitedNodes: Set<String>,
     ): Boolean = visitedNodes.contains(entityId) || depth > maxDepth
 
-    @Suppress("LoopWithTooManyJumpStatements")
     private fun processNeighbors(
         currentEntityId: String,
         currentDepth: Int,
@@ -892,7 +1006,7 @@ class Neo4jGraphStorage(
                 WITH r, b
                 RETURN r, b
                 """.trimIndent()
-            val result = neoSession.run(query, mapOf("entity_id" to currentEntityId))
+            val result = neoSession.runLogged(query, mapOf("entity_id" to currentEntityId))
             val records = result.list()
 
             for (record in records) {
@@ -938,93 +1052,108 @@ class Neo4jGraphStorage(
         }
     }
 
+    private data class WildcardData(
+        val nodeInfos: List<Map<String, Any>>,
+        val relationships: List<org.neo4j.driver.types.Relationship>,
+    )
+
     private suspend fun getKnowledgeGraphWildcard(maxNodes: Int): KnowledgeGraph =
         withContext(Dispatchers.IO) {
             val workspaceLabel = getWorkspaceLabel()
-            val nodes = mutableListOf<Map<String, Any>>()
-            val edges = mutableListOf<Map<String, Any>>()
-            var isTruncated = false
-
-            driver!!.session(sessionConfig()).use { neoSession: Session ->
-                val countQuery = "MATCH (n:`$workspaceLabel`) RETURN count(n) as total"
-                logQuery(countQuery, emptyMap())
-                val total =
-                    neoSession
-                        .run(countQuery)
-                        .single()
-                        .get("total")
-                        .asInt()
-
-                if (total > maxNodes) {
-                    isTruncated = true
+            val (nodes, edges, isTruncated) =
+                driver!!.session(sessionConfig()).use { neoSession ->
+                    val total = countNodes(neoSession, workspaceLabel)
+                    val wildcardData = fetchWildcardData(neoSession, workspaceLabel, maxNodes)
+                    buildWildcardGraph(wildcardData, maxNodes, total)
                 }
-
-                val pyQuery =
-                    """
-                    MATCH (n:`$workspaceLabel`)
-                    OPTIONAL MATCH (n)-[r]-() 
-                    WITH n, COALESCE(count(r), 0) AS degree
-                    ORDER BY degree DESC
-                    LIMIT ${'$'}max_nodes
-                    WITH collect({node: n}) AS filtered_nodes
-                    UNWIND filtered_nodes AS node_info
-                    WITH collect(node_info.node) AS kept_nodes, filtered_nodes
-                    OPTIONAL MATCH (a)-[r]-(b)
-                    WHERE a IN kept_nodes AND b IN kept_nodes
-                    RETURN filtered_nodes AS node_info,
-                           collect(DISTINCT r) AS relationships
-                    """.trimIndent()
-
-                val params = mapOf("max_nodes" to maxNodes)
-                logQuery(pyQuery, params)
-                val result = neoSession.run(pyQuery, params)
-                if (result.hasNext()) {
-                    val record = result.single()
-                    val nodeInfos = record.get("node_info").asList { it.asMap() }
-                    val relationships = record.get("relationships").asList { it.asRelationship() }
-
-                    val idToEntityId = mutableMapOf<String, String>()
-
-                    nodeInfos.forEach { info ->
-                        val node = info["node"] as Node
-                        val props = node.asMap().toMutableMap()
-                        val entityId = props["entity_id"] as? String
-                        if (entityId != null) {
-                            idToEntityId[node.elementId()] = entityId
-                            nodes.add(
-                                mapOf(
-                                    "id" to entityId,
-                                    "labels" to listOf(entityId),
-                                    "properties" to props,
-                                ),
-                            )
-                        }
-                    }
-
-                    relationships.forEach { rel ->
-                        val startId = rel.startNodeElementId()
-                        val endId = rel.endNodeElementId()
-
-                        val srcEntityId = idToEntityId[startId]
-                        val tgtEntityId = idToEntityId[endId]
-
-                        if (srcEntityId != null && tgtEntityId != null) {
-                            val edgeProps = rel.asMap().toMutableMap()
-                            edges.add(
-                                mapOf(
-                                    "id" to rel.elementId(),
-                                    "type" to rel.type(),
-                                    "source" to srcEntityId,
-                                    "target" to tgtEntityId,
-                                    "properties" to edgeProps,
-                                ),
-                            )
-                        }
-                    }
-                }
-            }
             KnowledgeGraph(nodes, edges, isTruncated)
         }
+
+    private fun countNodes(
+        neoSession: Session,
+        workspaceLabel: String,
+    ): Int =
+        neoSession
+            .runLogged("MATCH (n:`$workspaceLabel`) RETURN count(n) as total")
+            .single()
+            .get("total")
+            .asInt()
+
+    private fun fetchWildcardData(
+        neoSession: Session,
+        workspaceLabel: String,
+        maxNodes: Int,
+    ): WildcardData {
+        val pyQuery =
+            """
+            MATCH (n:`$workspaceLabel`)
+            OPTIONAL MATCH (n)-[r]-() 
+            WITH n, COALESCE(count(r), 0) AS degree
+            ORDER BY degree DESC
+            LIMIT ${'$'}max_nodes
+            WITH collect({node: n}) AS filtered_nodes
+            UNWIND filtered_nodes AS node_info
+            WITH collect(node_info.node) AS kept_nodes, filtered_nodes
+            OPTIONAL MATCH (a)-[r]-(b)
+            WHERE a IN kept_nodes AND b IN kept_nodes
+            RETURN filtered_nodes AS node_info,
+                   collect(DISTINCT r) AS relationships
+            """.trimIndent()
+
+        val result = neoSession.runLogged(pyQuery, mapOf("max_nodes" to maxNodes))
+        if (!result.hasNext()) return WildcardData(emptyList(), emptyList())
+
+        val record = result.single()
+        return WildcardData(
+            nodeInfos = record.get("node_info").asList { it.asMap() },
+            relationships = record.get("relationships").asList { it.asRelationship() },
+        )
+    }
+
+    private fun buildWildcardGraph(
+        wildcardData: WildcardData,
+        maxNodes: Int,
+        totalNodes: Int,
+    ): Triple<List<Map<String, Any>>, List<Map<String, Any>>, Boolean> {
+        val nodes = mutableListOf<Map<String, Any>>()
+        val edges = mutableListOf<Map<String, Any>>()
+        val idToEntityId = mutableMapOf<String, String>()
+
+        wildcardData.nodeInfos.forEach { info ->
+            val node = info["node"] as? Node ?: return@forEach
+            val props = node.asMap().toMutableMap()
+            val entityId = props["entity_id"] as? String ?: return@forEach
+            idToEntityId[node.elementId()] = entityId
+            nodes.add(
+                mapOf(
+                    "id" to entityId,
+                    "labels" to listOf(entityId),
+                    "properties" to props,
+                ),
+            )
+        }
+
+        wildcardData.relationships.forEach { rel ->
+            val srcEntityId = idToEntityId[rel.startNodeElementId()]
+            val tgtEntityId = idToEntityId[rel.endNodeElementId()]
+
+            if (srcEntityId != null && tgtEntityId != null) {
+                val edgeProps = rel.asMap().toMutableMap()
+                edges.add(
+                    mapOf(
+                        "id" to rel.elementId(),
+                        "type" to rel.type(),
+                        "source" to srcEntityId,
+                        "target" to tgtEntityId,
+                        "properties" to edgeProps,
+                    ),
+                )
+            }
+        }
+
+        val isTruncated = totalNodes > maxNodes
+        return Triple(nodes, edges, isTruncated)
+    }
 
     /**
      * Gets all nodes.
@@ -1035,7 +1164,7 @@ class Neo4jGraphStorage(
             val workspaceLabel = getWorkspaceLabel()
             driver!!.session(sessionConfig()).use { neoSession: Session ->
                 val query = "MATCH (n:`$workspaceLabel`) RETURN n"
-                val result = neoSession.run(query)
+                val result = neoSession.runLogged(query)
                 result.list().map { record ->
                     val node = record.get("n").asNode()
                     val map = node.asMap().toMutableMap()
@@ -1058,7 +1187,7 @@ class Neo4jGraphStorage(
                     MATCH (a:`$workspaceLabel`)-[r]-(b:`$workspaceLabel`)
                     RETURN DISTINCT a.entity_id AS source, b.entity_id AS target, properties(r) AS properties
                     """.trimIndent()
-                val result = neoSession.run(query)
+                val result = neoSession.runLogged(query)
                 result.list().map { record ->
                     val props = record.get("properties").asMap().toMutableMap()
                     props["source"] = record.get("source").asString()
@@ -1087,7 +1216,7 @@ class Neo4jGraphStorage(
                     LIMIT ${'$'}limit
                     RETURN label
                     """.trimIndent()
-                val result = neoSession.run(query, mapOf("limit" to limit))
+                val result = neoSession.runLogged(query, mapOf("limit" to limit))
                 result.list().map { it.get("label").asString() }
             }
         }
@@ -1103,118 +1232,140 @@ class Neo4jGraphStorage(
         limit: Int,
     ): List<String> =
         withContext(Dispatchers.IO) {
-            val workspaceLabel = getWorkspaceLabel()
             val queryStrip = query.trim()
             if (queryStrip.isEmpty()) return@withContext emptyList<String>()
 
-            val queryLower = queryStrip.lowercase()
-            val isChinese = isChineseText(queryStrip)
-            val indexName = getFulltextIndexName(workspaceLabel)
+            val context =
+                LabelSearchContext(
+                    workspaceLabel = getWorkspaceLabel(),
+                    queryStrip = queryStrip,
+                    queryLower = queryStrip.lowercase(),
+                    isChinese = isChineseText(queryStrip),
+                    indexName = getFulltextIndexName(getWorkspaceLabel()),
+                    limit = limit,
+                )
 
             driver!!.session(sessionConfig()).use { neoSession: Session ->
                 try {
-                    // Try fulltext search
-                    val cypherQuery: String
-                    val params: MutableMap<String, Any> =
-                        mutableMapOf(
-                            "index_name" to indexName,
-                            "query_strip" to queryStrip,
-                            "query_lower" to queryLower,
-                            "limit" to limit,
-                        )
-
-                    if (isChinese) {
-                        cypherQuery =
-                            """
-                            CALL db.index.fulltext.queryNodes(${'$'}index_name, ${'$'}search_query) YIELD node, score
-                            WITH node, score
-                            WHERE node:`$workspaceLabel`
-                            WITH node.entity_id AS label, score
-                            WITH label, score,
-                                 CASE
-                                     WHEN label = ${'$'}query_strip THEN score + $SCORE_EXACT_MATCH
-                                     WHEN label CONTAINS ${'$'}query_strip THEN score + $SCORE_CONTAINS
-                                     ELSE score
-                                 END AS final_score
-                            RETURN label
-                            ORDER BY final_score DESC, label ASC
-                            LIMIT ${'$'}limit
-                            """.trimIndent()
-                        params["search_query"] = queryStrip
-                    } else {
-                        cypherQuery =
-                            """
-                            CALL db.index.fulltext.queryNodes(${'$'}index_name, ${'$'}search_query) YIELD node, score
-                            WITH node, score
-                            WHERE node:`$workspaceLabel`
-                            WITH node.entity_id AS label, toLower(node.entity_id) AS label_lower, score
-                            WITH label, label_lower, score,
-                                 CASE
-                                     WHEN label_lower = ${'$'}query_lower THEN score + $SCORE_EXACT_MATCH
-                                     WHEN label_lower STARTS WITH ${'$'}query_lower THEN score + $SCORE_STARTS_WITH
-                                     WHEN label_lower CONTAINS ' ' + ${'$'}query_lower OR label_lower CONTAINS '_' + ${'$'}query_lower THEN score + $SCORE_PARTIAL
-                                     ELSE score
-                                 END AS final_score
-                            RETURN label
-                            ORDER BY final_score DESC, label ASC
-                            LIMIT ${'$'}limit
-                            """.trimIndent()
-                        params["search_query"] = "$queryStrip*"
-                    }
-
-                    logQuery(cypherQuery, params)
-                    val result = neoSession.run(cypherQuery, params)
-                    result.list().map { it.get("label").asString() }
+                    val (cypherQuery, params) = buildFullTextQuery(context)
+                    runLabelQuery(neoSession, cypherQuery, params)
                 } catch (e: Neo4jException) {
-                    // Fallback
                     logger.warn {
                         "[$workspace] Full-text search failed: ${e.message}. Falling back to standard search."
                     }
-                    val fallbackQuery: String
-                    val fallbackParams = mutableMapOf<String, Any>("limit" to limit)
-
-                    if (isChinese) {
-                        fallbackQuery =
-                            """
-                            MATCH (n:`$workspaceLabel`)
-                            WHERE n.entity_id IS NOT NULL
-                            WITH n.entity_id AS label
-                            WHERE label CONTAINS ${'$'}query_strip
-                            WITH label,
-                                 CASE
-                                     WHEN label = ${'$'}query_strip THEN $SCORE_EXACT_MATCH
-                                     WHEN label STARTS WITH ${'$'}query_strip THEN $SCORE_STARTS_WITH
-                                     ELSE $FALLBACK_SCORE_BASE - size(label)
-                                 END AS score
-                            ORDER BY score DESC, label ASC
-                            LIMIT ${'$'}limit
-                            RETURN label
-                            """.trimIndent()
-                        fallbackParams["query_strip"] = queryStrip
-                    } else {
-                        fallbackQuery =
-                            """
-                            MATCH (n:`$workspaceLabel`)
-                            WHERE n.entity_id IS NOT NULL
-                            WITH n.entity_id AS label, toLower(n.entity_id) AS label_lower
-                            WHERE label_lower CONTAINS ${'$'}query_lower
-                            WITH label, label_lower,
-                                 CASE
-                                     WHEN label_lower = ${'$'}query_lower THEN $SCORE_EXACT_MATCH
-                                     WHEN label_lower STARTS WITH ${'$'}query_lower THEN $SCORE_STARTS_WITH
-                                     ELSE $FALLBACK_SCORE_BASE - size(label)
-                                 END AS score
-                            ORDER BY score DESC, label ASC
-                            LIMIT ${'$'}limit
-                            RETURN label
-                            """.trimIndent()
-                        fallbackParams["query_lower"] = queryLower
-                    }
-
-                    logQuery(fallbackQuery, fallbackParams)
-                    val result = neoSession.run(fallbackQuery, fallbackParams)
-                    result.list().map { it.get("label").asString() }
+                    val (fallbackQuery, fallbackParams) = buildFallbackQuery(context)
+                    runLabelQuery(neoSession, fallbackQuery, fallbackParams)
                 }
             }
         }
+
+    private data class LabelSearchContext(
+        val workspaceLabel: String,
+        val queryStrip: String,
+        val queryLower: String,
+        val isChinese: Boolean,
+        val indexName: String,
+        val limit: Int,
+    )
+
+    private fun buildFullTextQuery(context: LabelSearchContext): Pair<String, MutableMap<String, Any>> {
+        val params: MutableMap<String, Any> =
+            mutableMapOf(
+                "index_name" to context.indexName,
+                "query_strip" to context.queryStrip,
+                "query_lower" to context.queryLower,
+                "limit" to context.limit,
+            )
+        val cypherQuery =
+            if (context.isChinese) {
+                params["search_query"] = context.queryStrip
+                buildChineseFulltextQuery(context.workspaceLabel)
+            } else {
+                params["search_query"] = "${context.queryStrip}*"
+                buildNonChineseFulltextQuery(context.workspaceLabel)
+            }
+        return cypherQuery to params
+    }
+
+    private fun buildChineseFulltextQuery(workspaceLabel: String): String =
+        """
+        CALL db.index.fulltext.queryNodes(${'$'}index_name, ${'$'}search_query) YIELD node, score
+        WITH node, score
+        WHERE node:`$workspaceLabel`
+        WITH node.entity_id AS label, score
+        WITH label, score,
+             CASE
+                 WHEN label = ${'$'}query_strip THEN score + $SCORE_EXACT_MATCH
+                 WHEN label CONTAINS ${'$'}query_strip THEN score + $SCORE_CONTAINS
+                 ELSE score
+             END AS final_score
+        RETURN label
+        ORDER BY final_score DESC, label ASC
+        LIMIT ${'$'}limit
+        """.trimIndent()
+
+    private fun buildNonChineseFulltextQuery(workspaceLabel: String): String =
+        """
+        CALL db.index.fulltext.queryNodes(${'$'}index_name, ${'$'}search_query) YIELD node, score
+        WITH node, score
+        WHERE node:`$workspaceLabel`
+        WITH node.entity_id AS label, toLower(node.entity_id) AS label_lower, score
+        WITH label, label_lower, score,
+             CASE
+                 WHEN label_lower = ${'$'}query_lower THEN score + $SCORE_EXACT_MATCH
+                 WHEN label_lower STARTS WITH ${'$'}query_lower THEN score + $SCORE_STARTS_WITH
+                 WHEN label_lower CONTAINS ' ' + ${'$'}query_lower OR label_lower CONTAINS '_' + ${'$'}query_lower THEN score + $SCORE_PARTIAL
+                 ELSE score
+             END AS final_score
+        RETURN label
+        ORDER BY final_score DESC, label ASC
+        LIMIT ${'$'}limit
+        """.trimIndent()
+
+    private fun buildFallbackQuery(context: LabelSearchContext): Pair<String, MutableMap<String, Any>> {
+        val params: MutableMap<String, Any> = mutableMapOf("limit" to context.limit)
+        val cypherQuery =
+            if (context.isChinese) {
+                params["query_strip"] = context.queryStrip
+                """
+                MATCH (n:`${context.workspaceLabel}`)
+                WHERE n.entity_id IS NOT NULL
+                WITH n.entity_id AS label
+                WHERE label CONTAINS ${'$'}query_strip
+                WITH label,
+                     CASE
+                         WHEN label = ${'$'}query_strip THEN $SCORE_EXACT_MATCH
+                         WHEN label STARTS WITH ${'$'}query_strip THEN $SCORE_STARTS_WITH
+                         ELSE $FALLBACK_SCORE_BASE - size(label)
+                     END AS score
+                ORDER BY score DESC, label ASC
+                LIMIT ${'$'}limit
+                RETURN label
+                """.trimIndent()
+            } else {
+                params["query_lower"] = context.queryLower
+                """
+                MATCH (n:`${context.workspaceLabel}`)
+                WHERE n.entity_id IS NOT NULL
+                WITH n.entity_id AS label, toLower(n.entity_id) AS label_lower
+                WHERE label_lower CONTAINS ${'$'}query_lower
+                WITH label, label_lower,
+                     CASE
+                         WHEN label_lower = ${'$'}query_lower THEN $SCORE_EXACT_MATCH
+                         WHEN label_lower STARTS WITH ${'$'}query_lower THEN $SCORE_STARTS_WITH
+                         ELSE $FALLBACK_SCORE_BASE - size(label)
+                     END AS score
+                ORDER BY score DESC, label ASC
+                LIMIT ${'$'}limit
+                RETURN label
+                """.trimIndent()
+            }
+        return cypherQuery to params
+    }
+
+    private fun runLabelQuery(
+        neoSession: Session,
+        cypherQuery: String,
+        params: MutableMap<String, Any>,
+    ): List<String> = neoSession.runLogged(cypherQuery, params).list().map { it.get("label").asString() }
 }

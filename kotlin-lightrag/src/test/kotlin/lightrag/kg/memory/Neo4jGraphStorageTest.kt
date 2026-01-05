@@ -13,6 +13,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
+/** Integration-style checks for Neo4j graph storage (ignored unless a database is available). */
 @Ignore("Requires Neo4j database")
 class Neo4jGraphStorageTest {
     val apiKey = "***************************************************"
@@ -25,6 +26,7 @@ class Neo4jGraphStorageTest {
 
     private lateinit var storage: Neo4jGraphStorage
 
+    /** Sets up a Neo4jGraphStorage instance and clears existing data. */
     @Before
     fun setUp() {
         storage =
@@ -53,6 +55,7 @@ class Neo4jGraphStorageTest {
         }
     }
 
+    /** Closes the Neo4j driver after each test run. */
     @After
     fun tearDown() {
         runBlocking {
@@ -60,6 +63,7 @@ class Neo4jGraphStorageTest {
         }
     }
 
+    /** Validates basic graph CRUD operations against Neo4j storage. */
     @Test
     fun `test basic graph operations`() {
         runBlocking {
@@ -115,6 +119,7 @@ class Neo4jGraphStorageTest {
         }
     }
 
+    /** Exercises degree calculations, adjacency, and label retrieval against Neo4j storage. */
     @Test
     fun `test advanced graph operations`() {
         runBlocking {

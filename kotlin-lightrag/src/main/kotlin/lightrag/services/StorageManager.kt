@@ -15,6 +15,10 @@ import lightrag.kg.neo4j.Neo4jEmbeddingStoreVectorStorage
 import lightrag.kg.neo4j.Neo4jGraphStorage
 import lightrag.kg.neo4j.Neo4jVectorStorage
 
+/**
+ * Central factory/wrapper that builds and exposes the configured storage implementations (KV, vector, and graph).
+ * Supports overriding storage backends via configuration for demos and production use.
+ */
 class StorageManager(
     workingDir: String,
     embeddingModel: EmbeddingModel,
@@ -206,9 +210,14 @@ class StorageManager(
             }
 
             else -> {
+                val graphGlobalConfig =
+                    globalConfig
+                        .filterValues { it != null }
+                        .mapValues { it.value as Any }
                 InMemoryGraphStorage(
                     namespace = "chunk_entity_relation_graph",
                     workspace = "default",
+                    globalConfig = graphGlobalConfig,
                     embeddingFunc = embeddingModel,
                 )
             }

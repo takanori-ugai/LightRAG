@@ -7,11 +7,13 @@ import com.knuddels.jtokkit.api.EncodingType
 import com.typesafe.config.Config
 import com.typesafe.config.ConfigFactory
 import dev.langchain4j.model.chat.ChatModel
+import dev.langchain4j.model.chat.StreamingChatModel
 import dev.langchain4j.model.embedding.EmbeddingModel
 import lightrag.core.AddonConfig
 import lightrag.core.LightRAG
 import lightrag.core.LightRagOverrides
 import lightrag.core.Neo4jConfig
+import lightrag.llm.DualChatModel
 import lightrag.llm.LLMFactory
 import lightrag.services.IngestionService
 import lightrag.services.QueryService
@@ -21,12 +23,6 @@ import org.koin.dsl.module
 
 val appModule =
     module {
-
-        single {
-            io.github.oshai.kotlinlogging.KotlinLogging
-                .logger {}
-        }
-
         single {
             val rawConfig: Config = ConfigFactory.load()
             val lightragConfig = rawConfig.getConfig("lightrag")
@@ -82,14 +78,26 @@ val appModule =
             )
         }
 
-        single<ChatModel> {
+        single {
             val lightRagConfig = get<LightRagConfig>()
-            LLMFactory.createChatModel(
-                binding = "openai",
-                modelName = lightRagConfig.openai.chatModelName,
-                apiKey = lightRagConfig.openai.apiKey,
-            )
+            val chatModel =
+                LLMFactory.createChatModel(
+                    binding = "openai",
+                    modelName = lightRagConfig.openai.chatModelName,
+                    apiKey = lightRagConfig.openai.apiKey,
+                )
+            val streamingChatModel =
+                LLMFactory.createStreamingChatModel(
+                    binding = "openai",
+                    modelName = lightRagConfig.openai.chatModelName,
+                    apiKey = lightRagConfig.openai.apiKey,
+                )
+            DualChatModel(chatModel, streamingChatModel)
         }
+
+        single<ChatModel> { get<DualChatModel>() }
+
+        single<StreamingChatModel> { get<DualChatModel>() }
 
         single<EmbeddingModel> {
             val lightRagConfig = get<LightRagConfig>()
@@ -110,6 +118,7 @@ val appModule =
                 vectorStorageName = lightRagConfig.storage.vectorStorageName,
                 addonConfig =
                     AddonConfig(
+                        neo4j = lightRagConfig.neo4j,
                         overrides =
                             LightRagOverrides(
                                 chunkTokenSize = lightRagConfig.addonConfig.chunkTokenSize,
@@ -161,6 +170,7 @@ val appModule =
             mapOf(
                 "llm_model_func" to appConfig.chatModel,
                 "embedding_func" to appConfig.embeddingModel,
+                "neo4j" to get<LightRagConfig>().neo4j,
                 "chunk_token_size" to chunkTokenSize,
                 "chunk_overlap_token_size" to chunkOverlapTokenSize,
                 "entity_types" to entityTypes,

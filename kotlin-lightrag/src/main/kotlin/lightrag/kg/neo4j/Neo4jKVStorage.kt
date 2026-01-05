@@ -1,20 +1,30 @@
 package lightrag.kg.neo4j
 
 import dev.langchain4j.model.embedding.EmbeddingModel
+import io.github.oshai.kotlinlogging.KLogger
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.* // Wildcard import should cover these
-
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.longOrNull
 import lightrag.core.Neo4jConfig
 import lightrag.core.types.BaseKVStorage
 import org.neo4j.driver.AuthTokens
 import org.neo4j.driver.Driver
 import org.neo4j.driver.GraphDatabase
+import org.neo4j.driver.Result
+import org.neo4j.driver.Session
 import org.neo4j.driver.SessionConfig
+import org.neo4j.driver.Value
 import org.neo4j.driver.Values
 import java.util.concurrent.TimeUnit
 
@@ -40,53 +50,20 @@ class Neo4jKVStorage(
     override val embeddingFunc: EmbeddingModel,
 ) : BaseKVStorage {
     private var driver: Driver? = null
-    private val label: String = sanitizeLabel("${namespace}_${workspace}_kv")
+    private val label: String = Neo4jKVHelpers.sanitizeLabel("${namespace}_${workspace}_kv")
     private val data = mutableMapOf<String, Map<String, Any>>()
     private val json =
         Json {
             ignoreUnknownKeys = true
             prettyPrint = true
         }
-
-    private fun sanitizeLabel(raw: String): String {
-        var result = raw.replace(Regex("[^A-Za-z0-9_]+"), "_").trim('_')
-        if (result.isEmpty()) result = "base"
-        if (!result.first().isLetter() && result.first() != '_') {
-            result = "l_$result"
-        }
-        return result
-    }
-
-    private fun parseNeo4jConfig(): Neo4jConfig? =
-        when (val cfg = globalConfig["neo4j"]) {
-            is Neo4jConfig -> {
-                cfg
-            }
-
-            is Map<*, *> -> {
-                Neo4jConfig(
-                    uri = cfg["uri"] as? String,
-                    username = cfg["username"] as? String,
-                    password = cfg["password"] as? String,
-                    database = cfg["database"] as? String,
-                )
-            }
-
-            else -> {
-                null
-            }
-        }
-
-    private fun sessionConfig(): SessionConfig {
-        val database = System.getenv("NEO4J_DATABASE") ?: parseNeo4jConfig()?.database
-        return database?.let { SessionConfig.forDatabase(it) } ?: SessionConfig.defaultConfig()
-    }
+    private val helperContext = Neo4jKVContext(logger, namespace, workspace, globalConfig)
 
     /**
      * Initializes the storage by creating a Neo4j driver and creating a constraint on the label.
      */
     override suspend fun initialize() {
-        val cfg = parseNeo4jConfig()
+        val cfg = Neo4jKVHelpers.parseNeo4jConfig(helperContext)
         val uri = System.getenv("NEO4J_URI") ?: cfg?.uri
         val username = System.getenv("NEO4J_USERNAME") ?: cfg?.username
         val password = System.getenv("NEO4J_PASSWORD") ?: cfg?.password
@@ -118,12 +95,25 @@ class Neo4jKVStorage(
         driver = GraphDatabase.driver(uri, auth, config)
 
         withContext(Dispatchers.IO) {
-            driver?.session(sessionConfig())?.use { session ->
-                session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (n:$label) REQUIRE n.id IS UNIQUE").consume()
-            }
+            driver
+                ?.session(Neo4jKVHelpers.sessionConfig(helperContext))
+                ?.use { session ->
+                    Neo4jKVHelpers
+                        .runLogged(
+                            session = session,
+                            context = helperContext,
+                            query = "CREATE CONSTRAINT IF NOT EXISTS FOR (n:$label) REQUIRE n.id IS UNIQUE",
+                        ).consume()
+                }
         }
 
-        loadFromNeo()
+        Neo4jKVHelpers.loadFromNeo(
+            driver = driver,
+            label = label,
+            json = json,
+            context = helperContext,
+            data = data,
+        )
     }
 
     /**
@@ -131,28 +121,6 @@ class Neo4jKVStorage(
      */
     override suspend fun finalize() {
         driver?.close()
-    }
-
-    private suspend fun loadFromNeo() {
-        val sessionCfg = sessionConfig()
-        withContext(Dispatchers.IO) {
-            driver?.session(sessionCfg)?.use { session ->
-                val result = session.run("MATCH (n:$label) RETURN n.id AS id, n.data_json AS data_json")
-                result.list().forEach { record ->
-                    val id = record["id"].asString()
-                    val rawJson = record["data_json"].asString(null)
-                    val kv =
-                        if (rawJson != null && rawJson.isNotBlank()) {
-                            val parsed = json.decodeFromString<JsonObject>(rawJson)
-                            (parsed.toAny() as? Map<String, Any>) ?: emptyMap()
-                        } else {
-                            emptyMap()
-                        }
-                    data[id] = kv
-                }
-                logger.info { "Loaded ${data.size} KV records for '$namespace/$workspace' from Neo4j" }
-            }
-        }
     }
 
     /**
@@ -195,21 +163,25 @@ class Neo4jKVStorage(
             data.map { (id, payload) ->
                 mapOf("id" to id, "data" to payload)
             }
-        val sessionCfg = sessionConfig()
+        val sessionCfg = Neo4jKVHelpers.sessionConfig(helperContext)
         withContext(Dispatchers.IO) {
-            driver?.session(sessionCfg)?.use { session ->
-                rows.forEach { row ->
-                    val jsonStr =
-                        json.encodeToString(
-                            (row["data"] ?: emptyMap<String, Any>()).toJsonElement(),
-                        )
-                    session
-                        .run(
-                            "MERGE (n:$label {id: \$id}) SET n.data_json = \$data_json",
-                            Values.parameters("id", row["id"], "data_json", jsonStr),
-                        ).consume()
+            driver
+                ?.session(sessionCfg)
+                ?.use { session ->
+                    rows.forEach { row ->
+                        val jsonStr =
+                            json.encodeToString(
+                                Neo4jKVHelpers.toJsonElement(row["data"] ?: emptyMap<String, Any>()),
+                            )
+                        Neo4jKVHelpers
+                            .runLogged(
+                                session = session,
+                                context = helperContext,
+                                query = "MERGE (n:$label {id: \$id}) SET n.data_json = \$data_json",
+                                params = Values.parameters("id", row["id"], "data_json", jsonStr),
+                            ).consume()
+                    }
                 }
-            }
         }
     }
 
@@ -220,16 +192,20 @@ class Neo4jKVStorage(
     override suspend fun delete(ids: List<String>) {
         ids.forEach { data.remove(it) }
         if (ids.isEmpty()) return
-        val sessionCfg = sessionConfig()
+        val sessionCfg = Neo4jKVHelpers.sessionConfig(helperContext)
         withContext(Dispatchers.IO) {
-            driver?.session(sessionCfg)?.use { session ->
-                val cypher = "MATCH (n:$label) WHERE n.id IN " + "$" + "ids DETACH DELETE n"
-                session
-                    .run(
-                        cypher,
-                        Values.parameters("ids", ids),
-                    ).consume()
-            }
+            driver
+                ?.session(sessionCfg)
+                ?.use { session ->
+                    val cypher = "MATCH (n:$label) WHERE n.id IN " + "$" + "ids DETACH DELETE n"
+                    Neo4jKVHelpers
+                        .runLogged(
+                            session = session,
+                            context = helperContext,
+                            query = cypher,
+                            params = Values.parameters("ids", ids),
+                        ).consume()
+                }
         }
     }
 
@@ -239,11 +215,18 @@ class Neo4jKVStorage(
      */
     override suspend fun drop(): Map<String, String> {
         data.clear()
-        val sessionCfg = sessionConfig()
+        val sessionCfg = Neo4jKVHelpers.sessionConfig(helperContext)
         withContext(Dispatchers.IO) {
-            driver?.session(sessionCfg)?.use { session ->
-                session.run("MATCH (n:$label) DETACH DELETE n").consume()
-            }
+            driver
+                ?.session(sessionCfg)
+                ?.use { session ->
+                    Neo4jKVHelpers
+                        .runLogged(
+                            session = session,
+                            context = helperContext,
+                            query = "MATCH (n:$label) DETACH DELETE n",
+                        ).consume()
+                }
         }
         return mapOf("status" to "success", "message" to "Neo4j KV data dropped for $label")
     }
@@ -253,46 +236,181 @@ class Neo4jKVStorage(
      * @return True if the storage is empty, false otherwise.
      */
     override suspend fun isEmpty(): Boolean = data.isEmpty()
+}
 
-    private fun Any?.toJsonElement(): JsonElement =
-        when (this) {
-            null -> JsonNull
-            is Boolean -> JsonPrimitive(this)
-            is Number -> JsonPrimitive(this.toString())
-            is String -> JsonPrimitive(this)
-            is List<*> -> JsonArray(this.map { it.toJsonElement() })
-            is Map<*, *> -> JsonObject(this.entries.associate { it.key.toString() to it.value.toJsonElement() })
-            else -> JsonPrimitive(this.toString())
+private data class Neo4jKVContext(
+    val logger: KLogger,
+    val namespace: String,
+    val workspace: String,
+    val globalConfig: Map<String, Any?>,
+)
+
+private object Neo4jKVHelpers {
+    fun sanitizeLabel(raw: String): String {
+        var result = raw.replace(Regex("[^A-Za-z0-9_]+"), "_").trim('_')
+        if (result.isEmpty()) result = "base"
+        if (!result.first().isLetter() && result.first() != '_') {
+            result = "l_$result"
+        }
+        return result
+    }
+
+    fun parseNeo4jConfig(context: Neo4jKVContext): Neo4jConfig? =
+        when (val cfg = context.globalConfig["neo4j"]) {
+            is Neo4jConfig -> {
+                cfg
+            }
+
+            is Map<*, *> -> {
+                Neo4jConfig(
+                    uri = cfg["uri"] as? String,
+                    username = cfg["username"] as? String,
+                    password = cfg["password"] as? String,
+                    database = cfg["database"] as? String,
+                )
+            }
+
+            else -> {
+                null
+            }
         }
 
-    private fun JsonElement.toAny(): Any? =
-        when (this) {
+    fun sessionConfig(context: Neo4jKVContext): SessionConfig {
+        val database = System.getenv("NEO4J_DATABASE") ?: parseNeo4jConfig(context)?.database
+        return database?.let { SessionConfig.forDatabase(it) } ?: SessionConfig.defaultConfig()
+    }
+
+    private fun databaseForLog(context: Neo4jKVContext): String =
+        System.getenv("NEO4J_DATABASE") ?: parseNeo4jConfig(context)?.database ?: "default"
+
+    private fun logQuery(
+        context: Neo4jKVContext,
+        query: String,
+        params: Map<String, Any?>,
+    ) {
+        if (context.logger.isDebugEnabled()) {
+            context.logger.debug {
+                "[${context.namespace}/${context.workspace}][${databaseForLog(context)}] CYPHER: $query params=$params"
+            }
+        }
+    }
+
+    fun runLogged(
+        session: Session,
+        context: Neo4jKVContext,
+        query: String,
+        params: Any? = null,
+    ): Result =
+        when (params) {
+            null -> {
+                logQuery(context, query, emptyMap())
+                session.run(query)
+            }
+
+            is Value -> {
+                logQuery(context, query, params.asMap())
+                session.run(query, params)
+            }
+
+            is Map<*, *> -> {
+                val castParams = params.entries.associate { (k, v) -> k.toString() to v }
+                logQuery(context, query, castParams)
+                session.run(query, castParams)
+            }
+
+            else -> {
+                val wrapped = mapOf("param" to params)
+                logQuery(context, query, wrapped)
+                session.run(query, wrapped)
+            }
+        }
+
+    suspend fun loadFromNeo(
+        driver: Driver?,
+        label: String,
+        json: Json,
+        context: Neo4jKVContext,
+        data: MutableMap<String, Map<String, Any>>,
+    ) {
+        val sessionCfg = sessionConfig(context)
+        withContext(Dispatchers.IO) {
+            driver?.session(sessionCfg)?.use { session ->
+                val result =
+                    runLogged(
+                        session = session,
+                        context = context,
+                        query = "MATCH (n:$label) RETURN n.id AS id, n.data_json AS data_json",
+                    )
+                result.list().forEach { record ->
+                    val id = record["id"].asString()
+                    val rawJson = record["data_json"].asString(null)
+                    val kv =
+                        if (rawJson != null && rawJson.isNotBlank()) {
+                            val parsed = json.decodeFromString<JsonObject>(rawJson)
+                            (toAny(parsed) as? Map<*, *>)?.entries?.associate { (k, v) ->
+                                k.toString() to (v as Any)
+                            } ?: emptyMap()
+                        } else {
+                            emptyMap()
+                        }
+                    data[id] = kv
+                }
+                context.logger.info { "Loaded ${data.size} KV records for '${context.namespace}/${context.workspace}' from Neo4j" }
+            }
+        }
+    }
+
+    fun toJsonElement(value: Any?): JsonElement =
+        when (value) {
+            null -> {
+                JsonNull
+            }
+
+            is Boolean -> {
+                JsonPrimitive(value)
+            }
+
+            is Number -> {
+                JsonPrimitive(value.toString())
+            }
+
+            is String -> {
+                JsonPrimitive(value)
+            }
+
+            is List<*> -> {
+                JsonArray(value.map { toJsonElement(it) })
+            }
+
+            is Map<*, *> -> {
+                JsonObject(value.entries.associate { it.key.toString() to toJsonElement(it.value) })
+            }
+
+            else -> {
+                JsonPrimitive(value.toString())
+            }
+        }
+
+    fun toAny(element: JsonElement): Any? =
+        when (element) {
             is JsonNull -> {
                 null
             }
 
             is JsonPrimitive -> {
-                if (this.isString) {
-                    this.content
+                if (element.isString) {
+                    element.content
                 } else {
-                    // Manually parse the content string to Boolean, Long, or Double
-                    this.content.toBooleanStrictOrNull()
-                        ?: this.content.toLongOrNull()
-                        ?: this.content.toDoubleOrNull()
-                        ?: this.content
+                    element.booleanOrNull ?: element.longOrNull ?: element.doubleOrNull ?: element.content
                 }
             }
 
             is JsonArray -> {
-                this.map { it.toAny() }
+                element.map { toAny(it) }
             }
 
             is JsonObject -> {
-                this.mapValues { it.value.toAny() }
-            }
-
-            else -> {
-                null
+                element.mapValues { toAny(it.value) }
             }
         }
 }

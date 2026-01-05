@@ -1,5 +1,6 @@
 package lightrag
 
+import dev.langchain4j.model.chat.ChatModel
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -18,6 +19,9 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.modules.SerializersModule
+import kotlinx.serialization.modules.contextual
 import lightrag.api.routers.configureDocumentRoutes
 import lightrag.api.routers.configureGraphRoutes
 import lightrag.api.routers.configureOllamaRoutes
@@ -25,6 +29,7 @@ import lightrag.api.routers.configureQueryRoutes
 import lightrag.core.LightRAG
 import lightrag.di.appModule
 import lightrag.services.StorageManager
+import lightrag.utils.AnyValueSerializer
 import org.koin.ktor.ext.inject
 import org.koin.ktor.plugin.Koin
 
@@ -43,7 +48,16 @@ fun main() {
  */
 fun Application.module() {
     install(ContentNegotiation) {
-        json()
+        json(
+            Json {
+                ignoreUnknownKeys = true
+                prettyPrint = true
+                serializersModule =
+                    SerializersModule {
+                        contextual(Any::class, AnyValueSerializer)
+                    }
+            },
+        )
     }
     install(CORS) {
         anyHost()
@@ -56,6 +70,7 @@ fun Application.module() {
 
     val rag by inject<LightRAG>()
     val storageManager by inject<StorageManager>()
+    val chatModel by inject<ChatModel>()
 
     val resetStorage = System.getenv("LIGHTRAG_RESET_STORAGE")?.equals("true", ignoreCase = true) == true
     if (resetStorage) {
@@ -74,14 +89,10 @@ fun Application.module() {
         swaggerUI(path = "swagger", swaggerFile = "openapi/documentation.yaml")
         staticResources("/ui", "static")
         get("/app") { call.respondRedirect("/ui/index.html") }
-        post("/admin/drop") {
-            val result = storageManager.drop()
-            call.respond(result)
-        }
     }
 
     configureDocumentRoutes(rag)
     configureQueryRoutes(rag)
     configureGraphRoutes(rag)
-    configureOllamaRoutes(rag)
+    configureOllamaRoutes(rag, chatModel)
 }

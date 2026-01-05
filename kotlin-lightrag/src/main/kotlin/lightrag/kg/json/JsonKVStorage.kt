@@ -4,9 +4,20 @@ import dev.langchain4j.model.embedding.EmbeddingModel
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import lightrag.core.types.BaseKVStorage
 import lightrag.kg.json.KVEntry
 import java.io.File
@@ -54,16 +65,17 @@ class JsonKVStorage(
                                 logger.warn(ex) {
                                     "Falling back to legacy KV format for ${file.absolutePath}"
                                 }
-                                @Suppress("UNCHECKED_CAST")
-                                val legacy =
-                                    json.decodeFromString<Map<String, Map<String, Any?>>>(content)
+                                val legacy = json.decodeFromString<JsonObject>(content)
                                 legacy.mapValues { (_, value) ->
+                                    val payload = value.jsonObject
                                     val dataMap =
-                                        (value["value"] as? Map<String, Any?>)
-                                            ?: value
+                                        (payload["value"]?.jsonObject ?: payload)
+                                            .mapValues { entry -> entry.value.toLegacyValue() }
+                                            .filterValues { it != null }
+                                            .mapValues { it.value as Any }
                                     KVEntry(
                                         KVValue(
-                                            dataMap.filterValues { it != null } as Map<String, Any>,
+                                            dataMap,
                                         ),
                                     )
                                 }
@@ -71,8 +83,10 @@ class JsonKVStorage(
                     mutex.withLock { data.putAll(loaded) }
                     logger.info { "Loaded ${loaded.size} records from ${file.absolutePath}" }
                 }
-            } catch (e: Exception) {
-                logger.error(e) { "Error loading KV storage from ${file.absolutePath}" }
+            } catch (e: java.io.IOException) {
+                logger.error(e) { "I/O error loading KV storage from ${file.absolutePath}" }
+            } catch (e: SerializationException) {
+                logger.error(e) { "Serialization error loading KV storage from ${file.absolutePath}" }
             }
         }
     }
@@ -86,8 +100,10 @@ class JsonKVStorage(
                 val content = json.encodeToString(data)
                 file.writeText(content)
                 logger.debug { "Saved ${data.size} records to ${file.absolutePath}" }
-            } catch (e: Exception) {
-                logger.error(e) { "Error saving KV storage to ${file.absolutePath}" }
+            } catch (e: java.io.IOException) {
+                logger.error(e) { "I/O error saving KV storage to ${file.absolutePath}" }
+            } catch (e: SerializationException) {
+                logger.error(e) { "Serialization error saving KV storage to ${file.absolutePath}" }
             }
         }
     }
@@ -99,7 +115,9 @@ class JsonKVStorage(
      */
     override suspend fun getById(id: String): Map<String, Any>? =
         mutex.withLock {
-            data[id]?.value?.data
+            data[id]
+                ?.value
+                ?.data
                 ?.filterValues { it != null }
                 ?.mapValues { it.value as Any }
         }
@@ -112,7 +130,9 @@ class JsonKVStorage(
     override suspend fun getByIds(ids: List<String>): List<Map<String, Any>> =
         mutex.withLock {
             ids.mapNotNull {
-                data[it]?.value?.data
+                data[it]
+                    ?.value
+                    ?.data
                     ?.filterValues { v -> v != null }
                     ?.mapValues { entry -> entry.value as Any }
             }
@@ -172,3 +192,26 @@ class JsonKVStorage(
             data.isEmpty()
         }
 }
+
+private fun JsonElement.toLegacyValue(): Any? =
+    when (this) {
+        is JsonNull -> {
+            null
+        }
+
+        is JsonPrimitive -> {
+            if (isString) {
+                content
+            } else {
+                booleanOrNull ?: longOrNull ?: doubleOrNull ?: content
+            }
+        }
+
+        is kotlinx.serialization.json.JsonArray -> {
+            this.map { it.toLegacyValue() }
+        }
+
+        is JsonObject -> {
+            this.mapValues { it.value.toLegacyValue() }
+        }
+    }

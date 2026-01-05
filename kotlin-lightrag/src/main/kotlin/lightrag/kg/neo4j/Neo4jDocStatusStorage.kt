@@ -7,8 +7,11 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.* // Wildcard import should cover these
-
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import lightrag.core.Neo4jConfig
 import lightrag.core.types.DocProcessingStatus
 import lightrag.core.types.DocStatus
@@ -16,7 +19,10 @@ import lightrag.core.types.DocStatusStorage
 import org.neo4j.driver.AuthTokens
 import org.neo4j.driver.Driver
 import org.neo4j.driver.GraphDatabase
+import org.neo4j.driver.Result
+import org.neo4j.driver.Session
 import org.neo4j.driver.SessionConfig
+import org.neo4j.driver.Value
 import org.neo4j.driver.Values
 import java.time.Instant
 import java.util.concurrent.TimeUnit
@@ -80,6 +86,37 @@ class Neo4jDocStatusStorage(
         return database?.let { SessionConfig.forDatabase(it) } ?: SessionConfig.defaultConfig()
     }
 
+    private fun databaseForLog(): String = System.getenv("NEO4J_DATABASE") ?: parseNeo4jConfig()?.database ?: "default"
+
+    private fun Session.runLogged(
+        query: String,
+        params: Any? = null,
+    ): Result =
+        when (params) {
+            null -> {
+                logger.debug { "[$namespace/$workspace][${databaseForLog()}] CYPHER: $query" }
+                run(query)
+            }
+
+            is Value -> {
+                val mapped = params.asMap()
+                logger.debug { "[$namespace/$workspace][${databaseForLog()}] CYPHER: $query params=$mapped" }
+                run(query, mapped)
+            }
+
+            is Map<*, *> -> {
+                val castParams = params.entries.associate { (k, v) -> k.toString() to v }
+                logger.debug { "[$namespace/$workspace][${databaseForLog()}] CYPHER: $query params=$castParams" }
+                run(query, castParams)
+            }
+
+            else -> {
+                val wrapped = mapOf("param" to params)
+                logger.debug { "[$namespace/$workspace][${databaseForLog()}] CYPHER: $query params=$wrapped" }
+                run(query, wrapped)
+            }
+        }
+
     /**
      * Initializes the storage by creating a Neo4j driver and creating a constraint on the label.
      */
@@ -117,7 +154,7 @@ class Neo4jDocStatusStorage(
 
         withContext(Dispatchers.IO) {
             driver?.session(sessionConfig())?.use { session ->
-                session.run("CREATE CONSTRAINT IF NOT EXISTS FOR (n:$label) REQUIRE n.id IS UNIQUE").consume()
+                session.runLogged("CREATE CONSTRAINT IF NOT EXISTS FOR (n:$label) REQUIRE n.id IS UNIQUE").consume()
             }
         }
 
@@ -135,13 +172,16 @@ class Neo4jDocStatusStorage(
         val sessionCfg = sessionConfig()
         withContext(Dispatchers.IO) {
             driver?.session(sessionCfg)?.use { session ->
-                val result = session.run("MATCH (n:$label) RETURN n.id AS id, n.data_json AS data_json")
+                val result = session.runLogged("MATCH (n:$label) RETURN n.id AS id, n.data_json AS data_json")
                 result.list().forEach { record ->
                     val id = record["id"].asString()
                     val rawJson = record["data_json"].asString(null)
                     if (!rawJson.isNullOrBlank()) {
                         val parsed = json.decodeFromString<JsonObject>(rawJson)
-                        val map = parsed.toAny() as? Map<String, Any> ?: emptyMap()
+                        val map =
+                            (parsed.toAny() as? Map<*, *>)?.entries?.associate { (k, v) ->
+                                k.toString() to (v as Any)
+                            } ?: emptyMap()
                         docs[id] = mapToStatus(map, docs[id])
                     }
                 }
@@ -200,7 +240,7 @@ class Neo4jDocStatusStorage(
             driver?.session(sessionCfg)?.use { session ->
                 updates.forEach { (id, payload) ->
                     session
-                        .run(
+                        .runLogged(
                             "MERGE (n:$label {id: \$id}) SET n.data_json = \$data_json",
                             Values.parameters("id", id, "data_json", payload),
                         ).consume()
@@ -220,7 +260,7 @@ class Neo4jDocStatusStorage(
         withContext(Dispatchers.IO) {
             driver?.session(sessionCfg)?.use { session ->
                 session
-                    .run(
+                    .runLogged(
                         "MATCH (n:$label) WHERE n.id IN \$ids DETACH DELETE n",
                         Values.parameters("ids", ids),
                     ).consume()
@@ -237,7 +277,7 @@ class Neo4jDocStatusStorage(
         val sessionCfg = sessionConfig()
         withContext(Dispatchers.IO) {
             driver?.session(sessionCfg)?.use { session ->
-                session.run("MATCH (n:$label) DETACH DELETE n").consume()
+                session.runLogged("MATCH (n:$label) DETACH DELETE n").consume()
             }
         }
         return mapOf("status" to "success", "message" to "Doc status data dropped for $label")
@@ -391,10 +431,6 @@ class Neo4jDocStatusStorage(
 
             is JsonObject -> {
                 this.mapValues { it.value.toAny() }
-            }
-
-            else -> {
-                null
             }
         }
 }

@@ -45,7 +45,10 @@ object AnyMapSerializer : kotlinx.serialization.KSerializer<Map<String, Any?>> {
     override val descriptor: SerialDescriptor
         get() = delegate.descriptor
 
-    override fun serialize(encoder: Encoder, value: Map<String, Any?>) {
+    override fun serialize(
+        encoder: Encoder,
+        value: Map<String, Any?>,
+    ) {
         val jsonMap = value.mapValues { (_, v) -> v.toJsonElement() }
         encoder.encodeSerializableValue(delegate, jsonMap)
     }
@@ -70,13 +73,23 @@ private fun Any?.toJsonElement(): JsonElement =
 
 private fun JsonElement.toAny(): Any? =
     when (this) {
-        is JsonNull -> null
-        is JsonPrimitive ->
+        is JsonNull -> {
+            null
+        }
+
+        is JsonPrimitive -> {
             if (isString) {
                 content
             } else {
                 booleanOrNull ?: longOrNull ?: doubleOrNull ?: content
             }
-        is JsonArray -> this.map { it.toAny() }
-        is JsonObject -> this.mapValues { it.value.toAny() }
+        }
+
+        is JsonArray -> {
+            this.map { it.toAny() }
+        }
+
+        is JsonObject -> {
+            this.mapValues { it.value.toAny() }
+        }
     }

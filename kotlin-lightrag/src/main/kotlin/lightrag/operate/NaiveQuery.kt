@@ -100,8 +100,11 @@ private suspend fun getVectorContext(
 
         logger.info { "Naive query: ${validChunks.size} chunks (chunk_top_k:$searchTopK cosine:$cosineThreshold)" }
         return validChunks
-    } catch (e: Exception) {
-        logger.error(e) { "Error in _getVectorContext" }
+    } catch (e: IllegalStateException) {
+        logger.error(e) { "Illegal state in _getVectorContext" }
+        return emptyList()
+    } catch (e: IllegalArgumentException) {
+        logger.error(e) { "Invalid input in _getVectorContext" }
         return emptyList()
     }
 }
@@ -149,12 +152,12 @@ fun generateReferenceListFromChunks(chunks: List<Map<String, Any?>>): Pair<List<
  * @return A list of processed chunks.
  */
 fun processChunksUnified(
-    @Suppress("UNUSED_PARAMETER") query: String,
+    query: String,
     // Not directly used in this simplified version for reranking, but kept for signature
     uniqueChunks: List<Map<String, Any?>>,
-    @Suppress("UNUSED_PARAMETER") queryParam: QueryParam,
-    @Suppress("UNUSED_PARAMETER") globalConfig: Map<String, Any?>,
-    @Suppress("UNUSED_PARAMETER") sourceType: String,
+    queryParam: QueryParam,
+    globalConfig: Map<String, Any?>,
+    sourceType: String,
     // e.g., "vector", "entity", "relation"
     chunkTokenLimit: Int,
     tokenizer: ((String) -> List<Int>),
@@ -231,7 +234,6 @@ fun convertToJsonFormat(
     chunks: List<Map<String, Any?>>,
     references: List<Map<String, String>>,
     queryMode: String,
-    @Suppress("UNUSED_PARAMETER") relationIdToOriginal: Map<Pair<String, String>, Any?> = emptyMap(),
 ): Map<String, Any?> {
     val dataMap =
         mutableMapOf<String, Any?>(
@@ -314,9 +316,9 @@ private suspend fun saveToCache(
 private suspend fun handleCache(
     hashingKv: BaseKVStorage?,
     argsHash: String,
-    @Suppress("UNUSED_PARAMETER") prompt: String,
-    @Suppress("UNUSED_PARAMETER") mode: String,
-    @Suppress("UNUSED_PARAMETER") cacheType: String,
+    prompt: String,
+    mode: String,
+    cacheType: String,
 ): Pair<String, Long>? { // Returns content and timestamp
     if (hashingKv == null) return null
 
@@ -336,7 +338,6 @@ private suspend fun handleCache(
  * @param text The text to remove the tags from.
  * @return The text without the tags.
  */
-@Suppress("UNUSED")
 fun removeThinkTags(text: String): String {
     // This is a simplified placeholder. In Python, it would remove specific XML-like tags.
     // Assuming for now that the LLM is not generating these tags in Kotlin or they are removed differently.
@@ -349,62 +350,77 @@ fun removeThinkTags(text: String): String {
  * @return The query result.
  */
 suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
-    if (params.query.isBlank()) {
-        return QueryResult(content = Prompts.FAIL_RESPONSE)
-    }
+    if (params.query.isBlank()) return QueryResult(content = Prompts.FAIL_RESPONSE)
 
+    val model = resolveNaiveModel(params) ?: return QueryResult(content = "Error: No LLM model configured.")
+    val chunks = getVectorContext(params.query, params.chunksVdb, params.queryParam)
+    if (chunks.isEmpty()) return null
+
+    val promptContext = buildNaivePromptContext(params, chunks) ?: return QueryResult(content = Prompts.FAIL_RESPONSE)
+    if (params.queryParam.onlyNeedContext) return QueryResult(content = promptContext.contextContent, rawData = promptContext.rawData)
+    if (params.queryParam.onlyNeedPrompt) return QueryResult(content = promptContext.promptContent, rawData = promptContext.rawData)
+
+    val cached = handleCache(params.hashingKv, promptContext.argsHash, promptContext.userQuery, params.queryParam.mode, "query")
+    if (cached != null) return QueryResult(content = cached.first, rawData = promptContext.rawData)
+
+    return if (params.queryParam.stream) {
+        streamNaiveQuery(params, model, promptContext)
+    } else {
+        runNaiveQuery(params, model, promptContext)
+    }
+}
+
+private fun resolveNaiveModel(params: NaiveQueryParams): ChatModel? {
     val model = params.chatModel ?: params.globalConfig["llm_model_func"] as? ChatModel
     if (model == null) {
         logger.error { "No ChatModel provided for naiveQuery" }
-        return QueryResult(content = "Error: No LLM model configured.")
+    }
+    return model
+}
+
+private fun buildUserPromptStr(queryParam: QueryParam): String =
+    if (!queryParam.userPrompt.isNullOrBlank()) {
+        "\n\n${queryParam.userPrompt}"
+    } else {
+        "n/a"
     }
 
-    val tokenizer = params.tokenizer // Use the injected tokenizer
+private fun maxTokens(params: NaiveQueryParams): Int =
+    params.queryParam.maxTotalTokens.coerceAtMost(
+        (params.globalConfig["max_total_tokens"] as? Int) ?: DEFAULT_MAX_TOTAL_TOKENS,
+    )
+
+private data class PromptContext(
+    val rawData: Map<String, Any?>,
+    val contextContent: String,
+    val sysPrompt: String,
+    val userQuery: String,
+    val argsHash: String,
+    val maxTotalTokens: Int,
+    val promptContent: String,
+)
+
+private fun buildNaivePromptContext(
+    params: NaiveQueryParams,
+    chunks: List<Map<String, Any?>>,
+): PromptContext? {
+    val tokenizer = params.tokenizer
     val decoder = params.decoder
-
-    // Get chunks using vector context (equivalent to _get_vector_context)
-    val chunks = getVectorContext(params.query, params.chunksVdb, params.queryParam)
-
-    if (chunks.isEmpty()) {
-        logger.info { "[naive_query] No relevant document chunks found; returning no-result." }
-        return null
-    }
-
-    // Calculate dynamic token limit for chunks
-    val maxTotalTokens =
-        params.queryParam.maxTotalTokens.coerceAtMost(
-            (params.globalConfig["max_total_tokens"] as? Int) ?: DEFAULT_MAX_TOTAL_TOKENS,
-        )
-
-    val userPromptStr =
-        if (!params.queryParam.userPrompt.isNullOrBlank()) {
-            "\n\n${params.queryParam.userPrompt}"
-        } else {
-            "n/a"
-        }
+    val maxTotalTokens = maxTokens(params)
+    val userPromptStr = buildUserPromptStr(params.queryParam)
     val responseType = params.queryParam.responseType ?: "Multiple Paragraphs"
-
     val sysPromptTemplate = params.systemPrompt ?: Prompts.NAIVE_RAG_RESPONSE
 
-    // Create a preliminary system prompt with empty content_data to calculate overhead
-    val preSysPrompt =
-        sysPromptTemplate
-            .replace("{response_type}", responseType)
-            .replace("{user_prompt}", userPromptStr)
-            .replace("{content_data}", "") // Empty for overhead calculation
+    val availableChunkTokens =
+        calculateAvailableChunkTokens(
+            sysPromptTemplate = sysPromptTemplate,
+            responseType = responseType,
+            userPromptStr = userPromptStr,
+            maxTotalTokens = maxTotalTokens,
+            tokenizer = tokenizer,
+            userQuery = params.query,
+        )
 
-    val sysPromptTokens = tokenizer(preSysPrompt).size
-    val queryTokens = tokenizer(params.query).size
-    val bufferTokens = 200 // reserved for reference list and safety buffer
-    val availableChunkTokens = maxTotalTokens - (sysPromptTokens + queryTokens + bufferTokens)
-
-    logger.debug {
-        "Naive query token allocation - Total: $maxTotalTokens, " +
-            "SysPrompt: $sysPromptTokens, Query: $queryTokens, " +
-            "Buffer: $bufferTokens, Available for chunks: $availableChunkTokens"
-    }
-
-    // Process chunks using unified processing with dynamic token limit
     val processedChunks =
         processChunksUnified(
             query = params.query,
@@ -416,14 +432,60 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
             tokenizer = tokenizer,
             decoder = decoder,
         )
-
-    // Generate reference list from processed chunks
     val (referenceList, processedChunksWithRefIds) = generateReferenceListFromChunks(processedChunks)
+    val rawData = buildRawData(chunks, processedChunksWithRefIds, referenceList)
+    val contextContent = buildContextContent(processedChunksWithRefIds, referenceList)
 
-    logger.info { "Final context: ${processedChunksWithRefIds.size} chunks" }
+    val sysPrompt =
+        sysPromptTemplate
+            .replace("{response_type}", responseType)
+            .replace("{user_prompt}", userPromptStr)
+            .replace("{content_data}", contextContent)
 
-    // Build raw data structure for naive mode
-    // Entities and relationships stay empty for naive mode
+    val promptContent = listOf(sysPrompt, "---User Query---", params.query).joinToString("\n\n")
+    val argsHash = computeArgsHash(params, maxTotalTokens)
+
+    return PromptContext(
+        rawData = rawData,
+        contextContent = contextContent,
+        sysPrompt = sysPrompt,
+        userQuery = params.query,
+        argsHash = argsHash,
+        maxTotalTokens = maxTotalTokens,
+        promptContent = promptContent,
+    )
+}
+
+private fun calculateAvailableChunkTokens(
+    sysPromptTemplate: String,
+    responseType: String,
+    userPromptStr: String,
+    maxTotalTokens: Int,
+    tokenizer: (String) -> List<Int>,
+    userQuery: String,
+): Int {
+    val preSysPrompt =
+        sysPromptTemplate
+            .replace("{response_type}", responseType)
+            .replace("{user_prompt}", userPromptStr)
+            .replace("{content_data}", "")
+    val sysPromptTokens = tokenizer(preSysPrompt).size
+    val queryTokens = tokenizer(userQuery).size
+    val bufferTokens = 200
+    val availableChunkTokens = maxTotalTokens - (sysPromptTokens + queryTokens + bufferTokens)
+    logger.debug {
+        "Naive query token allocation - Total: $maxTotalTokens, " +
+            "SysPrompt: $sysPromptTokens, Query: $queryTokens, " +
+            "Buffer: $bufferTokens, Available for chunks: $availableChunkTokens"
+    }
+    return availableChunkTokens
+}
+
+private fun buildRawData(
+    chunks: List<Map<String, Any?>>,
+    processedChunksWithRefIds: List<Map<String, Any?>>,
+    referenceList: List<Map<String, String>>,
+): Map<String, Any?> {
     val rawData =
         convertToJsonFormat(
             emptyList(),
@@ -432,8 +494,6 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
             referenceList,
             "naive",
         )
-
-    // Add complete metadata for naive mode
     val metadata = mutableMapOf<String, Any?>()
     metadata["keywords"] = mapOf("high_level" to emptyList<String>(), "low_level" to emptyList<String>())
     metadata["processing_info"] =
@@ -442,9 +502,13 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
             "final_chunks_count" to processedChunksWithRefIds.size,
         )
     (rawData as MutableMap)["metadata"] = metadata
-    // Add metadata to rawData
+    return rawData
+}
 
-    // Build chunks_context from processed chunks with reference IDs
+private fun buildContextContent(
+    processedChunksWithRefIds: List<Map<String, Any?>>,
+    referenceList: List<Map<String, String>>,
+): String {
     val chunksContext =
         processedChunksWithRefIds.map {
             ChunkContext(
@@ -460,118 +524,106 @@ suspend fun naiveQuery(params: NaiveQueryParams): QueryResult? {
         }
 
     val naiveContextTemplate = Prompts.NAIVE_QUERY_CONTEXT
-    val contextContent =
-        naiveContextTemplate
-            .replace("{text_chunks_str}", textUnitsStr)
-            .replace("{reference_list_str}", referenceListStr)
+    return naiveContextTemplate
+        .replace("{text_chunks_str}", textUnitsStr)
+        .replace("{reference_list_str}", referenceListStr)
+}
 
-    if (params.queryParam.onlyNeedContext) {
-        return QueryResult(content = contextContent, rawData = rawData)
+private fun computeArgsHash(
+    params: NaiveQueryParams,
+    maxTotalTokens: Int,
+): String =
+    computeMd5(
+        listOf(
+            params.queryParam.mode,
+            params.query,
+            params.queryParam.responseType ?: "",
+            params.queryParam.topK.toString(),
+            params.queryParam.chunkTopK.toString(),
+            params.queryParam.maxEntityTokens.toString(),
+            params.queryParam.maxRelationTokens.toString(),
+            maxTotalTokens.toString(),
+            params.queryParam.userPrompt ?: "",
+            params.queryParam.enableRerank.toString(),
+        ).joinToString("|"),
+    )
+
+private suspend fun streamNaiveQuery(
+    params: NaiveQueryParams,
+    model: ChatModel,
+    promptContext: PromptContext,
+): QueryResult {
+    val streamingModel = model as? StreamingChatModel
+    if (streamingModel == null) {
+        logger.error { "Streaming is requested but the model does not support it." }
+        return QueryResult(content = "Error: Streaming not supported by model.")
     }
+    logger.trace { "SysPrompt: ${promptContext.sysPrompt}" }
+    logger.trace { "UserPrompt: ${promptContext.userQuery}" }
+    val responseFlow =
+        flow {
+            val fullResponse = StringBuilder()
+            val channel = Channel<String>(Channel.UNLIMITED)
 
-    val sysPrompt =
-        sysPromptTemplate
-            .replace("{response_type}", responseType)
-            .replace("{user_prompt}", userPromptStr)
-            .replace("{content_data}", contextContent)
+            streamingModel.chat(
+                listOf(SystemMessage(promptContext.sysPrompt), UserMessage(promptContext.userQuery)),
+                object : StreamingChatResponseHandler {
+                    override fun onPartialResponse(partialResponse: String) {
+                        channel.trySend(partialResponse)
+                        fullResponse.append(partialResponse)
+                    }
 
-    val userQuery = params.query
+                    override fun onCompleteResponse(response: ChatResponse) {
+                        channel.close()
+                    }
 
-    if (params.queryParam.onlyNeedPrompt) {
-        val promptContent =
-            listOf(sysPrompt, "---User Query---", userQuery)
-                .joinToString("\n\n")
-        return QueryResult(content = promptContent, rawData = rawData)
-    }
+                    override fun onError(error: Throwable) {
+                        channel.close(error)
+                    }
+                },
+            )
 
-    // Handle cache
-    val argsHash =
-        computeMd5(
-            listOf(
-                params.queryParam.mode,
-                params.query,
-                params.queryParam.responseType ?: "",
-                params.queryParam.topK.toString(),
-                params.queryParam.chunkTopK.toString(),
-                params.queryParam.maxEntityTokens.toString(),
-                params.queryParam.maxRelationTokens.toString(),
-                maxTotalTokens.toString(),
-                params.queryParam.userPrompt ?: "",
-                params.queryParam.enableRerank.toString(),
-            ).joinToString("|"),
-        )
-    val cachedResult = handleCache(params.hashingKv, argsHash, userQuery, params.queryParam.mode, "query")
-    if (cachedResult != null) {
-        val (cachedResponse, _) = cachedResult
-        logger.info { " == LLM cache == Query cache hit, using cached response as query result" }
-        return QueryResult(content = cachedResponse, rawData = rawData)
-    }
-
-    // Call LLM
-    if (params.queryParam.stream) {
-        val streamingModel = model as? StreamingChatModel
-        if (streamingModel == null) {
-            logger.error { "Streaming is requested but the model does not support it." }
-            return QueryResult(content = "Error: Streaming not supported by model.")
-        }
-        logger.trace { "SysPrompt: $sysPrompt" }
-        logger.trace { "UserPrompt: $userQuery" }
-        val responseFlow =
-            flow {
-                val fullResponse = StringBuilder()
-                val channel = kotlinx.coroutines.channels.Channel<String>(kotlinx.coroutines.channels.Channel.UNLIMITED)
-
-                streamingModel.chat(
-                    listOf(SystemMessage(sysPrompt), UserMessage(userQuery)),
-                    object : StreamingChatResponseHandler {
-                        override fun onPartialResponse(partialResponse: String) {
-                            channel.trySend(partialResponse)
-                            fullResponse.append(partialResponse)
-                        }
-
-                        override fun onCompleteResponse(response: ChatResponse) {
-                            channel.close()
-                        }
-
-                        override fun onError(error: Throwable) {
-                            channel.close(error)
-                        }
-                    },
-                )
-
-                for (token in channel) {
-                    emit(token)
-                }
-
-                saveQueryCache(params, argsHash, fullResponse.toString(), userQuery, maxTotalTokens)
-            }
-        return QueryResult(responseIterator = responseFlow, rawData = rawData, isStreaming = true)
-    } else {
-        var responseContent =
-            try {
-                logger.trace { "SysPrompt: $sysPrompt" }
-                logger.trace { "UserPrompt: $userQuery" }
-                val chatResponse = model.chat(listOf(SystemMessage(sysPrompt), UserMessage(userQuery)))
-                chatResponse.aiMessage()?.text() ?: ""
-            } catch (e: Exception) {
-                logger.error(e) { "Error generating response in naiveQuery" }
-                "Error generating response."
+            for (token in channel) {
+                emit(token)
             }
 
-        if (responseContent.length > sysPrompt.length) {
-            responseContent =
-                responseContent
-                    .replace(sysPrompt, "")
-                    .replace("user", "")
-                    .replace("model", "")
-                    .replace(userQuery, "")
-                    .replace("<system>", "")
-                    .replace("</system>", "")
-                    .trim()
+            saveQueryCache(params, promptContext.argsHash, fullResponse.toString(), promptContext.userQuery, promptContext.maxTotalTokens)
+        }
+    return QueryResult(responseIterator = responseFlow, rawData = promptContext.rawData, isStreaming = true)
+}
+
+private suspend fun runNaiveQuery(
+    params: NaiveQueryParams,
+    model: ChatModel,
+    promptContext: PromptContext,
+): QueryResult {
+    var responseContent =
+        try {
+            logger.trace { "SysPrompt: ${promptContext.sysPrompt}" }
+            logger.trace { "UserPrompt: ${promptContext.userQuery}" }
+            val chatResponse = model.chat(listOf(SystemMessage(promptContext.sysPrompt), UserMessage(promptContext.userQuery)))
+            chatResponse.aiMessage()?.text() ?: ""
+        } catch (e: IllegalStateException) {
+            logger.error(e) { "Illegal state generating response in naiveQuery" }
+            "Error generating response."
+        } catch (e: IllegalArgumentException) {
+            logger.error(e) { "Invalid input generating response in naiveQuery" }
+            "Error generating response."
         }
 
-        saveQueryCache(params, argsHash, responseContent, userQuery, maxTotalTokens)
-
-        return QueryResult(content = responseContent, rawData = rawData)
+    if (responseContent.length > promptContext.sysPrompt.length) {
+        responseContent =
+            responseContent
+                .replace(promptContext.sysPrompt, "")
+                .replace("user", "")
+                .replace("model", "")
+                .replace(promptContext.userQuery, "")
+                .replace("<system>", "")
+                .replace("</system>", "")
+                .trim()
     }
+
+    saveQueryCache(params, promptContext.argsHash, responseContent, promptContext.userQuery, promptContext.maxTotalTokens)
+
+    return QueryResult(content = responseContent, rawData = promptContext.rawData)
 }
