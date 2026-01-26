@@ -51,6 +51,28 @@
 
 ---
 
+<div align="center">
+  <table>
+    <tr>
+      <td style="vertical-align: middle;">
+        <img src="./assets/LiteWrite.png"
+             width="56"
+             height="56"
+             alt="LiteWrite"
+             style="border-radius: 12px;" />
+      </td>
+      <td style="vertical-align: middle; padding-left: 12px;">
+        <a href="https://litewrite.ai">
+          <img src="https://img.shields.io/badge/🚀%20LiteWrite-AI%20Native%20LaTeX%20Editor-ff6b6b?style=for-the-badge&logoColor=white&labelColor=1a1a2e">
+        </a>
+      </td>
+    </tr>
+  </table>
+</div>
+
+
+---
+
 ## 🎉 News
 - [2025.11]🎯[New Feature]: Integrated **RAGAS for Evaluation** and **Langfuse for Tracing**. Updated the API to return retrieved contexts alongside query results to support context precision metrics.
 - [2025.10]🎯[Scalability Enhancement]: Eliminated processing bottlenecks to support **Large-Scale Datasets Efficiently**.
@@ -99,12 +121,15 @@ The LightRAG Server is designed to provide Web UI and API support. The Web UI fa
 * Install from PyPI
 
 ```bash
-# Using uv (recommended)
-uv pip install "lightrag-hku[api]"
-# Or using pip
+### Install LightRAG Server as tool using uv (recommended)
+uv tool install "lightrag-hku[api]"
+
+### Or using pip
+# python -m venv .venv
+# source .venv/bin/activate  # Windows: .venv\Scripts\activate
 # pip install "lightrag-hku[api]"
 
-# Build front-end artifacts
+### Build front-end artifacts
 cd lightrag_webui
 bun install --frozen-lockfile
 bun run build
@@ -130,7 +155,7 @@ source .venv/bin/activate  # Activate the virtual environment (Linux/macOS)
 
 ### Or using pip with virtual environment
 # python -m venv .venv
-### source .venv/bin/activate  # Windows: .venv\Scripts\activate
+# source .venv/bin/activate  # Windows: .venv\Scripts\activate
 # pip install -e ".[api]"
 
 # Build front-end artifacts
@@ -380,6 +405,7 @@ class QueryParam:
     Format: [{"role": "user/assistant", "content": "message"}].
     """
 
+    # Deprecated (ids filter lead to potential hallucination effects)
     ids: list[str] | None = None
     """List of ids to filter the results."""
 
@@ -943,6 +969,7 @@ Example connection configurations for each storage type can be found in the `env
 export NEO4J_URI="neo4j://localhost:7687"
 export NEO4J_USERNAME="neo4j"
 export NEO4J_PASSWORD="password"
+export NEO4J_DATABASE="neo4j" #<----------- If you are using community edition neo4j docker image.
 
 # Setup logger for LightRAG
 setup_logger("lightrag", level="INFO")
@@ -973,7 +1000,7 @@ For production level scenarios you will most likely want to leverage an enterpri
 
 * PostgreSQL is lightweight,the whole binary distribution including all necessary plugins can be zipped to 40MB: Ref to [Windows Release](https://github.com/ShanGor/apache-age-windows/releases/tag/PG17%2Fv1.5.0-rc0) as it is easy to install for Linux/Mac.
 * If you prefer docker, please start with this image if you are a beginner to avoid hiccups (Default user password:rag/rag): https://hub.docker.com/r/gzdaniel/postgres-for-rag
-* How to start? Ref to: [examples/lightrag_zhipu_postgres_demo.py](https://github.com/HKUDS/LightRAG/blob/main/examples/lightrag_zhipu_postgres_demo.py)
+* How to start? Ref to: [examples/lightrag_gemini_postgres_demo.py](https://github.com/HKUDS/LightRAG/blob/main/examples/lightrag_gemini_postgres_demo.py)
 * For high-performance graph database requirements, Neo4j is recommended as Apache AGE's performance is not as competitive.
 
 </details>
@@ -1076,7 +1103,7 @@ maxclients 500
 
 ### Data Isolation Between LightRAG Instances
 
-The `workspace` parameter ensures data isolation between different LightRAG instances. Once initialized, the `workspace` is immutable and cannot be changed.Here is how workspaces are implemented for different types of storage:
+The `workspace` parameter ensures data isolation between different LightRAG instances. Once initialized, the `workspace` is immutable and cannot be changed. Here is how workspaces are implemented for different types of storage:
 
 - **For local file-based databases, data isolation is achieved through workspace subdirectories:** `JsonKVStorage`, `JsonDocStatusStorage`, `NetworkXStorage`, `NanoVectorDBStorage`, `FaissVectorDBStorage`.
 - **For databases that store data in collections, it's done by adding a workspace prefix to the collection name:** `RedisKVStorage`, `RedisDocStatusStorage`, `MilvusVectorDBStorage`, `MongoKVStorage`, `MongoDocStatusStorage`, `MongoVectorDBStorage`, `MongoGraphStorage`, `PGGraphStorage`.
@@ -1085,6 +1112,9 @@ The `workspace` parameter ensures data isolation between different LightRAG inst
 - **For the Neo4j graph database, logical data isolation is achieved through labels:** `Neo4JStorage`
 
 To maintain compatibility with legacy data, the default workspace for PostgreSQL non-graph storage is `default` and, for PostgreSQL AGE graph storage is null, for Neo4j graph storage is `base` when no workspace is configured. For all external storages, the system provides dedicated workspace environment variables to override the common `WORKSPACE` environment variable configuration. These storage-specific workspace environment variables are: `REDIS_WORKSPACE`, `MILVUS_WORKSPACE`, `QDRANT_WORKSPACE`, `MONGODB_WORKSPACE`, `POSTGRES_WORKSPACE`, `NEO4J_WORKSPACE`.
+
+**Usage Example:**
+For a practical demonstration of managing multiple isolated knowledge bases (e.g., separating "Book" content from "HR Policies") within a single application, refer to the [Workspace Demo](examples/lightrag_gemini_workspace_demo.py).
 
 ### AGENTS.md -- Guiding Coding Agents
 

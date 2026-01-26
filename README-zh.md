@@ -51,6 +51,27 @@
 
 ---
 
+<div align="center">
+  <table>
+    <tr>
+      <td style="vertical-align: middle;">
+        <img src="./assets/LiteWrite.png"
+             width="56"
+             height="56"
+             alt="LiteWrite"
+             style="border-radius: 12px;" />
+      </td>
+      <td style="vertical-align: middle; padding-left: 12px;">
+        <a href="https://litewrite.ai">
+          <img src="https://img.shields.io/badge/🚀%20LiteWrite-AI%20原生%20LaTeX%20编辑器-ff6b6b?style=for-the-badge&logoColor=white&labelColor=1a1a2e">
+        </a>
+      </td>
+    </tr>
+  </table>
+</div>
+
+---
+
 ## 🎉 新闻
 - [2025.11]🎯[新功能]: 集成了 **RAGAS 评估**和 **Langfuse 追踪**。更新了 API 以在查询结果中返回召回上下文，支持上下文精度指标。
 - [2025.10]🎯[可扩展性增强]: 消除了处理瓶颈，以高效支持**大规模数据集**。
@@ -99,12 +120,15 @@ LightRAG服务器旨在提供Web UI和API支持。Web UI便于文档索引、知
 * 从PyPI安装
 
 ```bash
-# 使用 uv (推荐)
-uv pip install "lightrag-hku[api]"
-# 或使用 pip
+### 使用 uv 安装 LightRAG 服务器（作为工具，推荐)
+uv tool install "lightrag-hku[api]"
+
+### 或使用 pip
+# python -m venv .venv
+# source .venv/bin/activate  # Windows: .venv\Scripts\activate
 # pip install "lightrag-hku[api]"
 
-# 构建前端代码
+### 构建前端代码
 cd lightrag_webui
 bun install --frozen-lockfile
 bun run build
@@ -130,7 +154,7 @@ source .venv/bin/activate  # 激活虚拟环境 (Linux/macOS)
 
 ### 或使用 pip 和虚拟环境
 # python -m venv .venv
-### source .venv/bin/activate  # Windows: .venv\Scripts\activate
+# source .venv/bin/activate  # Windows: .venv\Scripts\activate
 # pip install -e ".[api]"
 
 # 构建前端代码
@@ -380,6 +404,7 @@ class QueryParam:
     Format: [{"role": "user/assistant", "content": "message"}].
     """
 
+    # Deprecated (ids filter lead to potential hallucination effects)
     ids: list[str] | None = None
     """List of ids to filter the results."""
 
@@ -749,6 +774,7 @@ async def embedding_func(texts: list[str]) -> np.ndarray:
 rag = LightRAG(
     working_dir=WORKING_DIR,
     llm_model_func=llm_model_func,
+    llm_model_name="gemini-2.0-flash",
     embedding_func=embedding_func
 )
 ```
@@ -942,6 +968,7 @@ MongoDocStatusStorage       MongoDB
 export NEO4J_URI="neo4j://localhost:7687"
 export NEO4J_USERNAME="neo4j"
 export NEO4J_PASSWORD="password"
+export NEO4J_DATABASE="neo4j" #<----------- 使用 neo4j 社区版 docker 镜像时数据库实例必须为neo4j
 
 # 为 LightRAG 设置日志
 setup_logger("lightrag", level="INFO")
@@ -972,7 +999,7 @@ async def initialize_rag():
 
 * PostgreSQL 很轻量，包含所有必要插件的完整二进制发行版可以压缩到 40MB：参考 [Windows Release](https://github.com/ShanGor/apache-age-windows/releases/tag/PG17%2Fv1.5.0-rc0)，Linux/Mac 也很容易安装。
 * 如果您喜欢 docker，建议初学者使用此镜像以避免出现问题（默认用户密码：rag/rag）：https://hub.docker.com/r/gzdaniel/postgres-for-rag
-* 如何开始？参考：[examples/lightrag_zhipu_postgres_demo.py](https://github.com/HKUDS/LightRAG/blob/main/examples/lightrag_zhipu_postgres_demo.py)
+* 如何开始？参考：[examples/lightrag_gemini_postgres_demo.py](https://github.com/HKUDS/LightRAG/blob/main/examples/lightrag_gemini_postgres_demo.py)
 * 对于高性能图数据库需求，推荐使用 Neo4j，因为 Apache AGE 的性能不够理想。
 
 </details>
@@ -1084,6 +1111,9 @@ maxclients 500
 - **对于 Neo4j 图数据库，通过标签实现逻辑数据隔离**：`Neo4JStorage`
 
 为了保持与旧数据的兼容性，当未配置工作区时，PostgreSQL 非图存储的默认工作区为 `default`，PostgreSQL AGE 图存储的默认工作区为 null，Neo4j 图存储的默认工作区为 `base`。对于所有外部存储，系统提供专用的工作区环境变量来覆盖通用的 `WORKSPACE` 环境变量配置。这些存储特定的工作区环境变量包括：`REDIS_WORKSPACE`、`MILVUS_WORKSPACE`、`QDRANT_WORKSPACE`、`MONGODB_WORKSPACE`、`POSTGRES_WORKSPACE`、`NEO4J_WORKSPACE`。
+
+**使用示例：**
+有关在单个应用程序中管理多个隔离知识库（例如，将"书籍"内容与"人力资源政策"分开）的实际演示，请参阅 [Workspace Demo](examples/lightrag_gemini_workspace_demo.py)。
 
 ### AGENTS.md -- 指导编码代理
 
