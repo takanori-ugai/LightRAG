@@ -36,7 +36,13 @@ fun main() =
         rag.insert(firstRow.text)
         rag.rebuildDerivedStorageIfEmpty()
 
-        val queryText = "What is the cause of ${firstRow.result}? Answer in one word or a few words. Strictly answer in given context. Don't use your knowledge."
+        val queryText =
+            """
+            What is the cause of ${firstRow.result}?
+            Answer in one word or a few words.
+            Strictly answer in given context. Don't use your knowledge.
+            If you don't find any in the context, answer 'None'.
+            """.replace("\\s+".toRegex(), " ").trim()
         println("Query: $queryText")
 
         val result = rag.query(queryText, QueryParam(mode = "hybrid", topK = 5, chunkTopK = 5))
@@ -47,11 +53,17 @@ private fun csvDemoOverrideModule() =
     module {
         single<AppConfig> {
             val cfg = get<LightRagConfig>()
+            val baseAddonConfig = addonConfigFrom(cfg)
+            val addonConfig =
+                baseAddonConfig.copy(
+                    cosineBetterThreshold = 0.2,
+                    overrides = baseAddonConfig.overrides.copy(cosineBetterThreshold = 0.2),
+                )
             AppConfig(
                 workingDir = "./csv_demo_storage",
                 graphStorageName = "InMemoryGraphStorage",
                 vectorStorageName = "InMemoryVectorStorage",
-                addonConfig = addonConfigFrom(cfg),
+                addonConfig = addonConfig,
                 chatModel = get(),
                 embeddingModel = get(),
             )

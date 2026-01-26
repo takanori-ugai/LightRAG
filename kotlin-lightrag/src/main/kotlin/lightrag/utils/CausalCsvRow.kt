@@ -51,11 +51,15 @@ private fun parseCsvLine(line: String): List<String> {
                     inQuotes = !inQuotes
                 }
             }
+
             char == ',' && !inQuotes -> {
                 fields.add(current.toString())
                 current.setLength(0)
             }
-            else -> current.append(char)
+
+            else -> {
+                current.append(char)
+            }
         }
         index += 1
     }
