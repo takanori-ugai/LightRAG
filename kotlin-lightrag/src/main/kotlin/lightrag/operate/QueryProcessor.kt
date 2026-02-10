@@ -398,7 +398,9 @@ class QueryProcessor(
 
     private suspend fun extractKeywordsOnly(text: String): Pair<List<String>, List<String>> {
         val language = globalConfig["language"] as? String ?: "English"
-        val examples = globalConfig["keyword_examples"] as? String ?: ""
+        val examples =
+            globalConfig["keyword_examples"] as? String
+                ?: Prompts.KEYWORDS_EXTRACTION_EXAMPLES.joinToString("\n\n")
 
         val keywordExtractor = AiServices.create(KeywordExtractor::class.java, chatModel)
 

@@ -11,27 +11,308 @@ object Prompts {
 You are a Knowledge Graph Specialist responsible for extracting entities and relationships from the input text.
 
 ---Instructions---
-1.  **Entity and Relationship Extraction:**
-    *   Identify meaningful entities and the relationships between them from the input text.
-    *   Ensure consistent naming for entities across the entire extraction process.
+1.  **Entity Extraction & Output:**
+    *   **Identification:** Identify clearly defined and meaningful entities in the input text.
+    *   **Entity Details:** For each identified entity, extract:
+        *   `name`: The name of the entity. If the entity name is case-insensitive, capitalize the first letter of each significant word (title case). Ensure **consistent naming** across the entire extraction process.
+        *   `type`: Categorize the entity using one of the following types: `{{entity_types}}`. If none apply, classify it as `Other` (do not add new types).
+        *   `description`: A concise yet comprehensive description of the entity's attributes and activities, based *solely* on the input text.
 
-2.  **Output Format:**
-    *   Each extracted entity should be on a new line, starting with `entity<|#|>` followed by `name<|#|>type<|#|>description`.
-    *   Each extracted relationship should be on a new line, starting with `relation<|#|>` followed by `source<|#|>target<|#|>keywords<|#|>description`.
-    *   `name`: The name of the entity (string).
-    *   `type`: The type of the entity from the list: `{entity_types}` (string).
-    *   `description`: A concise description of the entity based on the text (string).
-    *   `source`: The name of the source entity (string).
-    *   `target`: The name of the target entity (string).
-    *   `keywords`: High-level keywords summarizing the relationship, separated by commas (string).
-    *   `description`: A concise explanation of the relationship (string).
+2.  **Relationship Extraction & Output:**
+    *   **Identification:** Identify direct, clearly stated, and meaningful relationships between previously extracted entities.
+    *   **N-ary Relationship Decomposition:** If a relationship involves more than two entities, decompose it into multiple binary (two-entity) relationships that best reflect the text.
+    *   **Relationship Details:** For each relationship, extract:
+        *   `source`: The name of the source entity (consistent with entity naming rules).
+        *   `target`: The name of the target entity (consistent with entity naming rules).
+        *   `keywords`: One or more high-level keywords summarizing the relationship, separated by commas.
+        *   `description`: A concise explanation of the nature of the relationship.
 
-3.  **Content Guidelines:**
-    *   All extracted information must be based solely on the provided input text.
-    *   Write all names and descriptions in the third person and in {language}.
-    *   Avoid using pronouns like `this article`, `I`, `you`.
-    *   Retain proper nouns in their original language.
+3.  **Relationship Direction & Duplication:**
+    *   Treat relationships as **undirected** unless explicitly stated otherwise.
+    *   Avoid outputting duplicate relationships.
 
+4.  **Output Order & Prioritization:**
+    *   Output all entities first, followed by all relationships.
+    *   Prioritize and list the most significant relationships first.
+
+5.  **Context & Objectivity:**
+    *   Write all names and descriptions in the **third person**.
+    *   Avoid pronouns such as `this article`, `this paper`, `our company`, `I`, `you`.
+
+6.  **Language & Proper Nouns:**
+    *   The entire output (entity names, keywords, and descriptions) must be written in {{language}}.
+    *   Retain proper nouns in their original language if translation is unavailable or ambiguous.
+
+7.  **JSON Output Format:**
+    *   The output must be a single valid JSON object.
+    *   The JSON object must have two top-level keys: `entities` and `relations`.
+    *   `entities`: An array of objects with keys `name`, `type`, `description`.
+    *   `relations`: An array of objects with keys `source`, `target`, `keywords`, `description`.
+    *   Do **not** output any completion delimiter or additional text outside the JSON object.
+
+---JSON Schema Example---
+```json
+{
+  "entities": [
+    {
+      "name": "Entity Name",
+      "type": "Person",
+      "description": "Description of the entity."
+    }
+  ],
+  "relations": [
+    {
+      "source": "Entity Name",
+      "target": "Another Entity Name",
+      "keywords": "keyword1, keyword2",
+      "description": "Description of the relationship."
+    }
+    ]
+}
+```
+
+---Examples---
+Example 1:
+<Entity_types>
+["Person","Creature","Organization","Location","Event","Concept","Method","Content","Data","Artifact","NaturalObject"]
+
+<Input Text>
+```
+while Alex clenched his jaw, the buzz of frustration dull against the backdrop of Taylor's authoritarian certainty. It was this competitive undercurrent that kept him alert, the sense that his and Jordan's shared commitment to discovery was an unspoken rebellion against Cruz's narrowing vision of control and order.
+
+Then Taylor did something unexpected. They paused beside Jordan and, for a moment, observed the device with something akin to reverence. "If this tech can be understood..." Taylor said, their voice quieter, "It could change the game for us. For all of us."
+
+The underlying dismissal earlier seemed to falter, replaced by a glimpse of reluctant respect for the gravity of what lay in their hands. Jordan looked up, and for a fleeting heartbeat, their eyes locked with Taylor's, a wordless clash of wills softening into an uneasy truce.
+
+It was a small transformation, barely perceptible, but one that Alex noted with an inward nod. They had all been brought here by different paths
+```
+
+<Output>
+```json
+{
+  "entities": [
+    {
+      "name": "Alex",
+      "type": "person",
+      "description": "Alex is a character who experiences frustration and is observant of the dynamics among other characters."
+    },
+    {
+      "name": "Taylor",
+      "type": "person",
+      "description": "Taylor is portrayed with authoritarian certainty and shows a moment of reverence towards a device, indicating a change in perspective."
+    },
+    {
+      "name": "Jordan",
+      "type": "person",
+      "description": "Jordan shares a commitment to discovery and has a significant interaction with Taylor regarding a device."
+    },
+    {
+      "name": "Cruz",
+      "type": "person",
+      "description": "Cruz is associated with a vision of control and order, influencing the dynamics among other characters."
+    },
+    {
+      "name": "The Device",
+      "type": "equipment",
+      "description": "The Device is central to the story, with potential game-changing implications, and is revered by Taylor."
+    }
+  ],
+  "relations": [
+    {
+      "source": "Alex",
+      "target": "Taylor",
+      "keywords": "power dynamics, observation",
+      "description": "Alex observes Taylor's authoritarian behavior and notes changes in Taylor's attitude toward the device."
+    },
+    {
+      "source": "Alex",
+      "target": "Jordan",
+      "keywords": "shared goals, rebellion",
+      "description": "Alex and Jordan share a commitment to discovery, which contrasts with Cruz's vision."
+    },
+    {
+      "source": "Taylor",
+      "target": "Jordan",
+      "keywords": "conflict resolution, mutual respect",
+      "description": "Taylor and Jordan interact directly regarding the device, leading to a moment of mutual respect and an uneasy truce."
+    },
+    {
+      "source": "Jordan",
+      "target": "Cruz",
+      "keywords": "ideological conflict, rebellion",
+      "description": "Jordan's commitment to discovery is in rebellion against Cruz's vision of control and order."
+    },
+    {
+      "source": "Taylor",
+      "target": "The Device",
+      "keywords": "reverence, technological significance",
+      "description": "Taylor shows reverence towards the device, indicating its importance and potential impact."
+    }
+  ]
+}
+```
+
+Example 2:
+<Entity_types>
+["Person","Creature","Organization","Location","Event","Concept","Method","Content","Data","Artifact","NaturalObject"]
+
+<Input Text>
+```
+Stock markets faced a sharp downturn today as tech giants saw significant declines, with the global tech index dropping by 3.4% in midday trading. Analysts attribute the selloff to investor concerns over rising interest rates and regulatory uncertainty.
+
+Among the hardest hit, nexon technologies saw its stock plummet by 7.8% after reporting lower-than-expected quarterly earnings. In contrast, Omega Energy posted a modest 2.1% gain, driven by rising oil prices.
+
+Meanwhile, commodity markets reflected a mixed sentiment. Gold futures rose by 1.5%, reaching ${'$'}2,080 per ounce, as investors sought safe-haven assets. Crude oil prices continued their rally, climbing to ${'$'}87.60 per barrel, supported by supply constraints and strong demand.
+
+Financial experts are closely watching the Federal Reserve's next move, as speculation grows over potential rate hikes. The upcoming policy announcement is expected to influence investor confidence and overall market stability.
+```
+
+<Output>
+```json
+{
+  "entities": [
+    {
+      "name": "Global Tech Index",
+      "type": "category",
+      "description": "The Global Tech Index tracks the performance of major technology stocks and experienced a 3.4% decline today."
+    },
+    {
+      "name": "Nexon Technologies",
+      "type": "organization",
+      "description": "Nexon Technologies is a tech company that saw its stock decline by 7.8% after disappointing earnings."
+    },
+    {
+      "name": "Omega Energy",
+      "type": "organization",
+      "description": "Omega Energy is an energy company that gained 2.1% in stock value due to rising oil prices."
+    },
+    {
+      "name": "Gold Futures",
+      "type": "product",
+      "description": "Gold futures rose by 1.5%, indicating increased investor interest in safe-haven assets."
+    },
+    {
+      "name": "Crude Oil",
+      "type": "product",
+      "description": "Crude oil prices rose to ${'$'}87.60 per barrel due to supply constraints and strong demand."
+    },
+    {
+      "name": "Market Selloff",
+      "type": "category",
+      "description": "Market selloff refers to the significant decline in stock values due to investor concerns over interest rates and regulations."
+    },
+    {
+      "name": "Federal Reserve Policy Announcement",
+      "type": "category",
+      "description": "The Federal Reserve's upcoming policy announcement is expected to impact investor confidence and market stability."
+    },
+    {
+      "name": "3.4% Decline",
+      "type": "category",
+      "description": "The Global Tech Index experienced a 3.4% decline in midday trading."
+    }
+  ],
+  "relations": [
+    {
+      "source": "Global Tech Index",
+      "target": "Market Selloff",
+      "keywords": "market performance, investor sentiment",
+      "description": "The decline in the Global Tech Index is part of the broader market selloff driven by investor concerns."
+    },
+    {
+      "source": "Nexon Technologies",
+      "target": "Global Tech Index",
+      "keywords": "company impact, index movement",
+      "description": "Nexon Technologies' stock decline contributed to the overall drop in the Global Tech Index."
+    },
+    {
+      "source": "Gold Futures",
+      "target": "Market Selloff",
+      "keywords": "market reaction, safe-haven investment",
+      "description": "Gold prices rose as investors sought safe-haven assets during the market selloff."
+    },
+    {
+      "source": "Federal Reserve Policy Announcement",
+      "target": "Market Selloff",
+      "keywords": "interest rate impact, financial regulation",
+      "description": "Speculation over Federal Reserve policy changes contributed to market volatility and investor selloff."
+    }
+  ]
+}
+```
+
+Example 3:
+<Entity_types>
+["Person","Creature","Organization","Location","Event","Concept","Method","Content","Data","Artifact","NaturalObject"]
+
+<Input Text>
+```
+At the World Athletics Championship in Tokyo, Noah Carter broke the 100m sprint record using cutting-edge carbon-fiber spikes.
+```
+
+<Output>
+```json
+{
+  "entities": [
+    {
+      "name": "World Athletics Championship",
+      "type": "event",
+      "description": "The World Athletics Championship is a global sports competition featuring top athletes in track and field."
+    },
+    {
+      "name": "Tokyo",
+      "type": "location",
+      "description": "Tokyo is the host city of the World Athletics Championship."
+    },
+    {
+      "name": "Noah Carter",
+      "type": "person",
+      "description": "Noah Carter is a sprinter who set a new record in the 100m sprint at the World Athletics Championship."
+    },
+    {
+      "name": "100m Sprint Record",
+      "type": "category",
+      "description": "The 100m sprint record is a benchmark in athletics, recently broken by Noah Carter."
+    },
+    {
+      "name": "Carbon-Fiber Spikes",
+      "type": "equipment",
+      "description": "Carbon-fiber spikes are advanced sprinting shoes that provide enhanced speed and traction."
+    },
+    {
+      "name": "World Athletics Federation",
+      "type": "organization",
+      "description": "The World Athletics Federation is the governing body overseeing the World Athletics Championship and record validations."
+    }
+  ],
+  "relations": [
+    {
+      "source": "World Athletics Championship",
+      "target": "Tokyo",
+      "keywords": "event location, international competition",
+      "description": "The World Athletics Championship is being hosted in Tokyo."
+    },
+    {
+      "source": "Noah Carter",
+      "target": "100m Sprint Record",
+      "keywords": "athlete achievement, record-breaking",
+      "description": "Noah Carter set a new 100m sprint record at the championship."
+    },
+    {
+      "source": "Noah Carter",
+      "target": "Carbon-Fiber Spikes",
+      "keywords": "athletic equipment, performance boost",
+      "description": "Noah Carter used carbon-fiber spikes to enhance performance during the race."
+    },
+    {
+      "source": "Noah Carter",
+      "target": "World Athletics Championship",
+      "keywords": "athlete participation, competition",
+      "description": "Noah Carter is competing at the World Athletics Championship."
+    }
+  ]
+}
+```
 """
 
     /**
@@ -41,17 +322,17 @@ You are a Knowledge Graph Specialist responsible for extracting entities and rel
 Extract entities and relationships from the input text in Data to be Processed below.
 
 ---Instructions---
-1.  **Strict Adherence to Format:** Produce extracted `entities` and `relations` as specified in the system prompt.
-2.  **Output Content Only:** Output *only* the extracted entities and relations in the specified format. Do not include any introductory or concluding remarks, explanations, or additional text before or after the extracted data.
-3.  **Output Language:** Ensure the output language is {language}.
+1.  **Strict Adherence to Format:** Follow all system prompt rules, including naming consistency, relationship handling, and output order.
+2.  **Output Content Only:** Output *only* the JSON object. Do not include any introductory or concluding remarks, explanations, or additional text before or after the JSON.
+3.  **Output Language:** Ensure the output language is {{language}}. Proper nouns must be kept in their original language.
 
 ---Data to be Processed---
 <Entity_types>
-[{entity_types}]
+[{{entity_types}}]
 
 <Input Text>
 ```
-{input_text}
+{{input_text}}
 ```
 
 <Output>
@@ -524,13 +805,13 @@ Given a user query, your task is to extract two distinct types of keywords:
 2. **Source of Truth**: All keywords must be explicitly derived from the user query, with both high-level and low-level keyword categories are required to contain content.
 3. **Concise & Meaningful**: Keywords should be concise words or meaningful phrases. Prioritize multi-word phrases when they represent a single concept. For example, from "latest financial report of Apple Inc.", you should extract "latest financial report" and "Apple Inc." rather than "latest", "financial", "report", and "Apple".
 4. **Handle Edge Cases**: For queries that are too simple, vague, or nonsensical (e.g., "hello", "ok", "asdfghjkl"), you must return a JSON object with empty lists for both keyword types.
-5. **Language**: All extracted keywords MUST be in {language}. Proper nouns (e.g., personal names, place names, organization names) should be kept in their original language.
+5. **Language**: All extracted keywords MUST be in {{language}}. Proper nouns (e.g., personal names, place names, organization names) should be kept in their original language.
 
 ---Examples---
-{examples}
+{{examples}}
 
 ---Real Data---
-User Query: {query}
+User Query: {{query}}
 
 ---Output---
 Output:"""
