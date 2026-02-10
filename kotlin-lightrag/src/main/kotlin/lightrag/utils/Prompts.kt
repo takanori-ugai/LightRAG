@@ -318,15 +318,7 @@ At the World Athletics Championship in Tokyo, Noah Carter broke the 100m sprint 
     /**
      * The user prompt for entity extraction.
      */
-    const val ENTITY_EXTRACTION_USER_PROMPT = """---Task---
-Extract entities and relationships from the input text in Data to be Processed below.
-
----Instructions---
-1.  **Strict Adherence to Format:** Follow all system prompt rules, including naming consistency, relationship handling, and output order.
-2.  **Output Content Only:** Output *only* the JSON object. Do not include any introductory or concluding remarks, explanations, or additional text before or after the JSON.
-3.  **Output Language:** Ensure the output language is {{language}}. Proper nouns must be kept in their original language.
-
----Data to be Processed---
+    const val ENTITY_EXTRACTION_USER_PROMPT = """---Data to be Processed---
 <Entity_types>
 [{{entity_types}}]
 
@@ -790,9 +782,9 @@ Reference Document List (Each entry starts with a [reference_id] that correspond
 """
 
     /**
-     * The prompt for keywords extraction.
+     * The system prompt for keywords extraction.
      */
-    const val KEYWORDS_EXTRACTION = """---Role---
+    const val KEYWORDS_EXTRACTION_SYSTEM_PROMPT = """---Role---
 You are an expert keyword extractor, specializing in analyzing user queries for a Retrieval-Augmented Generation (RAG) system. Your purpose is to identify both high-level and low-level keywords in the user's query that will be used for effective document retrieval.
 
 ---Goal---
@@ -809,8 +801,12 @@ Given a user query, your task is to extract two distinct types of keywords:
 
 ---Examples---
 {{examples}}
+"""
 
----Real Data---
+    /**
+     * The user prompt for keywords extraction.
+     */
+    const val KEYWORDS_EXTRACTION = """---Real Data---
 User Query: {{query}}
 
 ---Output---

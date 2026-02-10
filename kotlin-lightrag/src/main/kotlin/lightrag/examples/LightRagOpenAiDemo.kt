@@ -45,9 +45,21 @@ fun main() =
         storageManager.initialize()
 
         testEmbeddingModel(koin.get(), "This is a test string for embedding.")
-        rag.insert(loadBookContent())
+        val bookContent = loadBookContent()
+        rag.insert(bookContent)
         val queryText = "What are the top themes related with King of England"
         val globalConfig: Map<String, Any?> = koin.get(named("globalConfig"))
+        val entityTypes =
+            (globalConfig["entity_types"] as? List<*>)
+                ?.mapNotNull { it as? String }
+                ?.takeIf { it.isNotEmpty() }
+                ?.joinToString(",")
+                ?: "Person,Organization,Location,Event,Concept"
+        val entityPrompt = buildEntityExtractionPrompt(bookContent, entityTypes, globalConfig)
+        println("\n===============================")
+        println("Entity extraction prompt")
+        println("===============================")
+        println(entityPrompt)
         val keywordPrompt = buildKeywordExtractionPrompt(queryText, globalConfig)
         println("\n===============================")
         println("Keyword extraction prompt")
@@ -104,8 +116,42 @@ private fun buildKeywordExtractionPrompt(
     val examples =
         globalConfig["keyword_examples"] as? String
             ?: Prompts.KEYWORDS_EXTRACTION_EXAMPLES.joinToString("\n\n")
-    return Prompts.KEYWORDS_EXTRACTION
-        .replace("{{language}}", language)
-        .replace("{{examples}}", examples)
-        .replace("{{query}}", query)
+    val systemPrompt =
+        Prompts.KEYWORDS_EXTRACTION_SYSTEM_PROMPT
+            .replace("{{language}}", language)
+            .replace("{{examples}}", examples)
+    val userPrompt =
+        Prompts.KEYWORDS_EXTRACTION
+            .replace("{{query}}", query)
+    return buildString {
+        appendLine("---System Prompt---")
+        appendLine(systemPrompt)
+        appendLine()
+        appendLine("---User Prompt---")
+        append(userPrompt)
+    }
+}
+
+private fun buildEntityExtractionPrompt(
+    text: String,
+    entityTypes: String,
+    globalConfig: Map<String, Any?>,
+): String {
+    val language = globalConfig["language"] as? String ?: "English"
+    val systemPrompt =
+        Prompts.ENTITY_EXTRACTION_SYSTEM_PROMPT
+            .replace("{{entity_types}}", entityTypes)
+            .replace("{{language}}", language)
+    val userPrompt =
+        Prompts.ENTITY_EXTRACTION_USER_PROMPT
+            .replace("{{entity_types}}", entityTypes)
+            .replace("{{language}}", language)
+            .replace("{{input_text}}", text)
+    return buildString {
+        appendLine("---System Prompt---")
+        appendLine(systemPrompt)
+        appendLine()
+        appendLine("---User Prompt---")
+        append(userPrompt)
+    }
 }
