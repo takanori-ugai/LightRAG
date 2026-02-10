@@ -93,27 +93,27 @@ It was a small transformation, barely perceptible, but one that Alex noted with 
   "entities": [
     {
       "name": "Alex",
-      "type": "person",
+      "type": "Person",
       "description": "Alex is a character who experiences frustration and is observant of the dynamics among other characters."
     },
     {
       "name": "Taylor",
-      "type": "person",
+      "type": "Person",
       "description": "Taylor is portrayed with authoritarian certainty and shows a moment of reverence towards a device, indicating a change in perspective."
     },
     {
       "name": "Jordan",
-      "type": "person",
+      "type": "Person",
       "description": "Jordan shares a commitment to discovery and has a significant interaction with Taylor regarding a device."
     },
     {
       "name": "Cruz",
-      "type": "person",
+      "type": "Person",
       "description": "Cruz is associated with a vision of control and order, influencing the dynamics among other characters."
     },
     {
       "name": "The Device",
-      "type": "equipment",
+      "type": "Artifact",
       "description": "The Device is central to the story, with potential game-changing implications, and is revered by Taylor."
     }
   ],
@@ -173,42 +173,42 @@ Financial experts are closely watching the Federal Reserve's next move, as specu
   "entities": [
     {
       "name": "Global Tech Index",
-      "type": "category",
+      "type": "Concept",
       "description": "The Global Tech Index tracks the performance of major technology stocks and experienced a 3.4% decline today."
     },
     {
       "name": "Nexon Technologies",
-      "type": "organization",
+      "type": "Organization",
       "description": "Nexon Technologies is a tech company that saw its stock decline by 7.8% after disappointing earnings."
     },
     {
       "name": "Omega Energy",
-      "type": "organization",
+      "type": "Organization",
       "description": "Omega Energy is an energy company that gained 2.1% in stock value due to rising oil prices."
     },
     {
       "name": "Gold Futures",
-      "type": "product",
+      "type": "Concept",
       "description": "Gold futures rose by 1.5%, indicating increased investor interest in safe-haven assets."
     },
     {
       "name": "Crude Oil",
-      "type": "product",
+      "type": "NaturalObject",
       "description": "Crude oil prices rose to ${'$'}87.60 per barrel due to supply constraints and strong demand."
     },
     {
       "name": "Market Selloff",
-      "type": "category",
+      "type": "Event",
       "description": "Market selloff refers to the significant decline in stock values due to investor concerns over interest rates and regulations."
     },
     {
       "name": "Federal Reserve Policy Announcement",
-      "type": "category",
+      "type": "Event",
       "description": "The Federal Reserve's upcoming policy announcement is expected to impact investor confidence and market stability."
     },
     {
       "name": "3.4% Decline",
-      "type": "category",
+      "type": "Data",
       "description": "The Global Tech Index experienced a 3.4% decline in midday trading."
     }
   ],
@@ -256,32 +256,32 @@ At the World Athletics Championship in Tokyo, Noah Carter broke the 100m sprint 
   "entities": [
     {
       "name": "World Athletics Championship",
-      "type": "event",
+      "type": "Event",
       "description": "The World Athletics Championship is a global sports competition featuring top athletes in track and field."
     },
     {
       "name": "Tokyo",
-      "type": "location",
+      "type": "Location",
       "description": "Tokyo is the host city of the World Athletics Championship."
     },
     {
       "name": "Noah Carter",
-      "type": "person",
+      "type": "Person",
       "description": "Noah Carter is a sprinter who set a new record in the 100m sprint at the World Athletics Championship."
     },
     {
       "name": "100m Sprint Record",
-      "type": "category",
+      "type": "Data",
       "description": "The 100m sprint record is a benchmark in athletics, recently broken by Noah Carter."
     },
     {
       "name": "Carbon-Fiber Spikes",
-      "type": "equipment",
+      "type": "Artifact",
       "description": "Carbon-fiber spikes are advanced sprinting shoes that provide enhanced speed and traction."
     },
     {
       "name": "World Athletics Federation",
-      "type": "organization",
+      "type": "Organization",
       "description": "The World Athletics Federation is the governing body overseeing the World Athletics Championship and record validations."
     }
   ],
@@ -363,27 +363,27 @@ It was a small transformation, barely perceptible, but one that Alex noted with 
   "entities": [
     {
       "name": "Alex",
-      "type": "person",
+      "type": "Person",
       "description": "Alex is a character who experiences frustration and is observant of the dynamics among other characters."
     },
     {
       "name": "Taylor",
-      "type": "person",
+      "type": "Person",
       "description": "Taylor is portrayed with authoritarian certainty and shows a moment of reverence towards a device, indicating a change in perspective."
     },
     {
       "name": "Jordan",
-      "type": "person",
+      "type": "Person",
       "description": "Jordan shares a commitment to discovery and has a significant interaction with Taylor regarding a device."
     },
     {
       "name": "Cruz",
-      "type": "person",
+      "type": "Person",
       "description": "Cruz is associated with a vision of control and order, influencing the dynamics among other characters."
     },
     {
       "name": "The Device",
-      "type": "equipment",
+      "type": "Artifact",
       "description": "The Device is central to the story, with potential game-changing implications, and is revered by Taylor."
     }
   ],
@@ -442,42 +442,42 @@ Financial experts are closely watching the Federal Reserve's next move, as specu
   "entities": [
     {
       "name": "Global Tech Index",
-      "type": "category",
+      "type": "Concept",
       "description": "The Global Tech Index tracks the performance of major technology stocks and experienced a 3.4% decline today."
     },
     {
       "name": "Nexon Technologies",
-      "type": "organization",
+      "type": "Organization",
       "description": "Nexon Technologies is a tech company that saw its stock decline by 7.8% after disappointing earnings."
     },
     {
       "name": "Omega Energy",
-      "type": "organization",
+      "type": "Organization",
       "description": "Omega Energy is an energy company that gained 2.1% in stock value due to rising oil prices."
     },
     {
       "name": "Gold Futures",
-      "type": "product",
+      "type": "Concept",
       "description": "Gold futures rose by 1.5%, indicating increased investor interest in safe-haven assets."
     },
     {
       "name": "Crude Oil",
-      "type": "product",
+      "type": "NaturalObject",
       "description": "Crude oil prices rose to ${'$'}87.60 per barrel due to supply constraints and strong demand."
     },
     {
       "name": "Market Selloff",
-      "type": "category",
+      "type": "Event",
       "description": "Market selloff refers to the significant decline in stock values due to investor concerns over interest rates and regulations."
     },
     {
       "name": "Federal Reserve Policy Announcement",
-      "type": "category",
+      "type": "Event",
       "description": "The Federal Reserve's upcoming policy announcement is expected to impact investor confidence and market stability."
     },
     {
       "name": "3.4% Decline",
-      "type": "category",
+      "type": "Data",
       "description": "The Global Tech Index experienced a 3.4% decline in midday trading."
     }
   ],
@@ -524,32 +524,32 @@ At the World Athletics Championship in Tokyo, Noah Carter broke the 100m sprint 
   "entities": [
     {
       "name": "World Athletics Championship",
-      "type": "event",
+      "type": "Event",
       "description": "The World Athletics Championship is a global sports competition featuring top athletes in track and field."
     },
     {
       "name": "Tokyo",
-      "type": "location",
+      "type": "Location",
       "description": "Tokyo is the host city of the World Athletics Championship."
     },
     {
       "name": "Noah Carter",
-      "type": "person",
+      "type": "Person",
       "description": "Noah Carter is a sprinter who set a new record in the 100m sprint at the World Athletics Championship."
     },
     {
       "name": "100m Sprint Record",
-      "type": "category",
+      "type": "Data",
       "description": "The 100m sprint record is a benchmark in athletics, recently broken by Noah Carter."
     },
     {
       "name": "Carbon-Fiber Spikes",
-      "type": "equipment",
+      "type": "Artifact",
       "description": "Carbon-fiber spikes are advanced sprinting shoes that provide enhanced speed and traction."
     },
     {
       "name": "World Athletics Federation",
-      "type": "organization",
+      "type": "Organization",
       "description": "The World Athletics Federation is the governing body overseeing the World Athletics Championship and record validations."
     }
   ],

@@ -43,13 +43,10 @@ interface KeywordExtractor {
      * @param examples Examples of keywords to extract.
      * @return A [KeywordsExtractionResult] containing the extracted keywords.
      */
-    @SystemMessage(
-        Prompts.KEYWORDS_EXTRACTION,
-    )
     fun extract(
         @V("query")
         @UserMessage(
-            """User Query: {{query}}""",
+            Prompts.KEYWORDS_EXTRACTION,
         )
         text: String,
         @V("language") language: String,

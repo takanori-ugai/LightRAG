@@ -718,7 +718,7 @@ class QueryProcessor(
                 if (query.isBlank()) continue
                 results.addAll(chunksVdb.query(query, chunkTopK))
             }
-            return results.distinctBy { it["id"] }
+            return results.distinctBy { it["id"] }.take(chunkTopK)
         }
 
         val entitiesWithChunks =
@@ -775,6 +775,7 @@ class QueryProcessor(
             return results
                 .filter { (it["id"] as? String) !in entityChunkIds }
                 .distinctBy { it["id"] }
+                .take(chunkTopK)
         }
 
         val relationsWithChunks =

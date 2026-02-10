@@ -2,10 +2,12 @@ package lightrag.examples
 
 import kotlinx.coroutines.runBlocking
 import lightrag.core.LightRAG
+import lightrag.core.QueryParam
 import lightrag.di.AppConfig
 import lightrag.di.LightRagConfig
 import lightrag.di.appModule
 import lightrag.services.StorageManager
+import lightrag.utils.Prompts
 import org.koin.core.context.startKoin
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
@@ -44,7 +46,27 @@ fun main() =
 
         testEmbeddingModel(koin.get(), "This is a test string for embedding.")
         rag.insert(loadBookContent())
-        runDemoQueries(rag, "What are the top themes related with King of England")
+        val queryText = "What are the top themes related with King of England"
+        val globalConfig: Map<String, Any?> = koin.get(named("globalConfig"))
+        val keywordPrompt = buildKeywordExtractionPrompt(queryText, globalConfig)
+        println("\n===============================")
+        println("Keyword extraction prompt")
+        println("===============================")
+        println(keywordPrompt)
+
+        runDemoQueries(
+            rag,
+            queryText,
+            paramBuilder = { mode ->
+                QueryParam(
+                    mode = mode,
+                    topK = 5,
+                    chunkTopK = 2,
+//                    onlyNeedContext = true,
+                    onlyNeedPrompt = true,
+                )
+            },
+        )
         println("\nDone!")
     }
 
@@ -55,6 +77,7 @@ private fun openAiDemoOverrideModule() =
             val baseAddonConfig = addonConfigFrom(cfg)
             val addonConfig =
                 baseAddonConfig.copy(
+                    overrides = baseAddonConfig.overrides.copy(chunkTokenSize = 1200),
                     extras = baseAddonConfig.extras + mapOf("kg_chunk_pick_method" to "VECTOR"),
                 )
             AppConfig(
@@ -72,3 +95,17 @@ private fun openAiDemoOverrideModule() =
             globalConfigFrom(appConfig)
         }
     }
+
+private fun buildKeywordExtractionPrompt(
+    query: String,
+    globalConfig: Map<String, Any?>,
+): String {
+    val language = globalConfig["language"] as? String ?: "English"
+    val examples =
+        globalConfig["keyword_examples"] as? String
+            ?: Prompts.KEYWORDS_EXTRACTION_EXAMPLES.joinToString("\n\n")
+    return Prompts.KEYWORDS_EXTRACTION
+        .replace("{{language}}", language)
+        .replace("{{examples}}", examples)
+        .replace("{{query}}", query)
+}
