@@ -428,8 +428,23 @@ class QueryProcessor(
         val entities = searchResult.finalEntities
         val relations = searchResult.finalRelations
 
-        val entityChunks = findRelatedTextUnitFromEntities(entities)
-        val relationChunks = findRelatedTextUnitFromRelations(relations, entityChunks)
+        val chunkPickMethod =
+            (globalConfig["kg_chunk_pick_method"] as? String)?.uppercase() ?: "SOURCE_ID"
+        val entityChunks =
+            findRelatedTextUnitFromEntities(
+                entities,
+                chunksVdb,
+                queryParam.chunkTopK,
+                chunkPickMethod,
+            )
+        val relationChunks =
+            findRelatedTextUnitFromRelations(
+                relations,
+                entityChunks,
+                chunksVdb,
+                queryParam.chunkTopK,
+                chunkPickMethod,
+            )
         var allChunks = (entityChunks + relationChunks).distinctBy { it["id"] }
         if (allChunks.isEmpty() && searchResult.vectorChunks.isNotEmpty()) {
             allChunks = searchResult.vectorChunks
@@ -685,10 +700,25 @@ class QueryProcessor(
         return nodeDatas
     }
 
-    private suspend fun findRelatedTextUnitFromEntities(nodeDatas: List<Map<String, Any>>): List<Map<String, Any>> {
+    private suspend fun findRelatedTextUnitFromEntities(
+        nodeDatas: List<Map<String, Any>>,
+        chunksVdb: BaseVectorStorage?,
+        chunkTopK: Int,
+        chunkPickMethod: String,
+    ): List<Map<String, Any>> {
         logger.debug { "Finding text chunks from ${nodeDatas.size} entities" }
         if (nodeDatas.isEmpty()) {
             return emptyList()
+        }
+
+        if (chunkPickMethod == "VECTOR" && chunksVdb != null) {
+            val results = mutableListOf<Map<String, Any>>()
+            for (node in nodeDatas) {
+                val query = buildEntityChunkQuery(node)
+                if (query.isBlank()) continue
+                results.addAll(chunksVdb.query(query, chunkTopK))
+            }
+            return results.distinctBy { it["id"] }
         }
 
         val entitiesWithChunks =
@@ -723,7 +753,10 @@ class QueryProcessor(
 
     private suspend fun findRelatedTextUnitFromRelations(
         edgeDatas: List<Map<String, Any>>,
-        entityChunks: List<Map<String, Any>> = emptyList(),
+        entityChunks: List<Map<String, Any>>,
+        chunksVdb: BaseVectorStorage?,
+        chunkTopK: Int,
+        chunkPickMethod: String,
     ): List<Map<String, Any>> {
         logger.debug { "Finding text chunks from ${edgeDatas.size} relations" }
         if (edgeDatas.isEmpty()) {
@@ -731,6 +764,18 @@ class QueryProcessor(
         }
 
         val entityChunkIds = entityChunks.mapNotNull { it["id"] as? String }.toSet()
+
+        if (chunkPickMethod == "VECTOR" && chunksVdb != null) {
+            val results = mutableListOf<Map<String, Any>>()
+            for (edge in edgeDatas) {
+                val query = buildRelationChunkQuery(edge)
+                if (query.isBlank()) continue
+                results.addAll(chunksVdb.query(query, chunkTopK))
+            }
+            return results
+                .filter { (it["id"] as? String) !in entityChunkIds }
+                .distinctBy { it["id"] }
+        }
 
         val relationsWithChunks =
             edgeDatas.mapNotNull {
@@ -761,5 +806,19 @@ class QueryProcessor(
                 }.distinct()
 
         return textChunksDb.getByIds(allChunkIds)
+    }
+
+    private fun buildEntityChunkQuery(node: Map<String, Any>): String {
+        val name = node["entity_name"]?.toString().orEmpty()
+        val desc = (node["content"] ?: node["description"])?.toString().orEmpty()
+        return listOf(name, desc).filter { it.isNotBlank() }.joinToString("\n")
+    }
+
+    private fun buildRelationChunkQuery(edge: Map<String, Any>): String {
+        val src = edge["src_id"]?.toString().orEmpty()
+        val tgt = edge["tgt_id"]?.toString().orEmpty()
+        val keywords = edge["keywords"]?.toString().orEmpty()
+        val desc = edge["description"]?.toString().orEmpty()
+        return listOf(keywords, src, tgt, desc).filter { it.isNotBlank() }.joinToString("\n")
     }
 }
