@@ -44,6 +44,20 @@ data class SampleResult(
     val scores: RagasScores,
 )
 
+private fun formatScore(value: Double?): String = value?.let { String.format(java.util.Locale.ROOT, "%.3f", it) } ?: "n/a"
+
+private fun formatFixed(value: Double): String = String.format(java.util.Locale.ROOT, "%.3f", value)
+
+private fun RagasScores.toLogString(): String =
+    "relevancy=${formatFixed(answerRelevancy)}, " +
+        "ctx_recall=${formatFixed(contextRecall)}, " +
+        "ctx_precision=${formatFixed(contextPrecision)}, " +
+        "faithfulness=${formatFixed(faithfulness)}, " +
+        "answer_correctness=${formatScore(answerCorrectness)}, " +
+        "answer_precision=${formatScore(answerPrecision)}, " +
+        "answer_recall=${formatScore(answerRecall)}, " +
+        "answer_f1=${formatScore(answerF1)}"
+
 fun main(args: Array<String>) =
     runBlocking {
         val inputPath: Path =
@@ -83,6 +97,7 @@ fun main(args: Array<String>) =
             val embeddingModel: EmbeddingModel = get(EmbeddingModel::class.java)
             val tokenizer: (String) -> List<Int> = getKoin().get(named("tokenizer"))
             val decoder: (List<Int>) -> String = getKoin().get(named("decoder"))
+            val metrics = RagasMetrics()
 
             var total = 0
             var correct = 0
@@ -118,6 +133,7 @@ fun main(args: Array<String>) =
                                             graphStorage = graphStorage,
                                             vectorStorage = vectorStorage,
                                             queryDispatcher = queryDispatcher,
+                                            metrics = metrics,
                                         )
                                     }
                                 }
@@ -156,54 +172,48 @@ fun main(args: Array<String>) =
                 println("LightRAG: ${result.queryAnswer}")
                 println("Match: ${result.matches}")
                 println("Accuracy: $correct/$total")
-                println(
-                    "RAGAS: relevancy=${String.format("%.3f", result.scores.answerRelevancy)}, " +
-                        "ctx_recall=${String.format("%.3f", result.scores.contextRecall)}, " +
-                        "ctx_precision=${String.format("%.3f", result.scores.contextPrecision)}, " +
-                        "faithfulness=${String.format("%.3f", result.scores.faithfulness)}, " +
-                        "answer_correctness=${result.scores.answerCorrectness?.let { String.format("%.3f", it) } ?: "n/a"}, " +
-                        "answer_precision=${result.scores.answerPrecision?.let { String.format("%.3f", it) } ?: "n/a"}, " +
-                        "answer_recall=${result.scores.answerRecall?.let { String.format("%.3f", it) } ?: "n/a"}, " +
-                        "answer_f1=${result.scores.answerF1?.let { String.format("%.3f", it) } ?: "n/a"}",
-                )
+                println("RAGAS: ${result.scores.toLogString()}")
             }
             if (total > 0) {
                 val accuracy = correct.toDouble() / total.toDouble()
-                println("Summary: $correct/$total (${String.format("%.2f", accuracy * 100)}%)")
+                println(
+                    "Summary: $correct/$total (" +
+                        "${String.format(java.util.Locale.ROOT, "%.2f", accuracy * 100)}%)",
+                )
+                val avgAnswerCorrectness =
+                    if (answerCorrectnessCount > 0) {
+                        sumAnswerCorrectness / answerCorrectnessCount
+                    } else {
+                        null
+                    }
+                val avgAnswerPrecision =
+                    if (answerMetricCount > 0) {
+                        sumAnswerPrecision / answerMetricCount
+                    } else {
+                        null
+                    }
+                val avgAnswerRecall =
+                    if (answerMetricCount > 0) {
+                        sumAnswerRecall / answerMetricCount
+                    } else {
+                        null
+                    }
+                val avgAnswerF1 =
+                    if (answerMetricCount > 0) {
+                        sumAnswerF1 / answerMetricCount
+                    } else {
+                        null
+                    }
                 println(
                     "RAGAS Summary: " +
-                        "relevancy=${String.format("%.3f", sumAnswerRelevancy / total)}, " +
-                        "ctx_recall=${String.format("%.3f", sumContextRecall / total)}, " +
-                        "ctx_precision=${String.format("%.3f", sumContextPrecision / total)}, " +
-                        "faithfulness=${String.format("%.3f", sumFaithfulness / total)}, " +
-                        "answer_correctness=${
-                            if (answerCorrectnessCount > 0) {
-                                String.format("%.3f", sumAnswerCorrectness / answerCorrectnessCount)
-                            } else {
-                                "n/a"
-                            }
-                        }, " +
-                        "answer_precision=${
-                            if (answerMetricCount > 0) {
-                                String.format("%.3f", sumAnswerPrecision / answerMetricCount)
-                            } else {
-                                "n/a"
-                            }
-                        }, " +
-                        "answer_recall=${
-                            if (answerMetricCount > 0) {
-                                String.format("%.3f", sumAnswerRecall / answerMetricCount)
-                            } else {
-                                "n/a"
-                            }
-                        }, " +
-                        "answer_f1=${
-                            if (answerMetricCount > 0) {
-                                String.format("%.3f", sumAnswerF1 / answerMetricCount)
-                            } else {
-                                "n/a"
-                            }
-                        }",
+                        "relevancy=${formatFixed(sumAnswerRelevancy / total)}, " +
+                        "ctx_recall=${formatFixed(sumContextRecall / total)}, " +
+                        "ctx_precision=${formatFixed(sumContextPrecision / total)}, " +
+                        "faithfulness=${formatFixed(sumFaithfulness / total)}, " +
+                        "answer_correctness=${formatScore(avgAnswerCorrectness)}, " +
+                        "answer_precision=${formatScore(avgAnswerPrecision)}, " +
+                        "answer_recall=${formatScore(avgAnswerRecall)}, " +
+                        "answer_f1=${formatScore(avgAnswerF1)}",
                 )
             } else {
                 println("Summary: 0/0 (no samples processed)")
@@ -226,10 +236,10 @@ private suspend fun processSample(
     graphStorage: String,
     vectorStorage: String,
     queryDispatcher: CoroutineDispatcher,
+    metrics: RagasMetrics,
 ): SampleResult {
     println("Processing sample: ${index + 1}")
     val sample: HotpotSample = json.decodeFromString(line)
-    val metrics = RagasMetrics()
     val sampleWorkingDir = Path.of(workingDir, "sample_${index + 1}").toString()
     val (rag, storageManager) =
         buildSampleRag(
@@ -279,7 +289,7 @@ private suspend fun processSample(
                 question = sample.question,
                 answer = queryAnswer,
                 contexts = RagasContextExtractor.extractContexts(context),
-                ground_truths = listOf(expectedAnswer),
+                groundTruths = listOf(expectedAnswer),
             )
         val scores = metrics.score(ragasSample)
 

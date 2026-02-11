@@ -12,37 +12,9 @@ object RagasContextExtractor {
         for (csv in csvBlocks) {
             val rows = parseCsv(csv)
             if (rows.isEmpty()) continue
-            val header = rows.first()
-            val contentIdx = header.indexOf("content")
-            val contextIdx = header.indexOf("context")
-            when {
-                contentIdx != -1 -> {
-                    rows
-                        .drop(1)
-                        .mapNotNull { row -> row.getOrNull(contentIdx) }
-                        .map { it.trim() }
-                        .filter { it.isNotBlank() }
-                        .forEach { collected.add(it) }
-                }
-
-                contextIdx != -1 -> {
-                    rows
-                        .drop(1)
-                        .mapNotNull { row -> row.getOrNull(contextIdx) }
-                        .map { it.trim() }
-                        .filter { it.isNotBlank() }
-                        .forEach { collected.add(it) }
-                }
-
-                else -> {
-                    rows
-                        .drop(1)
-                        .map { row -> row.joinToString(" | ") { it.trim() } }
-                        .map { it.trim() }
-                        .filter { it.isNotBlank() }
-                        .forEach { collected.add(it) }
-                }
-            }
+            val header = rows.first().map { it.trim().lowercase() }
+            val colIdx = header.indexOf("content").takeIf { it != -1 } ?: header.indexOf("context")
+            collectContexts(rows, colIdx, collected)
         }
         return collected.distinct()
     }
@@ -64,7 +36,25 @@ object RagasContextExtractor {
                     .setIgnoreEmptyLines(true)
                     .build()
             CSVParser.parse(reader, format).use { parser ->
-                return parser.records.map { record -> record.toList() }
+                parser.records.map { record -> record.toList() }
             }
         }
+
+    private fun collectContexts(
+        rows: List<List<String>>,
+        colIdx: Int,
+        collected: MutableList<String>,
+    ) {
+        rows
+            .drop(1)
+            .mapNotNull { row ->
+                if (colIdx != -1) {
+                    row.getOrNull(colIdx)
+                } else {
+                    row.joinToString(" | ") { it.trim() }
+                }
+            }.map { it.trim() }
+            .filter { it.isNotBlank() }
+            .forEach { collected.add(it) }
+    }
 }

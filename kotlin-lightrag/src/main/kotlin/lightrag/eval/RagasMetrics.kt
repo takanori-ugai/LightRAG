@@ -1,5 +1,7 @@
 package lightrag.eval
 
+import java.util.Locale
+
 data class RagasScores(
     val answerRelevancy: Double,
     val contextRecall: Double,
@@ -18,7 +20,7 @@ class RagasMetrics(
         val questionTokens = tokenize(sample.question)
         val answerTokens = tokenize(sample.answer)
         val contextTokens = sample.contexts.map { tokenize(it) }
-        val gtTokens = sample.ground_truths.map { tokenize(it) }
+        val gtTokens = sample.groundTruths.map { tokenize(it) }
 
         val answerRelevancy = jaccard(questionTokens, answerTokens)
         val contextRecall = meanMaxSimilarity(gtTokens, contextTokens)
@@ -79,12 +81,7 @@ class RagasMetrics(
         targets: List<Set<String>>,
     ): Double {
         if (source.isEmpty() || targets.isEmpty()) return 0.0
-        var best = 0.0
-        for (target in targets) {
-            val score = jaccard(source, target)
-            if (score > best) best = score
-        }
-        return best
+        return targets.maxOfOrNull { jaccard(source, it) } ?: 0.0
     }
 
     private fun jaccard(
@@ -93,7 +90,7 @@ class RagasMetrics(
     ): Double {
         if (a.isEmpty() || b.isEmpty()) return 0.0
         val intersection = a.intersect(b).size.toDouble()
-        val union = (a.size + b.size - intersection).toDouble()
+        val union = a.size + b.size - intersection
         return if (union == 0.0) 0.0 else intersection / union
     }
 
@@ -125,8 +122,8 @@ class RagasMetrics(
 
     private fun tokenize(text: String): Set<String> =
         text
-            .lowercase()
-            .split(Regex("[^a-z0-9]+"))
+            .lowercase(Locale.ROOT)
+            .split(Regex("[^\\p{L}\\p{N}]+"))
             .filter { it.length > 1 }
             .filterNot { stopwords.contains(it) }
             .toSet()
