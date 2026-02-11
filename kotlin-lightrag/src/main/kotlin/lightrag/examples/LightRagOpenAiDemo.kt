@@ -2,9 +2,15 @@ package lightrag.examples
 
 import kotlinx.coroutines.runBlocking
 import lightrag.core.LightRAG
+import lightrag.core.QueryParam
+import lightrag.di.AppConfig
+import lightrag.di.LightRagConfig
 import lightrag.di.appModule
 import lightrag.services.StorageManager
+import lightrag.utils.Prompts
 import org.koin.core.context.startKoin
+import org.koin.core.qualifier.named
+import org.koin.dsl.module
 
 /**
  * The main function for the LightRAG OpenAI demo.
@@ -13,7 +19,11 @@ import org.koin.core.context.startKoin
  */
 fun main() =
     runBlocking {
-        val koin = startKoin { modules(appModule) }.koin
+        val koin =
+            startKoin {
+                allowOverride(true)
+                modules(appModule, openAiDemoOverrideModule())
+            }.koin
         val rag: LightRAG = koin.get()
         val storageManager: StorageManager = koin.get()
 
@@ -35,7 +45,113 @@ fun main() =
         storageManager.initialize()
 
         testEmbeddingModel(koin.get(), "This is a test string for embedding.")
-        rag.insert(loadBookContent())
-        runDemoQueries(rag, "What are the top themes related with King of England")
+        val bookContent = loadBookContent()
+        rag.insert(bookContent)
+        val queryText = "What are the top themes related with King of England"
+        val globalConfig: Map<String, Any?> = koin.get(named("globalConfig"))
+        val entityTypes =
+            (globalConfig["entity_types"] as? List<*>)
+                ?.mapNotNull { it as? String }
+                ?.takeIf { it.isNotEmpty() }
+                ?.joinToString(",")
+                ?: "Person,Organization,Location,Event,Concept"
+        val entityPrompt = buildEntityExtractionPrompt(bookContent, entityTypes, globalConfig)
+        println("\n===============================")
+        println("Entity extraction prompt")
+        println("===============================")
+        println(entityPrompt)
+        val keywordPrompt = buildKeywordExtractionPrompt(queryText, globalConfig)
+        println("\n===============================")
+        println("Keyword extraction prompt")
+        println("===============================")
+        println(keywordPrompt)
+
+        runDemoQueries(
+            rag,
+            queryText,
+            paramBuilder = { mode ->
+                QueryParam(
+                    mode = mode,
+                    topK = 5,
+                    chunkTopK = 2,
+//                    onlyNeedContext = true,
+                    onlyNeedPrompt = true,
+                )
+            },
+        )
         println("\nDone!")
     }
+
+private fun openAiDemoOverrideModule() =
+    module {
+        single<AppConfig> {
+            val cfg = get<LightRagConfig>()
+            val baseAddonConfig = addonConfigFrom(cfg)
+            val addonConfig =
+                baseAddonConfig.copy(
+                    overrides = baseAddonConfig.overrides.copy(chunkTokenSize = 1200),
+                    extras = baseAddonConfig.extras + mapOf("kg_chunk_pick_method" to "VECTOR"),
+                )
+            AppConfig(
+                workingDir = "./dickens",
+                graphStorageName = cfg.storage.graphStorageName,
+                vectorStorageName = cfg.storage.vectorStorageName,
+                addonConfig = addonConfig,
+                chatModel = get(),
+                embeddingModel = get(),
+            )
+        }
+
+        single<Map<String, Any?>>(named("globalConfig")) {
+            val appConfig = get<AppConfig>()
+            globalConfigFrom(appConfig)
+        }
+    }
+
+private fun buildKeywordExtractionPrompt(
+    query: String,
+    globalConfig: Map<String, Any?>,
+): String {
+    val language = globalConfig["language"] as? String ?: "English"
+    val examples =
+        globalConfig["keyword_examples"] as? String
+            ?: Prompts.KEYWORDS_EXTRACTION_EXAMPLES.joinToString("\n\n")
+    val systemPrompt =
+        Prompts.KEYWORDS_EXTRACTION_SYSTEM_PROMPT
+            .replace("{{language}}", language)
+            .replace("{{examples}}", examples)
+    val userPrompt =
+        Prompts.KEYWORDS_EXTRACTION
+            .replace("{{query}}", query)
+    return buildString {
+        appendLine("---System Prompt---")
+        appendLine(systemPrompt)
+        appendLine()
+        appendLine("---User Prompt---")
+        append(userPrompt)
+    }
+}
+
+private fun buildEntityExtractionPrompt(
+    text: String,
+    entityTypes: String,
+    globalConfig: Map<String, Any?>,
+): String {
+    val language = globalConfig["language"] as? String ?: "English"
+    val systemPrompt =
+        Prompts.ENTITY_EXTRACTION_SYSTEM_PROMPT
+            .replace("{{entity_types}}", entityTypes)
+            .replace("{{language}}", language)
+    val userPrompt =
+        Prompts.ENTITY_EXTRACTION_USER_PROMPT
+            .replace("{{entity_types}}", entityTypes)
+            .replace("{{language}}", language)
+            .replace("{{input_text}}", text)
+    return buildString {
+        appendLine("---System Prompt---")
+        appendLine(systemPrompt)
+        appendLine()
+        appendLine("---User Prompt---")
+        append(userPrompt)
+    }
+}
