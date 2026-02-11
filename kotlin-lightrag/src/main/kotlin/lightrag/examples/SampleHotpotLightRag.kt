@@ -257,7 +257,8 @@ private suspend fun processSample(
         try {
             storageManager.initialize()
             val paragraphs = sample.paragraphs.map { it.paragraphText }
-            rag.insert(paragraphs)
+            val paragraphTitles = sample.paragraphs.map { it.title }
+            rag.insert(paragraphs, fileSources = paragraphTitles)
             rag.rebuildDerivedStorageIfEmpty()
 
             val (queryAnswer, context) =
@@ -267,7 +268,7 @@ private suspend fun processSample(
                             rag
                                 .query(
                                     "Answer in one or few words, no extra information: ${sample.question}",
-                                    param = QueryParam(mode = "hybrid"),
+                                    param = QueryParam(mode = "hybrid", topK = 10),
                                 )?.content
                                 .orEmpty()
                         }
@@ -276,7 +277,7 @@ private suspend fun processSample(
                             rag
                                 .query(
                                     "Answer in one or few words, no extra information: ${sample.question}",
-                                    param = QueryParam(mode = "hybrid", onlyNeedContext = true),
+                                    param = QueryParam(mode = "hybrid", onlyNeedContext = true, topK = 10),
                                 )?.content
                                 .orEmpty()
                         }
