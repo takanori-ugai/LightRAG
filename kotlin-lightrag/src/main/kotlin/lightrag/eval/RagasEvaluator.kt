@@ -45,15 +45,19 @@ class RagasEvaluator(
             inputs.map { input ->
                 val mode = input.mode ?: defaultMode
                 val answer =
-                    rag.query(
-                        input.question,
-                        baseParam.copy(mode = mode),
-                    )?.content.orEmpty()
+                    rag
+                        .query(
+                            input.question,
+                            baseParam.copy(mode = mode),
+                        )?.content
+                        .orEmpty()
                 val context =
-                    rag.query(
-                        input.question,
-                        baseParam.copy(mode = mode, onlyNeedContext = true),
-                    )?.content.orEmpty()
+                    rag
+                        .query(
+                            input.question,
+                            baseParam.copy(mode = mode, onlyNeedContext = true),
+                        )?.content
+                        .orEmpty()
                 val contexts = RagasContextExtractor.extractContexts(context)
                 val metadata =
                     buildMap {

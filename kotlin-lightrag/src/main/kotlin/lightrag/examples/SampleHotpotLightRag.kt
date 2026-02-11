@@ -193,15 +193,19 @@ private suspend fun processSample(
         rag.rebuildDerivedStorageIfEmpty()
 
         val queryAnswer =
-            rag.query(
-                "Answer in one or few words, no extra information: ${sample.question}",
-                param = QueryParam(mode = "hybrid"),
-            )?.content.orEmpty()
+            rag
+                .query(
+                    "Answer in one or few words, no extra information: ${sample.question}",
+                    param = QueryParam(mode = "hybrid"),
+                )?.content
+                .orEmpty()
         val context =
-            rag.query(
-                "Answer in one or few words, no extra information: ${sample.question}",
-                param = QueryParam(mode = "hybrid", onlyNeedContext = true),
-            )?.content.orEmpty()
+            rag
+                .query(
+                    "Answer in one or few words, no extra information: ${sample.question}",
+                    param = QueryParam(mode = "hybrid", onlyNeedContext = true),
+                )?.content
+                .orEmpty()
         val expectedAnswer = sample.answer
         val matches = queryAnswer.trim().equals(expectedAnswer.trim(), ignoreCase = true)
 
