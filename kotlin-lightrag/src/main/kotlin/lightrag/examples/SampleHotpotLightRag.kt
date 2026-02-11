@@ -138,7 +138,7 @@ fun main(args: Array<String>) =
                                     }
                                 }
                             }.toList()
-                    deferred.awaitAll()
+                    deferred.awaitAll().filterNotNull()
                 }
 
             results.sortedBy { it.index }.forEach { result ->
@@ -237,7 +237,7 @@ private suspend fun processSample(
     vectorStorage: String,
     queryDispatcher: CoroutineDispatcher,
     metrics: RagasMetrics,
-): SampleResult {
+): SampleResult? {
     println("Processing sample: ${index + 1}")
     val sample: HotpotSample = json.decodeFromString(line)
     val sampleWorkingDir = Path.of(workingDir, "sample_${index + 1}").toString()
@@ -253,57 +253,63 @@ private suspend fun processSample(
             vectorStorage = vectorStorage,
         )
 
-    try {
-        storageManager.initialize()
-        val paragraphs = sample.paragraphs.map { it.paragraphText }
-        rag.insert(paragraphs)
-        rag.rebuildDerivedStorageIfEmpty()
+    return try {
+        try {
+            storageManager.initialize()
+            val paragraphs = sample.paragraphs.map { it.paragraphText }
+            rag.insert(paragraphs)
+            rag.rebuildDerivedStorageIfEmpty()
 
-        val (queryAnswer, context) =
-            coroutineScope {
-                val queryDeferred =
-                    async(queryDispatcher) {
-                        rag
-                            .query(
-                                "Answer in one or few words, no extra information: ${sample.question}",
-                                param = QueryParam(mode = "hybrid"),
-                            )?.content
-                            .orEmpty()
-                    }
-                val contextDeferred =
-                    async(queryDispatcher) {
-                        rag
-                            .query(
-                                "Answer in one or few words, no extra information: ${sample.question}",
-                                param = QueryParam(mode = "hybrid", onlyNeedContext = true),
-                            )?.content
-                            .orEmpty()
-                    }
-                listOf(queryDeferred, contextDeferred).awaitAll()
-            }
-        val expectedAnswer = sample.answer
-        val matches = queryAnswer.trim().equals(expectedAnswer.trim(), ignoreCase = true)
+            val (queryAnswer, context) =
+                coroutineScope {
+                    val queryDeferred =
+                        async(queryDispatcher) {
+                            rag
+                                .query(
+                                    "Answer in one or few words, no extra information: ${sample.question}",
+                                    param = QueryParam(mode = "hybrid"),
+                                )?.content
+                                .orEmpty()
+                        }
+                    val contextDeferred =
+                        async(queryDispatcher) {
+                            rag
+                                .query(
+                                    "Answer in one or few words, no extra information: ${sample.question}",
+                                    param = QueryParam(mode = "hybrid", onlyNeedContext = true),
+                                )?.content
+                                .orEmpty()
+                        }
+                    listOf(queryDeferred, contextDeferred).awaitAll()
+                }
+            val expectedAnswer = sample.answer
+            val matches = queryAnswer.trim().equals(expectedAnswer.trim(), ignoreCase = true)
 
-        val ragasSample =
-            RagasSample(
+            val ragasSample =
+                RagasSample(
+                    question = sample.question,
+                    answer = queryAnswer,
+                    contexts = RagasContextExtractor.extractContexts(context),
+                    groundTruths = listOf(expectedAnswer),
+                )
+            val scores = metrics.score(ragasSample)
+
+            SampleResult(
+                index = index,
                 question = sample.question,
-                answer = queryAnswer,
-                contexts = RagasContextExtractor.extractContexts(context),
-                groundTruths = listOf(expectedAnswer),
+                expectedAnswer = expectedAnswer,
+                queryAnswer = queryAnswer,
+                context = context,
+                matches = matches,
+                scores = scores,
             )
-        val scores = metrics.score(ragasSample)
-
-        return SampleResult(
-            index = index,
-            question = sample.question,
-            expectedAnswer = expectedAnswer,
-            queryAnswer = queryAnswer,
-            context = context,
-            matches = matches,
-            scores = scores,
-        )
-    } finally {
-        storageManager.drop()
+        } finally {
+            storageManager.drop()
+        }
+    } catch (e: Exception) {
+        val reason = e.message ?: e.javaClass.simpleName
+        println("Skipping sample ${index + 1} due to error: $reason")
+        null
     }
 }
 
