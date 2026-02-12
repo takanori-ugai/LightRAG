@@ -1,5 +1,8 @@
 package lightrag.core
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import lightrag.services.IngestionService
@@ -107,6 +110,19 @@ class LightRAG(
         query: String,
         param: QueryParam,
     ): QueryResult? = queryService.query(query, param)
+
+    /**
+     * Executes a query asynchronously within the provided scope.
+     * @param scope The coroutine scope used to run the query in parallel.
+     * @param query The query to execute.
+     * @param param The query parameters.
+     * @return A Deferred that completes with the query result.
+     */
+    fun aquery(
+        scope: CoroutineScope,
+        query: String,
+        param: QueryParam,
+    ): Deferred<QueryResult?> = scope.async { queryService.query(query, param) }
 
     /**
      * Gets the processing status of the documents.

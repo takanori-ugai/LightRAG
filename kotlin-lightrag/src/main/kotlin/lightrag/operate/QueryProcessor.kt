@@ -153,23 +153,22 @@ class QueryProcessor(
         if (earlyResult != null) return earlyResult
 
         val (hlKeywords, llKeywords) = getKeywordsFromQuery(query, queryParam)
-        val keywordResult = applyKeywordsToQueryParam(query, queryParam, hlKeywords, llKeywords)
-        if (keywordResult != null) return keywordResult
+        val effectiveParam = applyKeywordsToQueryParam(query, queryParam, hlKeywords, llKeywords)
 
-        val contextResult = getContextStrForQuery(query, queryParam, chunksVdb)
-        val sysPrompt = buildSystemPrompt(systemPrompt, queryParam, contextResult.contextStr)
-        if (queryParam.onlyNeedContext) return QueryResult(content = contextResult.contextStr, rawData = contextResult.rawData)
-        if (queryParam.onlyNeedPrompt) return QueryResult(content = "$sysPrompt\n\n---\n\n$query", rawData = contextResult.rawData)
+        val contextResult = getContextStrForQuery(query, effectiveParam, chunksVdb)
+        val sysPrompt = buildSystemPrompt(systemPrompt, effectiveParam, contextResult.contextStr)
+        if (effectiveParam.onlyNeedContext) return QueryResult(content = contextResult.contextStr, rawData = contextResult.rawData)
+        if (effectiveParam.onlyNeedPrompt) return QueryResult(content = "$sysPrompt\n\n---\n\n$query", rawData = contextResult.rawData)
 
-        val cacheKeys = buildCacheKeys(queryParam, query)
+        val cacheKeys = buildCacheKeys(effectiveParam, query)
         val cached = readCachedResponse(cacheKeys.argsHash, contextResult.rawData)
         if (cached != null) return cached
 
         val response =
-            if (queryParam.stream) {
-                handleStreamingResponse(query, queryParam, sysPrompt, cacheKeys)
+            if (effectiveParam.stream) {
+                handleStreamingResponse(query, effectiveParam, sysPrompt, cacheKeys)
             } else {
-                handleNonStreamingResponse(query, queryParam, sysPrompt, cacheKeys)
+                handleNonStreamingResponse(query, effectiveParam, sysPrompt, cacheKeys)
             }
         return response?.copy(rawData = contextResult.rawData) ?: response
     }
@@ -186,10 +185,9 @@ class QueryProcessor(
         queryParam: QueryParam,
         hlKeywords: List<String>,
         llKeywords: List<String>,
-    ): QueryResult? {
-        queryParam.hlKeywords = hlKeywords
-        queryParam.llKeywords = llKeywords
-
+    ): QueryParam {
+        var resolvedHlKeywords = hlKeywords
+        var resolvedLlKeywords = llKeywords
         if (llKeywords.isEmpty() && queryParam.mode in listOf("local", "hybrid", "mix")) {
             logger.warn { "low_level_keywords is empty" }
         }
@@ -198,9 +196,9 @@ class QueryProcessor(
         }
         if (hlKeywords.isEmpty() && llKeywords.isEmpty()) {
             logger.warn { "Both keyword lists are empty; falling back to original query text" }
-            queryParam.llKeywords = listOf(query)
+            resolvedLlKeywords = listOf(query)
         }
-        return null
+        return queryParam.copy(hlKeywords = resolvedHlKeywords, llKeywords = resolvedLlKeywords)
     }
 
     private fun buildSystemPrompt(
