@@ -120,6 +120,7 @@ class JsonKVStorage(
                 ?.data
                 ?.filterValues { it != null }
                 ?.mapValues { it.value as Any }
+                ?.plus("id" to id)
         }
 
     /**
@@ -135,6 +136,7 @@ class JsonKVStorage(
                     ?.data
                     ?.filterValues { v -> v != null }
                     ?.mapValues { entry -> entry.value as Any }
+                    ?.plus("id" to it)
             }
         }
 
