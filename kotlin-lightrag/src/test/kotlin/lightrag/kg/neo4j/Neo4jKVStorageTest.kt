@@ -14,6 +14,7 @@ class Neo4jKVStorageTest {
     @Test
     fun `getById and getByIds include id field`() {
         runBlocking {
+            // Unit test against the in-memory cache path; Neo4j driver is not initialized here.
             val storage =
                 Neo4jKVStorage(
                     namespace = "text_chunks",
