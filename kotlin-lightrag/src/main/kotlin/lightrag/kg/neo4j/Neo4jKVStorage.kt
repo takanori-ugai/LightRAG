@@ -135,14 +135,17 @@ class Neo4jKVStorage(
      * @param id The ID of the item to get.
      * @return A map representing the item.
      */
-    override suspend fun getById(id: String): Map<String, Any>? = data[id]
+    override suspend fun getById(id: String): Map<String, Any>? = data[id]?.plus("id" to id)
 
     /**
      * Gets items by their IDs.
      * @param ids The IDs of the items to get.
      * @return A list of maps representing the items.
      */
-    override suspend fun getByIds(ids: List<String>): List<Map<String, Any>> = ids.mapNotNull { data[it] }
+    override suspend fun getByIds(ids: List<String>): List<Map<String, Any>> =
+        ids.mapNotNull { id ->
+            data[id]?.plus("id" to id)
+        }
 
     /**
      * Filters keys from the storage.

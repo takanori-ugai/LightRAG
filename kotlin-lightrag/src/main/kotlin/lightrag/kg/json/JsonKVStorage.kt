@@ -120,6 +120,8 @@ class JsonKVStorage(
                 ?.data
                 ?.filterValues { it != null }
                 ?.mapValues { it.value as Any }
+                // Intentionally use "id" (not "_id" like Python) to match Kotlin tests; may override user-supplied "id".
+                ?.plus("id" to id)
         }
 
     /**
@@ -135,6 +137,8 @@ class JsonKVStorage(
                     ?.data
                     ?.filterValues { v -> v != null }
                     ?.mapValues { entry -> entry.value as Any }
+                    // Intentionally use "id" (not "_id" like Python) to match Kotlin tests; may override user-supplied "id".
+                    ?.plus("id" to it)
             }
         }
 
