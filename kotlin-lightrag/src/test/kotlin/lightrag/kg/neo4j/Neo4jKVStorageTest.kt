@@ -305,8 +305,10 @@ class Neo4jKVStorageTest {
 
             @Suppress("UNCHECKED_CAST")
             val level1 = item["level1"] as Map<String, Any>
+
             @Suppress("UNCHECKED_CAST")
             val level2 = level1["level2"] as Map<String, Any>
+
             @Suppress("UNCHECKED_CAST")
             val level3 = level2["level3"] as List<String>
             assertEquals(listOf("a", "b", "c"), level3)
