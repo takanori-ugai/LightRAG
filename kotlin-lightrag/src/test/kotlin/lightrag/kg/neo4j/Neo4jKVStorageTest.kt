@@ -13,9 +13,9 @@ import kotlin.test.assertTrue
 class Neo4jKVStorageTest {
     private val embeddingModel = TestEmbeddings.mockEmbeddingModel()
 
-    /** Ensures read APIs include the key as `id` to preserve chunk uniqueness. */
+    /** Ensures read APIs return payload data for requested keys. */
     @Test
-    fun `getById and getByIds include id field`() {
+    fun `getById and getByIds return payload`() {
         runBlocking {
             // Unit test against the in-memory cache path; Neo4j driver is not initialized here.
             val storage =
@@ -34,12 +34,12 @@ class Neo4jKVStorageTest {
 
             val single = storage.getById("chunk-1")
             assertNotNull(single)
-            assertEquals("chunk-1", single["id"])
+            assertEquals("first chunk", single["content"])
+            assertNull(single["id"])
 
             val results = storage.getByIds(listOf("chunk-1", "chunk-2"))
-            val ids = results.mapNotNull { it["id"] as? String }.toSet()
-            assertEquals(setOf("chunk-1", "chunk-2"), ids)
-            assertEquals(2, results.distinctBy { it["id"] }.size)
+            val contents = results.mapNotNull { it["content"] as? String }.toSet()
+            assertEquals(setOf("first chunk", "second chunk"), contents)
         }
     }
 
@@ -179,7 +179,7 @@ class Neo4jKVStorageTest {
 
             val results = storage.getByIds(listOf("key-1", "key-2", "key-3"))
             assertEquals(1, results.size)
-            assertEquals("key-1", results[0]["id"])
+            assertEquals("data1", results[0]["value"])
         }
     }
 
@@ -389,8 +389,8 @@ class Neo4jKVStorageTest {
             val remaining = storage.getByIds(listOf("key-1", "key-2", "key-3", "key-4"))
             assertEquals(2, remaining.size)
 
-            val remainingIds = remaining.mapNotNull { it["id"] as? String }.toSet()
-            assertEquals(setOf("key-1", "key-3"), remainingIds)
+            val remainingValues = remaining.mapNotNull { it["value"] as? String }.toSet()
+            assertEquals(setOf("data1", "data3"), remainingValues)
         }
     }
 
@@ -443,16 +443,14 @@ class Neo4jKVStorageTest {
                     embeddingFunc = embeddingModel,
                 )
 
-            storage.upsert(
+            val payload =
                 mapOf(
-                    "key-1" to
-                        mapOf(
-                            "string" to "text",
-                            "nullValue" to null,
-                            "number" to 42,
-                        ),
-                ),
-            )
+                    "string" to "text",
+                    "nullValue" to null,
+                    "number" to 42,
+                )
+            val cleanedPayload = payload.filterValues { it != null }.mapValues { it.value!! }
+            storage.upsert(mapOf("key-1" to cleanedPayload))
 
             val item = storage.getById("key-1")
             assertNotNull(item)
