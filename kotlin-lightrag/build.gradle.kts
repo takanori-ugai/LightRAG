@@ -74,7 +74,7 @@ dependencies {
     implementation("com.knuddels:jtokkit:1.1.0")
 
     // CSV parsing
-    implementation("org.apache.commons:commons-csv:1.12.0")
+    implementation("org.apache.commons:commons-csv:1.14.1")
 
     // MongoDB
     implementation("org.mongodb:mongodb-driver-kotlin-coroutine:5.1.0")
