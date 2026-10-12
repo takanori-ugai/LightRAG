@@ -6,8 +6,10 @@ import dev.langchain4j.data.message.ChatMessage
 import dev.langchain4j.data.message.SystemMessage
 import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.data.segment.TextSegment
+import dev.langchain4j.model.ModelProvider
 import dev.langchain4j.model.chat.ChatModel
 import dev.langchain4j.model.chat.request.ChatRequest
+import dev.langchain4j.model.chat.request.ChatRequestParameters
 import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.model.output.Response
@@ -82,6 +84,8 @@ class LightRAGIntegrationTest {
             val request = invocation.args[0] as ChatRequest
             responseProvider(request.messages())
         }
+        every { mockChatModel.defaultRequestParameters() } returns ChatRequestParameters.builder().build()
+        every { mockChatModel.provider() } returns ModelProvider.OTHER
         every { mockChatModel.supportedCapabilities() } returns emptySet()
 
         return buildTestLightRag(mockChatModel, mockEmbeddingModel, tempDir) to messagesSlot

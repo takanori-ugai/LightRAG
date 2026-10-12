@@ -5,8 +5,10 @@ import dev.langchain4j.data.message.AiMessage
 import dev.langchain4j.data.message.ChatMessage
 import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.data.segment.TextSegment
+import dev.langchain4j.model.ModelProvider
 import dev.langchain4j.model.chat.ChatModel
 import dev.langchain4j.model.chat.request.ChatRequest
+import dev.langchain4j.model.chat.request.ChatRequestParameters
 import dev.langchain4j.model.chat.response.ChatResponse
 import dev.langchain4j.model.embedding.EmbeddingModel
 import dev.langchain4j.model.output.Response
@@ -83,6 +85,8 @@ class LightRAGInsertTest {
                     ChatResponse.builder().aiMessage(AiMessage.from(extractionJson)).build()
                 every { mockChatModel.chat(any<ChatRequest>()) } returns
                     ChatResponse.builder().aiMessage(AiMessage.from(extractionJson)).build()
+                every { mockChatModel.defaultRequestParameters() } returns ChatRequestParameters.builder().build()
+                every { mockChatModel.provider() } returns ModelProvider.OTHER
                 every { mockChatModel.supportedCapabilities() } returns emptySet()
 
                 val tempDir = File("build/tmp/test_rag_storage_dup_mockk_${System.currentTimeMillis()}")
@@ -140,6 +144,8 @@ class LightRAGInsertTest {
             val request = invocation.args[0] as ChatRequest
             responseProvider(request.messages())
         }
+        every { mockChatModel.defaultRequestParameters() } returns ChatRequestParameters.builder().build()
+        every { mockChatModel.provider() } returns ModelProvider.OTHER
         every { mockChatModel.supportedCapabilities() } returns emptySet()
 
         val rag = buildTestLightRag(mockChatModel, mockEmbeddingModel, tempDir)
