@@ -86,18 +86,19 @@ val appModule =
                     modelName = lightRagConfig.openai.chatModelName,
                     apiKey = lightRagConfig.openai.apiKey,
                 )
-            val streamingChatModel =
-                LLMFactory.createStreamingChatModel(
-                    binding = "openai",
-                    modelName = lightRagConfig.openai.chatModelName,
-                    apiKey = lightRagConfig.openai.apiKey,
-                )
-            DualChatModel(chatModel, streamingChatModel)
+            DualChatModel(chatModel)
         }
 
         single<ChatModel> { get<DualChatModel>() }
 
-        single<StreamingChatModel> { get<DualChatModel>() }
+        single<StreamingChatModel> {
+            val lightRagConfig = get<LightRagConfig>()
+            LLMFactory.createStreamingChatModel(
+                binding = "openai",
+                modelName = lightRagConfig.openai.chatModelName,
+                apiKey = lightRagConfig.openai.apiKey,
+            )
+        }
 
         single<EmbeddingModel> {
             val lightRagConfig = get<LightRagConfig>()

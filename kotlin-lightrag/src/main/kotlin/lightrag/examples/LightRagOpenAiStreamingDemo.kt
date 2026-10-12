@@ -38,13 +38,7 @@ fun main() =
                             modelName = cfg.openai.chatModelName,
                             apiKey = cfg.openai.apiKey,
                         )
-                    val streamingChatModel =
-                        LLMFactory.createStreamingChatModel(
-                            binding = "openai",
-                            modelName = cfg.openai.chatModelName,
-                            apiKey = cfg.openai.apiKey,
-                        )
-                    DualChatModel(chatModel, streamingChatModel)
+                    DualChatModel(chatModel)
                 }
 
                 single<AppConfig> {
