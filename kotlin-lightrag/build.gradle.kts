@@ -4,7 +4,7 @@ import java.io.File
 plugins {
     kotlin("jvm") version "2.4.21"
     application
-    id("com.gradleup.shadow") version "9.2.0"
+    id("com.gradleup.shadow") version "9.6.1"
     kotlin("plugin.serialization") version "2.4.21"
     id("org.jlleitschuh.gradle.ktlint") version "14.0.1"
     id("io.gitlab.arturbosch.detekt") version "1.23.6"
