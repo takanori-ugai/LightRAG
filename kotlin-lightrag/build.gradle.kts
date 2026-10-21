@@ -53,7 +53,7 @@ dependencies {
     implementation("ch.qos.logback:logback-classic:1.6.5")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
-    implementation("io.github.oshai:kotlin-logging-jvm:5.1.0")
+    implementation("io.github.oshai:kotlin-logging-jvm:8.0.4")
 
     // Koin for Ktor
     implementation("io.insert-koin:koin-ktor:$koinVersion")
