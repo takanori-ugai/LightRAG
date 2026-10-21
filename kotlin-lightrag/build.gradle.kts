@@ -77,8 +77,8 @@ dependencies {
     implementation("org.apache.commons:commons-csv:1.14.1")
 
     // MongoDB
-    implementation("org.mongodb:mongodb-driver-kotlin-coroutine:5.1.0")
-    implementation("org.mongodb:bson-kotlinx:5.1.0")
+    implementation("org.mongodb:mongodb-driver-kotlin-coroutine:5.13.0")
+    implementation("org.mongodb:bson-kotlinx:5.13.0")
     implementation("org.neo4j.driver:neo4j-java-driver:6.3.0")
 
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.3.0")
