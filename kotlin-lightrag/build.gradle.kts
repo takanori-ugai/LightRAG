@@ -52,7 +52,7 @@ dependencies {
     implementation("io.ktor:ktor-server-cors")
     implementation("ch.qos.logback:logback-classic:1.6.5")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.12.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     implementation("io.github.oshai:kotlin-logging-jvm:8.0.4")
 
     // Koin for Ktor
